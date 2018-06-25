@@ -236,6 +236,9 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
+	uint32_t temperature = (wb_read32(&conn, 0xe0005800) << 8) | wb_read32(&conn, 0xe0005804);
+	fprintf(stderr, "Temperature: %g\n", temperature * 503.975 / 4096 - 273.15);
+
 	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read32(&conn, 0xe000a020));
 	wb_write32(&conn, 0xe000a020, 0);
 	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read32(&conn, 0xe000a020));
