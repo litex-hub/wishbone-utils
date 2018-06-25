@@ -201,7 +201,7 @@ void wb_fillpkt(uint8_t raw_pkt[16], uint32_t read_count, uint32_t write_count) 
 }
 
 void wb_write8(struct wb_connection *conn, uint32_t addr, uint8_t val) {
-	fprintf(stderr, "Writing 0x%08x = 0x%02x\n", addr, val);
+	//fprintf(stderr, "Writing 0x%08x = 0x%02x\n", addr, val);
 	uint8_t raw_pkt[20];
 	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
 	wb_fillpkt(raw_pkt, 0, 1);
@@ -275,29 +275,134 @@ uint64_t wb_read64(struct wb_connection *conn, uint32_t addr) {
 
 #include "debug.h"
 
-void riscv_write32(struct wb_connection *conn, uint8_t addr, uint32_t value) {
+void riscv_debug_write32(struct wb_connection *conn, uint8_t addr, uint32_t value) {
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
+
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 1);
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
 	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, value);
+
+	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
+	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
+	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
+	(void)wb_read32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR);
+
+//	while (wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR) & 1)
+//		;
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
 }
 
-uint32_t riscv_read32(struct wb_connection *conn, uint8_t addr) {
+uint32_t riscv_debug_read32(struct wb_connection *conn, uint8_t addr) {
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
+
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 0);
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
+	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, 0);
 
-	while (!wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR))
+	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
+	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
+	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
+	(void)wb_read32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR);
+//	while (wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR) & 1)
+//		;
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
+	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
+
+	while (!(wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR) & 1))
 		;
-	return wb_read32(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA_ADDR);
+	uint32_t val = wb_read32(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA_ADDR);
+
+	return val;
+}
+
+#define VRV_RW_READ 0
+#define VRV_RW_WRITE 1
+
+struct vexriscv_req {
+	uint8_t readwrite;
+	uint8_t size;
+	uint32_t address;
+	uint32_t data;
+} __attribute__((packed));
+
+struct vexriscv_server {
+	int socket_fd;
+	int connect_fd;
+};
+
+int vrv_init(struct vexriscv_server *server) {
+
+	memset(server, 0, sizeof(*server));
+
+	struct sockaddr_in sa;
+    server->socket_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (server->socket_fd == -1) {
+		perror("cannot create socket");
+		return 1;
+    }
+  
+    memset(&sa, 0, sizeof sa);
+  
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(7893);
+    sa.sin_addr.s_addr = htonl(INADDR_ANY);
+  
+    if (bind(server->socket_fd, (struct sockaddr *)&sa, sizeof sa) == -1) {
+		perror("bind failed");
+		close(server->socket_fd);
+		return 1;
+    }
+  
+    if (listen(server->socket_fd, 10) == -1) {
+		perror("listen failed");
+		close(server->socket_fd);
+		return 1;
+    }
+	return 0;
+}
+
+int vrv_accept(struct vexriscv_server *server) {
+	server->connect_fd = accept(server->socket_fd, NULL, NULL);
+  
+	if (0 > server->connect_fd) {
+		perror("accept failed");
+		close(server->socket_fd);
+		return 1;
+	}
+	return 0;
+}
+
+size_t vrv_read(struct vexriscv_server *server, void *bfr, size_t max_size) {
+	return read(server->connect_fd, bfr, max_size);
+}
+
+size_t vrv_write(struct vexriscv_server *server, void *bfr, size_t size) {
+	return write(server->connect_fd, bfr, size);
+}
+
+int vrv_shutdown(struct vexriscv_server *server) {
+	if (server->connect_fd) {
+		if (shutdown(server->connect_fd, SHUT_RDWR) == -1) {
+			perror("shutdown failed");
+			return 1;
+		}
+		server->connect_fd = 0;
+	}
+	return 0;
 }
 
 int main(int argc, char **argv) {
 
+	struct vexriscv_server server;
 	struct wb_connection conn;
 
+	fprintf(stderr, "Setting up VexRiscV debug server...\n");
+	if (vrv_init(&server)) {
+		fprintf(stderr, "Unable to set up VexRiscV server\n");
+		return 1;
+	}
+
+	fprintf(stderr, "Connecting to Wishbone Bridge...\n");
 	if (wb_connect(&conn, "10.0.11.2", "1234") != 0) {
 		fprintf(stderr, "Unable to create connection\n");
 		return 1;
@@ -306,11 +411,131 @@ int main(int argc, char **argv) {
 	uint32_t temperature = wb_read16(&conn, 0xe0005800);
 	fprintf(stderr, "Temperature: %g (0x%04x)\n", temperature * 503.975 / 4096 - 273.15, temperature);
 
+	while (1) {
+		uint8_t vrv_bfr[10];
+		size_t vrv_read_size;
+		struct vexriscv_req *req;
+
+		if (server.connect_fd <= 0) {
+			printf("Accepting new server connection...\n");
+			if (vrv_accept(&server)) {
+				return 1;
+			}
+			fprintf(stderr, "Accepted connection from openocd\n");
+		}
+
+		vrv_read_size = vrv_read(&server, vrv_bfr, sizeof(vrv_bfr));
+		if (vrv_read_size <= 0) {
+			if (vrv_shutdown(&server)) {
+				fprintf(stderr, "Unable to disconnect\n");
+				return 1;
+			}
+			continue;
+		}
+
+		if (vrv_read_size != 10) {
+			fprintf(stderr, "Unrecognized read size: %lu\n", vrv_read_size);
+			continue;
+		}
+
+		req = (struct vexriscv_req *)vrv_bfr;
+
+		uint32_t resp;
+
+		if ((req->address >= 0xf00f0000) && (req->address < 0xf00f0008)) {
+			req->address -= 0xf00f0000;
+			if (req->readwrite == VRV_RW_WRITE) {
+				switch (req->size) {
+				case 0:
+					fprintf(stderr, "Unrecognized size for writing: 0 (8-bits)\n");
+					break;
+				case 1:
+					fprintf(stderr, "Unrecognized size for writing: 1 (16-bits)\n");
+					break;
+				case 2:
+					fprintf(stderr, "32-bit debug write 0x%08x = 0x%08x\n", req->address, req->data);
+					riscv_debug_write32(&conn, req->address, req->data);
+					break;
+				default:
+					fprintf(stderr, "Unrecognized size for writing: %d\n", req->size);
+					break;
+				}
+			}
+			else if (req->readwrite == VRV_RW_READ) {
+				switch (req->size) {
+				case 0:
+					fprintf(stderr, "Unrecognized size for reading: 0 (8-bits)\n");
+					break;
+				case 1:
+					fprintf(stderr, "Unrecognized size for reading: 1 (16-bits)\n");
+					break;
+				case 2:
+					resp = riscv_debug_read32(&conn, req->address);
+					fprintf(stderr, "32-bit debug read 0x%08x = 0x%08x [0x%08x]\n", req->address, resp, req->data);
+					break;
+				default:
+					fprintf(stderr, "Unrecognized size for reading: %d\n", req->size);
+					break;
+				}
+			}
+			else {
+				fprintf(stderr, "Unrecognized readwrite command: %d\n", req->readwrite);
+			}
+		}
+		else {
+			if (req->readwrite == VRV_RW_WRITE) {
+				switch (req->size) {
+				case 0:
+					fprintf(stderr, "8-bit normal write 0x%08x = 0x%02x\n", req->address, req->data & 0xff);
+					wb_write8(&conn, req->address, req->data);
+					break;
+				case 1:
+					fprintf(stderr, "16-bit normal write 0x%08x = 0x%04x\n", req->address, req->data & 0xffff);
+					wb_write16(&conn, req->address, req->data);
+					break;
+				case 2:
+					fprintf(stderr, "32-bit debug write 0x%08x = 0x%08x\n", req->address, req->data);
+					wb_write32(&conn, req->address, req->data);
+					break;
+				default:
+					fprintf(stderr, "Unrecognized size for writing: %d\n", req->size);
+					break;
+				}
+			}
+			else if (req->readwrite == VRV_RW_READ) {
+				switch (req->size) {
+				case 0:
+					resp = wb_read8(&conn, req->address);
+					fprintf(stderr, "8-bit normal read 0x%08x = 0%02x\n", req->address, resp & 0xff);
+					break;
+				case 1:
+					resp = wb_read16(&conn, req->address);
+					fprintf(stderr, "16-bit normal read 0x%08x = 0%04x\n", req->address, resp & 0xffff);
+					break;
+				case 2:
+					resp = wb_read32(&conn, req->address);
+					fprintf(stderr, "32-bit normal read 0x%08x = 0%08x\n", req->address, resp);
+					break;
+				default:
+					fprintf(stderr, "Unrecognized size for reading: %d\n", req->size);
+					break;
+				}
+			}
+			else {
+				fprintf(stderr, "Unrecognized readwrite: %d\n", req->readwrite);
+			}
+		}
+
+		// Send a response, which is always a 4-byte value.
+		if (req->readwrite == VRV_RW_READ) {
+			vrv_write(&server, &resp, sizeof(resp));
+		}
+	}
+	/*
 	riscv_write32(&conn, 0, (1 << 16));
 	fprintf(stderr, "CPU state: 0x%08x\n", riscv_read32(&conn, 0));
 	riscv_write32(&conn, 0, (1 << 24));
 	fprintf(stderr, "CPU state: 0x%08x\n", riscv_read32(&conn, 0));
-	/*
 	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read8(&conn, 0xe000a020));
 	wb_write8(&conn, 0xe000a020, 0);
 	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read8(&conn, 0xe000a020));
