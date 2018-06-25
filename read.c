@@ -132,8 +132,8 @@ int wb_connect(struct wb_connection *conn, const char *addr, const char *port) {
 	memset((char *) &si_me, 0, sizeof(si_me));
      
 	si_me.sin_family = AF_INET;
-	si_me.sin_port = htons(1234);
-	si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+	si_me.sin_port = htobe16(1234);
+	si_me.sin_addr.s_addr = htobe32(INADDR_ANY);
 
 	int rx_socket;
 	if ((rx_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
@@ -200,22 +200,44 @@ void wb_fillpkt(uint8_t raw_pkt[16], uint32_t read_count, uint32_t write_count) 
 	pkt->records[0].wcount = write_count;
 }
 
-static void wb_write32(struct wb_connection *conn, uint32_t addr, uint32_t val) {
+void wb_write8(struct wb_connection *conn, uint32_t addr, uint8_t val) {
+	fprintf(stderr, "Writing 0x%08x = 0x%02x\n", addr, val);
 	uint8_t raw_pkt[20];
 	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
 	wb_fillpkt(raw_pkt, 0, 1);
 
-	pkt->records[0].write_addr = htonl(addr);
-	pkt->records[0].value = htonl(val);
+	pkt->records[0].write_addr = htobe32(addr);
+	pkt->records[0].value = htobe32(val & 0xff);
 
 	wb_send(conn, raw_pkt, 20);
 }
 
-uint32_t wb_read32(struct wb_connection *conn, uint32_t addr) {
+void wb_write16(struct wb_connection *conn, uint32_t addr, uint16_t val) {
+	val = htole16(val);
+	int i;
+	for (i = 0; i < 2; i++)
+		wb_write8(conn, addr + (i * 4), val >> ((1 - i) * 8));
+}
+
+void wb_write32(struct wb_connection *conn, uint32_t addr, uint32_t val) {
+	val = htole32(val);
+	int i;
+	for (i = 0; i < 4; i++)
+		wb_write8(conn, addr + (i * 4), val >> ((3 - i) * 8));
+}
+
+void wb_write64(struct wb_connection *conn, uint32_t addr, uint64_t val) {
+	val = htole64(val);
+	int i;
+	for (i = 0; i < 8; i++)
+		wb_write8(conn, addr + (i * 4), val >> ((7 - i) * 8));
+}
+
+uint8_t wb_read8(struct wb_connection *conn, uint32_t addr) {
 	uint8_t raw_pkt[68];
 	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
 	wb_fillpkt(raw_pkt, 1, 0);
-	pkt->records[0].value = htonl(addr);
+	pkt->records[0].value = htobe32(addr);
 
 	wb_send(conn, raw_pkt, 20);
 
@@ -224,7 +246,52 @@ uint32_t wb_read32(struct wb_connection *conn, uint32_t addr) {
 		fprintf(stderr, "Unexpected read length: %d\n", count);
 		return -1;
 	}
-	return ntohl(pkt->records[0].value);
+	return be32toh(pkt->records[0].value) & 0xff;
+}
+
+uint16_t wb_read16(struct wb_connection *conn, uint32_t addr) {
+	uint16_t val = 0;
+	int i;
+	for (i = 0; i < 2; i++)
+		val |= ((uint16_t)wb_read8(conn, addr + (i * 4))) << ((1 - i) * 8);
+	return le16toh(val);
+}
+
+uint32_t wb_read32(struct wb_connection *conn, uint32_t addr) {
+	uint32_t val = 0;
+	int i;
+	for (i = 0; i < 4; i++)
+		val |= ((uint32_t)wb_read8(conn, addr + (i * 4))) << ((3 - i) * 8);
+	return le32toh(val);
+}
+
+uint64_t wb_read64(struct wb_connection *conn, uint32_t addr) {
+	uint64_t val = 0;
+	int i;
+	for (i = 0; i < 8; i++)
+		val |= ((uint64_t)wb_read8(conn, addr + (i * 4))) << ((7 - i) * 8);
+	return le64toh(val);
+}
+
+#include "debug.h"
+
+void riscv_write32(struct wb_connection *conn, uint8_t addr, uint32_t value) {
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 1);
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
+	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, value);
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
+}
+
+uint32_t riscv_read32(struct wb_connection *conn, uint8_t addr) {
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 0);
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
+
+	while (!wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR))
+		;
+	return wb_read32(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA_ADDR);
 }
 
 int main(int argc, char **argv) {
@@ -236,15 +303,32 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	uint32_t temperature = (wb_read32(&conn, 0xe0005800) << 8) | wb_read32(&conn, 0xe0005804);
-	fprintf(stderr, "Temperature: %g\n", temperature * 503.975 / 4096 - 273.15);
+	uint32_t temperature = wb_read16(&conn, 0xe0005800);
+	fprintf(stderr, "Temperature: %g (0x%04x)\n", temperature * 503.975 / 4096 - 273.15, temperature);
 
-	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read32(&conn, 0xe000a020));
-	wb_write32(&conn, 0xe000a020, 0);
-	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read32(&conn, 0xe000a020));
-	wb_write32(&conn, 0xe000a020, 1);
-	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read32(&conn, 0xe000a020));
+	riscv_write32(&conn, 0, (1 << 16));
+	fprintf(stderr, "CPU state: 0x%08x\n", riscv_read32(&conn, 0));
+	riscv_write32(&conn, 0, (1 << 24));
+	fprintf(stderr, "CPU state: 0x%08x\n", riscv_read32(&conn, 0));
+	/*
+	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read8(&conn, 0xe000a020));
+	wb_write8(&conn, 0xe000a020, 0);
+	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read8(&conn, 0xe000a020));
+	wb_write8(&conn, 0xe000a020, 1);
+	fprintf(stderr, "Value at 0xe000a020: %d\n", wb_read8(&conn, 0xe000a020));
 
+	wb_write8(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
+	wb_write8(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 1);
+	wb_write8(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, 0);
+	wb_write32(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, (1 << 24) | (1 << 25));
+	//wb_write32(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, 0);
+	wb_write8(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
+
+	fprintf(stderr, "CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID: 0x%02x\n", wb_read8(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR));
+	fprintf(stderr, "CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR: 0x%02x\n", wb_read8(&conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR));
+	fprintf(stderr, "CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY: 0x%02x\n", wb_read8(&conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR));
+	fprintf(stderr, "CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA: 0x%08x\n", wb_read32(&conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA_ADDR));
+	*/
 	wb_free(&conn);
 	return 0;
 }
