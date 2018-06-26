@@ -1,0 +1,4 @@
+*.swp
+*.swo
+*~
+vexriscv-etherbone-bridge
