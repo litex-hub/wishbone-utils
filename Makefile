@@ -1,2 +1,2 @@
 all:
-	gcc -Wall read.c -o read
+	gcc -Wall vexriscv-etherbone-bridge.c -o vexriscv-etherbone-bridge

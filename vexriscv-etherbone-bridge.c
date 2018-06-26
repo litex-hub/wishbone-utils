@@ -62,25 +62,19 @@ struct etherbone_record {
 #pragma error "Unrecognized byte order"
 #endif
 
-	// 2...
 	uint8_t byte_enable;
 
-	// 3...
 	uint8_t wcount;
 
-	// 4...
 	uint8_t rcount;
 
-	// 5... 6... 7... 8...
 	uint32_t write_addr;
 	uint32_t value;
 } __attribute__((packed));
 
 struct etherbone_packet {
-	// 1... 2...
 	uint8_t magic[2]; // 0x4e 0x6f
 
-	// 3...
 #if __BYTE_ORDER == __BIG_ENDIAN
 	uint8_t version : 4;
 	uint8_t ign : 1;
@@ -97,7 +91,6 @@ struct etherbone_packet {
 #pragma error "Unrecognized byte order"
 #endif
 
-	// 4...
 #if __BYTE_ORDER == __BIG_ENDIAN
 	uint8_t port_size : 4;
 	uint8_t addr_size : 4;
@@ -107,7 +100,6 @@ struct etherbone_packet {
 #else
 #pragma error "Unrecognized byte order"
 #endif
-	// 5... 6... 7... 8...
 	uint8_t padding[4];
 
 	struct etherbone_record records[0];
@@ -277,42 +269,43 @@ uint64_t wb_read64(struct wb_connection *conn, uint32_t addr) {
 
 void riscv_debug_write32(struct wb_connection *conn, uint8_t addr, uint32_t value) {
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
 
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 1);
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
-	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, value);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
 
-	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
-	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
-	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
+
+	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, value);
 	(void)wb_read32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR);
 
-//	while (wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR) & 1)
-//		;
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
 }
 
 uint32_t riscv_debug_read32(struct wb_connection *conn, uint8_t addr) {
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
 
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 0);
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
-	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, 0);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
 
-	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
-	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
-	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
+
+	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
+
+	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, 0);
 	(void)wb_read32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR);
-//	while (wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR) & 1)
-//		;
+
+
 	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
-	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
+//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
 
 	while (!(wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR) & 1))
 		;
-	uint32_t val = wb_read32(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA_ADDR);
 
-	return val;
+	return wb_read32(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA_ADDR);
 }
 
 #define VRV_RW_READ 0
