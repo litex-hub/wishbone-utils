@@ -4,14 +4,21 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <endian.h>
-
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
 #include <sys/uio.h>
+
+#define WISHBONE_WIDTH 32
+
+// Default to a width of 8, if undefined.  This is because upstream defaults to 8.
+#ifndef WISHBONE_WIDTH
+#define WISHBONE_WIDTH 8
+#endif
 
 // 4e 6f                // magic
 // 10                   // VVVV?nRF (V: Version, n: No reads, R: Probe reply, F: Probe flag)
@@ -109,6 +116,7 @@ struct wb_connection {
 	int write_fd;
 	int read_fd;
 	struct addrinfo* addr;
+	uint32_t counter;
 };
 
 int wb_connect(struct wb_connection *conn, const char *addr, const char *port) {
@@ -192,8 +200,8 @@ void wb_fillpkt(uint8_t raw_pkt[16], uint32_t read_count, uint32_t write_count) 
 	pkt->records[0].wcount = write_count;
 }
 
+#if WISHBONE_WIDTH == 8
 void wb_write8(struct wb_connection *conn, uint32_t addr, uint8_t val) {
-	//fprintf(stderr, "Writing 0x%08x = 0x%02x\n", addr, val);
 	uint8_t raw_pkt[20];
 	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
 	wb_fillpkt(raw_pkt, 0, 1);
@@ -226,15 +234,15 @@ void wb_write64(struct wb_connection *conn, uint32_t addr, uint64_t val) {
 }
 
 uint8_t wb_read8(struct wb_connection *conn, uint32_t addr) {
-	uint8_t raw_pkt[68];
+	uint8_t raw_pkt[20];
 	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
 	wb_fillpkt(raw_pkt, 1, 0);
 	pkt->records[0].value = htobe32(addr);
 
-	wb_send(conn, raw_pkt, 20);
+	wb_send(conn, raw_pkt, sizeof(raw_pkt));
 
 	int count = wb_recv(conn, raw_pkt, sizeof(raw_pkt));
-	if (count != 20) {
+	if (count != sizeof(raw_pkt)) {
 		fprintf(stderr, "Unexpected read length: %d\n", count);
 		return -1;
 	}
@@ -265,47 +273,118 @@ uint64_t wb_read64(struct wb_connection *conn, uint32_t addr) {
 	return le64toh(val);
 }
 
+#elif WISHBONE_WIDTH == 32
+
+void wb_write32(struct wb_connection *conn, uint32_t addr, uint32_t val) {
+	uint8_t raw_pkt[20];
+	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
+	wb_fillpkt(raw_pkt, 0, 1);
+
+	//fprintf(stderr, "Write 0x%08x -> 0x%08x\n", addr, val);
+	pkt->records[0].write_addr = htobe32(addr);
+	pkt->records[0].value = htobe32(val);
+
+	wb_send(conn, raw_pkt, 20);
+}
+
+void wb_write16(struct wb_connection *conn, uint32_t addr, uint16_t val) {
+	wb_write32(conn, addr, val & 0xffff);
+}
+
+void wb_write8(struct wb_connection *conn, uint32_t addr, uint8_t val) {
+	wb_write32(conn, addr, val & 0xff);
+}
+
+void wb_write64(struct wb_connection *conn, uint32_t addr, uint64_t val) {
+	val = htole64(val);
+	int i;
+	for (i = 0; i < 2; i++)
+		wb_write32(conn, addr + (i * 4), val >> ((1 - i) * 8));
+}
+
+uint32_t wb_read32(struct wb_connection *conn, uint32_t addr) {
+	uint8_t raw_pkt[20];
+	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
+	wb_fillpkt(raw_pkt, 1, 0);
+	pkt->records[0].value = htobe32(addr);
+
+	wb_send(conn, raw_pkt, sizeof(raw_pkt));
+
+	int count = wb_recv(conn, raw_pkt, sizeof(raw_pkt));
+	if (count != sizeof(raw_pkt)) {
+		fprintf(stderr, "Unexpected read length: %d\n", count);
+		return -1;
+	}
+	//fprintf(stderr, "Read value at 0x%08x: 0x%08x\n", addr, be32toh(pkt->records[0].value));
+	return be32toh(pkt->records[0].value);
+}
+
+uint16_t wb_read16(struct wb_connection *conn, uint32_t addr) {
+	return wb_read32(conn, addr) & 0xffff;
+}
+
+uint8_t wb_read8(struct wb_connection *conn, uint32_t addr) {
+	return wb_read32(conn, addr) & 0xff;
+}
+
+uint64_t wb_read64(struct wb_connection *conn, uint32_t addr) {
+	uint64_t val = 0;
+	int i;
+	for (i = 0; i < 2; i++)
+		val |= ((uint64_t)wb_read32(conn, addr + (i * 4))) << ((1 - i) * 8);
+	return le64toh(val);
+}
+
+#else
+#pragma error "Unrecognized Wishbone width"
+#endif
+
 #include "debug.h"
 
+static uint32_t riscv_debug_counter(struct wb_connection *conn) {
+	return wb_read32(conn, CSR_CPU_OR_BRIDGE_DEBUG_PACKET_COUNTER);
+}
+
 void riscv_debug_write32(struct wb_connection *conn, uint8_t addr, uint32_t value) {
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
-
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 1);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
-
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
-
-	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, value);
-	(void)wb_read32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR);
-
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
+	uint32_t counter = riscv_debug_counter(conn);
+	if (addr == 0) {
+		fprintf(stderr, "CORE %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		conn->counter = counter;
+		wb_write32(conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE, value);
+	}
+	else if (addr == 4) {
+		fprintf(stderr, "DEBUG %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		conn->counter = counter;
+		wb_write32(conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA, value);
+	}
+	else {
+		fprintf(stderr, "Unknown riscv debug write address: 0x%08x\n", addr);
+		exit(1);
+	}
 }
 
 uint32_t riscv_debug_read32(struct wb_connection *conn, uint8_t addr) {
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 0);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
-
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR, 0);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_WR_ADDR);
-
-
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR, addr);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_ADDRESS_ADDR);
-
-	wb_write32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR, 0);
-	(void)wb_read32(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_PAYLOAD_DATA_ADDR);
-
-
-	wb_write8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR, 1);
-//	(void)wb_read8(conn, CSR_CPU_OR_BRIDGE_I_DEBUG_BUS_CMD_VALID_ADDR);
-
-	while (!(wb_read8(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_CMD_READY_ADDR) & 1))
-		;
-
-	return wb_read32(conn, CSR_CPU_OR_BRIDGE_O_DEBUG_BUS_RSP_DATA_ADDR);
+	uint32_t value;
+	uint32_t counter;
+	if (addr == 0) {
+		counter = riscv_debug_counter(conn);
+		wb_write8(conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x00);
+		value = wb_read32(conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE);
+		fprintf(stderr, "CORE %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		conn->counter = counter;
+	}
+	else if (addr == 4) {
+		counter = riscv_debug_counter(conn);
+		wb_write8(conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x04);
+		value = wb_read32(conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA);
+		fprintf(stderr, "DEBUG %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		conn->counter = counter;
+	}
+	else {
+		fprintf(stderr, "Unknown riscv debug read address: 0x%08x\n", addr);
+		exit(1);
+	}
+	return value;
 }
 
 #define VRV_RW_READ 0
@@ -404,6 +483,45 @@ int main(int argc, char **argv) {
 	uint32_t temperature = wb_read16(&conn, 0xe0005800);
 	fprintf(stderr, "Temperature: %g (0x%04x)\n", temperature * 503.975 / 4096 - 273.15, temperature);
 
+	/*
+	fprintf(stderr, "CPU Status: 0x%08x\n", riscv_debug_read32(&conn, 0));
+	fprintf(stderr, "Halting...\n");
+	riscv_debug_write32(&conn, 0, 1 << 17);
+	fprintf(stderr, "CPU Status: 0x%08x\n", riscv_debug_read32(&conn, 0));
+	fprintf(stderr, "Resuming...\n");
+	riscv_debug_write32(&conn, 0, 1 << 25);
+	fprintf(stderr, "CPU Status: 0x%08x\n", riscv_debug_read32(&conn, 0));
+
+	fprintf(stderr, "Addr ?: 0x%08x 0x%08x\n", wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE), wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA));
+	wb_write8(&conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x00);
+	fprintf(stderr, "Addr 0: 0x%08x 0x%08x\n", wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE), wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA));
+	wb_write8(&conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x04);
+	fprintf(stderr, "Addr 4: 0x%08x 0x%08x\n", wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE), wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA));
+	wb_write8(&conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x78);
+	fprintf(stderr, "Addr 8: 0x%08x 0x%08x\n", wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE), wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA));
+	*/
+
+	/*
+	uint32_t target_addr = 0x10000000;
+	uint32_t target_val = 0x12345678;
+	wb_write32(&conn, target_addr, target_val);
+	wb_read32(&conn, target_addr);
+	wb_write32(&conn, target_addr, target_val);
+	wb_read32(&conn, target_addr);
+	uint32_t generation = 0;
+	while (1) {
+		uint32_t val;
+		generation++;
+		if ((generation & 0xfff) == 0) {
+			fprintf(stderr, "Generation %d\n", generation);
+		}
+		val = wb_read32(&conn, target_addr);
+		if (val != target_val) {
+			fprintf(stderr, "gen %d  val was 0x%08x not 0x%08x!\n", generation, val, target_val);
+		}
+	}
+	*/
+	
 	while (1) {
 		uint8_t vrv_bfr[10];
 		size_t vrv_read_size;
@@ -446,7 +564,7 @@ int main(int argc, char **argv) {
 					fprintf(stderr, "Unrecognized size for writing: 1 (16-bits)\n");
 					break;
 				case 2:
-					fprintf(stderr, "32-bit debug write 0x%08x = 0x%08x\n", req->address, req->data);
+					//fprintf(stderr, "32-bit debug write 0x%08x = 0x%08x\n", req->address, req->data);
 					riscv_debug_write32(&conn, req->address, req->data);
 					break;
 				default:
@@ -464,7 +582,7 @@ int main(int argc, char **argv) {
 					break;
 				case 2:
 					resp = riscv_debug_read32(&conn, req->address);
-					fprintf(stderr, "32-bit debug read 0x%08x = 0x%08x [0x%08x]\n", req->address, resp, req->data);
+					//fprintf(stderr, "32-bit debug read 0x%08x = 0x%08x [0x%08x]\n", req->address, resp, req->data);
 					break;
 				default:
 					fprintf(stderr, "Unrecognized size for reading: %d\n", req->size);
