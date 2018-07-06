@@ -13,7 +13,10 @@
 
 #include <sys/uio.h>
 
-#define WISHBONE_WIDTH 32
+#include "debug.h"
+
+//#define DEBUG_RISCV(str, ...) fprintf(stderr, str, __VA_ARGS__)
+#define DEBUG_RISCV(str, ...)
 
 // Default to a width of 8, if undefined.  This is because upstream defaults to 8.
 #ifndef WISHBONE_WIDTH
@@ -119,6 +122,8 @@ struct wb_connection {
 	uint32_t counter;
 };
 
+static uint32_t riscv_debug_counter(struct wb_connection *conn);
+
 int wb_connect(struct wb_connection *conn, const char *addr, const char *port) {
 
 	struct sockaddr_in si_me;
@@ -168,6 +173,7 @@ int wb_connect(struct wb_connection *conn, const char *addr, const char *port) {
 	conn->read_fd = rx_socket;
 	conn->write_fd = tx_socket;
 	conn->addr = res;
+	conn->counter = riscv_debug_counter(conn) - 1;
 
 	return 0;
 }
@@ -339,8 +345,6 @@ uint64_t wb_read64(struct wb_connection *conn, uint32_t addr) {
 #pragma error "Unrecognized Wishbone width"
 #endif
 
-#include "debug.h"
-
 static uint32_t riscv_debug_counter(struct wb_connection *conn) {
 	return wb_read32(conn, CSR_CPU_OR_BRIDGE_DEBUG_PACKET_COUNTER);
 }
@@ -348,12 +352,18 @@ static uint32_t riscv_debug_counter(struct wb_connection *conn) {
 void riscv_debug_write32(struct wb_connection *conn, uint8_t addr, uint32_t value) {
 	uint32_t counter = riscv_debug_counter(conn);
 	if (addr == 0) {
-		fprintf(stderr, "CORE %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		DEBUG_RISCV("CORE %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		if ((counter - conn->counter) != 1) {
+			fprintf(stderr, "Dropped packet! %d/%d\n", conn->counter, counter);
+		}
 		conn->counter = counter;
 		wb_write32(conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE, value);
 	}
 	else if (addr == 4) {
-		fprintf(stderr, "DEBUG %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		DEBUG_RISCV("DEBUG %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		if ((counter - conn->counter) != 1) {
+			fprintf(stderr, "Dropped packet! %d/%d\n", conn->counter, counter);
+		}
 		conn->counter = counter;
 		wb_write32(conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA, value);
 	}
@@ -369,15 +379,32 @@ uint32_t riscv_debug_read32(struct wb_connection *conn, uint8_t addr) {
 	if (addr == 0) {
 		counter = riscv_debug_counter(conn);
 		wb_write8(conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x00);
+		int loops = 0;
+		while (riscv_debug_counter(conn) == counter)
+			loops++;
+		if (loops)
+			fprintf(stderr, "Waited %d loops for sync\n", loops);
 		value = wb_read32(conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE);
-		fprintf(stderr, "CORE %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		DEBUG_RISCV("CORE %d read: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		if ((counter - conn->counter) != 1) {
+			fprintf(stderr, "Dropped packet! %d/%d\n", conn->counter, counter);
+		}
 		conn->counter = counter;
 	}
 	else if (addr == 4) {
 		counter = riscv_debug_counter(conn);
 		wb_write8(conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x04);
+		int loops = 0;
+		while (riscv_debug_counter(conn) == counter)
+			loops++;
+		if (loops)
+			fprintf(stderr, "Waited %d loops for sync\n", loops);
 		value = wb_read32(conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA);
-		fprintf(stderr, "DEBUG %d write: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+		DEBUG_RISCV("DEBUG %d read: 0x%08x (%d)\n", counter, value, counter - conn->counter);
+
+		if ((counter - conn->counter) != 1) {
+			fprintf(stderr, "Dropped packet! %d/%d\n", conn->counter, counter);
+		}
 		conn->counter = counter;
 	}
 	else {
@@ -430,6 +457,7 @@ int vrv_init(struct vexriscv_server *server) {
 		close(server->socket_fd);
 		return 1;
     }
+
 	return 0;
 }
 
@@ -480,18 +508,27 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
+	fprintf(stderr, "Reading temperature: ");
 	uint32_t temperature = wb_read16(&conn, 0xe0005800);
 	fprintf(stderr, "Temperature: %g (0x%04x)\n", temperature * 503.975 / 4096 - 273.15, temperature);
 
 	/*
-	fprintf(stderr, "CPU Status: 0x%08x\n", riscv_debug_read32(&conn, 0));
-	fprintf(stderr, "Halting...\n");
-	riscv_debug_write32(&conn, 0, 1 << 17);
-	fprintf(stderr, "CPU Status: 0x%08x\n", riscv_debug_read32(&conn, 0));
-	fprintf(stderr, "Resuming...\n");
-	riscv_debug_write32(&conn, 0, 1 << 25);
-	fprintf(stderr, "CPU Status: 0x%08x\n", riscv_debug_read32(&conn, 0));
+	fprintf(stderr, "CPU Status: 0x%08x\n\n", riscv_debug_read32(&conn, 0));
 
+	fprintf(stderr, "Halting...\n");
+	riscv_debug_write32(&conn, 0, (1 << 17));
+	fprintf(stderr, "CPU Status: 0x%08x\n\n", riscv_debug_read32(&conn, 0));
+
+	fprintf(stderr, "Resetting and Halting...\n");
+	riscv_debug_write32(&conn, 0, (1 << 16) | (1 << 17));
+	fprintf(stderr, "CPU Status: 0x%08x\n\n", riscv_debug_read32(&conn, 0));
+
+	fprintf(stderr, "Resuming...\n");
+	riscv_debug_write32(&conn, 0, (1 << 24));
+	fprintf(stderr, "CPU Status: 0x%08x\n\n", riscv_debug_read32(&conn, 0));
+	*/
+
+	/*
 	fprintf(stderr, "Addr ?: 0x%08x 0x%08x\n", wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE), wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA));
 	wb_write8(&conn, CSR_CPU_OR_BRIDGE_DEBUG_SYNC, 0x00);
 	fprintf(stderr, "Addr 0: 0x%08x 0x%08x\n", wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_CORE), wb_read32(&conn, CSR_CPU_OR_BRIDGE_DEBUG_DATA));
