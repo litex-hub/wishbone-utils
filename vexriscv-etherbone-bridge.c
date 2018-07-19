@@ -15,8 +15,8 @@
 
 #include "debug.h"
 
-//#define DEBUG_RISCV(str, ...) fprintf(stderr, str, __VA_ARGS__)
-#define DEBUG_RISCV(str, ...)
+#define DEBUG_RISCV(str, ...) fprintf(stderr, str, __VA_ARGS__)
+//#define DEBUG_RISCV(str, ...)
 
 // Default to a width of 8, if undefined.  This is because upstream defaults to 8.
 #ifndef WISHBONE_WIDTH
