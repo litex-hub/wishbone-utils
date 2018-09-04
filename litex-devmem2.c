@@ -13,8 +13,6 @@
 
 #include <sys/uio.h>
 
-#include "debug.h"
-
 #ifdef DEBUG
 #define DEBUG_RISCV(str, ...) fprintf(stderr, str, __VA_ARGS__)
 #else
