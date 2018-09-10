@@ -13,8 +13,10 @@
 #include "etherbone.h"
 
 struct eb_connection {
-	int fd;
-	struct addrinfo* addr;
+    int fd;
+    int read_fd;
+    int is_direct;
+    struct addrinfo* addr;
 };
 
 int eb_unfill_read32(uint8_t wb_buffer[20]) {
@@ -67,39 +69,43 @@ int eb_fill_read32(uint8_t wb_buffer[20], uint32_t address) {
 }
 
 int eb_send(struct eb_connection *conn, const void *bytes, size_t len) {
-	return write(conn->fd, bytes, len);
+    if (conn->is_direct)
+        return sendto(conn->fd, bytes, len, 0, conn->addr->ai_addr, conn->addr->ai_addrlen);
+    return write(conn->fd, bytes, len);
 }
 
 int eb_recv(struct eb_connection *conn, void *bytes, size_t max_len) {
-	return read(conn->fd, bytes, max_len);
+    if (conn->is_direct)
+        return recvfrom(conn->read_fd, bytes, max_len, 0, NULL, NULL);
+    return read(conn->fd, bytes, max_len);
 }
 
 void eb_write32(struct eb_connection *conn, uint32_t addr, uint32_t val) {
-	uint8_t raw_pkt[20];
-	eb_fill_write32(raw_pkt, addr, val);
-	eb_send(conn, raw_pkt, sizeof(raw_pkt));
+    uint8_t raw_pkt[20];
+    eb_fill_write32(raw_pkt, addr, val);
+    eb_send(conn, raw_pkt, sizeof(raw_pkt));
 }
 
 uint32_t eb_read32(struct eb_connection *conn, uint32_t addr) {
-	uint8_t raw_pkt[20];
-	eb_fill_read32(raw_pkt, addr);
+    uint8_t raw_pkt[20];
+    eb_fill_read32(raw_pkt, addr);
 
-	eb_send(conn, raw_pkt, sizeof(raw_pkt));
+    eb_send(conn, raw_pkt, sizeof(raw_pkt));
 
-	int count = eb_recv(conn, raw_pkt, sizeof(raw_pkt));
-	if (count != sizeof(raw_pkt)) {
-		fprintf(stderr, "unexpected read length: %d\n", count);
-		return -1;
-	}
-	return eb_unfill_read32(raw_pkt);
+    int count = eb_recv(conn, raw_pkt, sizeof(raw_pkt));
+    if (count != sizeof(raw_pkt)) {
+        fprintf(stderr, "unexpected read length: %d\n", count);
+        return -1;
+    }
+    return eb_unfill_read32(raw_pkt);
 }
 
-struct eb_connection *eb_connect(const char *addr, const char *port) {
+struct eb_connection *eb_connect(const char *addr, const char *port, int is_direct) {
 
-	struct addrinfo hints;
-	struct addrinfo* res = 0;
-	int err;
-	int sock;
+    struct addrinfo hints;
+    struct addrinfo* res = 0;
+    int err;
+    int sock;
 
     struct eb_connection *conn = malloc(sizeof(struct eb_connection));
     if (!conn) {
@@ -107,184 +113,230 @@ struct eb_connection *eb_connect(const char *addr, const char *port) {
         return NULL;
     }
 
-	sock = socket(AF_INET, SOCK_STREAM, 0);
-	if (sock == -1) {
-		fprintf(stderr, "failed to create socket: %s\n", strerror(errno));
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = is_direct ? SOCK_DGRAM : SOCK_STREAM;
+    hints.ai_protocol = is_direct ? IPPROTO_UDP : IPPROTO_TCP;
+    hints.ai_flags = AI_ADDRCONFIG;
+    err = getaddrinfo(addr, port, &hints, &res);
+    if (err != 0) {
+        fprintf(stderr, "failed to resolve remote socket address (err=%d / %s)\n", err, gai_strerror(err));
         free(conn);
-		return NULL;
-	}
+        return NULL;
+    }
 
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
-	hints.ai_flags = AI_ADDRCONFIG;
-	err = getaddrinfo(addr, port, &hints, &res);
-	if (err != 0) {
-		close(sock);
-		fprintf(stderr, "failed to resolve remote socket address (err=%d / %s)\n", err, gai_strerror(err));
-        free(conn);
-		return NULL;
-	}
+    conn->is_direct = is_direct;
 
-	int connection = connect(sock, res->ai_addr, res->ai_addrlen);
-	if (connection == -1) {
-		close(sock);
-		freeaddrinfo(res);
-		fprintf(stderr, "unable to create socket: %s\n", strerror(errno));
-        free(conn);
-		return NULL;
-	}
+    if (is_direct) {
+        // Rx half
+        struct sockaddr_in si_me;
 
-	conn->fd = sock;
-	conn->addr = res;
+        memset((char *) &si_me, 0, sizeof(si_me));
+        si_me.sin_family = res->ai_family;
+        si_me.sin_port = ((struct sockaddr_in *)res->ai_addr)->sin_port;
+        si_me.sin_addr.s_addr = htobe32(INADDR_ANY);
 
-	return conn;
+        int rx_socket;
+        if ((rx_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1) {
+            fprintf(stderr, "Unable to create Rx socket: %s\n", strerror(errno));
+            freeaddrinfo(res);
+            free(conn);
+            return NULL;
+        }
+        if (bind(rx_socket, (struct sockaddr*)&si_me, sizeof(si_me)) == -1) {
+            fprintf(stderr, "Unable to bind Rx socket to port: %s\n", strerror(errno));
+            close(rx_socket);
+            freeaddrinfo(res);
+            free(conn);
+            return NULL;
+        }
+
+        // Tx half
+        int tx_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+        if (tx_socket == -1) {
+            fprintf(stderr, "Unable to create socket: %s\n", strerror(errno));
+            close(rx_socket);
+            close(tx_socket);
+            freeaddrinfo(res);
+            fprintf(stderr, "unable to create socket: %s\n", strerror(errno));
+            free(conn);
+            return NULL;
+        }
+
+        conn->read_fd = rx_socket;
+        conn->fd = tx_socket;
+        conn->addr = res;
+    }
+    else {
+        sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock == -1) {
+            fprintf(stderr, "failed to create socket: %s\n", strerror(errno));
+            freeaddrinfo(res);
+            free(conn);
+            return NULL;
+        }
+
+        int connection = connect(sock, res->ai_addr, res->ai_addrlen);
+        if (connection == -1) {
+            close(sock);
+            freeaddrinfo(res);
+            fprintf(stderr, "unable to create socket: %s\n", strerror(errno));
+            free(conn);
+            return NULL;
+        }
+
+        conn->fd = sock;
+        conn->addr = res;
+    }
+
+    return conn;
 }
 
 void eb_disconnect(struct eb_connection **conn) {
     if (!conn || !*conn)
         return;
 
-	freeaddrinfo((*conn)->addr);
-	close((*conn)->fd);
+    freeaddrinfo((*conn)->addr);
+    close((*conn)->fd);
+    if ((*conn)->read_fd)
+        close((*conn)->read_fd);
     free(*conn);
     *conn = NULL;
-	return;
+    return;
 }
 
 #if 0
 #if CSR_WIDTH == 8
 void csr_write8(struct wb_connection *conn, uint32_t addr, uint8_t val) {
-	uint8_t raw_pkt[20];
-	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
-	wb_fillpkt(raw_pkt, 0, 1);
+    uint8_t raw_pkt[20];
+    struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
+    wb_fillpkt(raw_pkt, 0, 1);
 
-	pkt->records[0].write_addr = htobe32(addr);
-	pkt->records[0].value = htobe32(val & 0xff);
+    pkt->records[0].write_addr = htobe32(addr);
+    pkt->records[0].value = htobe32(val & 0xff);
 
-	wb_send(conn, raw_pkt, 20);
+    wb_send(conn, raw_pkt, 20);
 }
 
 void csr_write16(struct wb_connection *conn, uint32_t addr, uint16_t val) {
-	val = htole16(val);
-	int i;
-	for (i = 0; i < 2; i++)
-		csr_write8(conn, addr + (i * 4), val >> ((1 - i) * 8));
+    val = htole16(val);
+    int i;
+    for (i = 0; i < 2; i++)
+        csr_write8(conn, addr + (i * 4), val >> ((1 - i) * 8));
 }
 
 void csr_write32(struct wb_connection *conn, uint32_t addr, uint32_t val) {
-	val = htole32(val);
-	int i;
-	for (i = 0; i < 4; i++)
-		csr_write8(conn, addr + (i * 4), val >> ((3 - i) * 8));
+    val = htole32(val);
+    int i;
+    for (i = 0; i < 4; i++)
+        csr_write8(conn, addr + (i * 4), val >> ((3 - i) * 8));
 }
 
 void csr_write64(struct wb_connection *conn, uint32_t addr, uint64_t val) {
-	val = htole64(val);
-	int i;
-	for (i = 0; i < 8; i++)
-		csr_write8(conn, addr + (i * 4), val >> ((7 - i) * 8));
+    val = htole64(val);
+    int i;
+    for (i = 0; i < 8; i++)
+        csr_write8(conn, addr + (i * 4), val >> ((7 - i) * 8));
 }
 
 uint8_t csr_read8(struct wb_connection *conn, uint32_t addr) {
-	uint8_t raw_pkt[20];
-	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
-	wb_fillpkt(raw_pkt, 1, 0);
-	pkt->records[0].value = htobe32(addr);
+    uint8_t raw_pkt[20];
+    struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
+    wb_fillpkt(raw_pkt, 1, 0);
+    pkt->records[0].value = htobe32(addr);
 
-	wb_send(conn, raw_pkt, sizeof(raw_pkt));
+    wb_send(conn, raw_pkt, sizeof(raw_pkt));
 
-	int count = wb_recv(conn, raw_pkt, sizeof(raw_pkt));
-	if (count != sizeof(raw_pkt)) {
-		fprintf(stderr, "Unexpected read length: %d\n", count);
-		return -1;
-	}
-	return be32toh(pkt->records[0].value) & 0xff;
+    int count = wb_recv(conn, raw_pkt, sizeof(raw_pkt));
+    if (count != sizeof(raw_pkt)) {
+        fprintf(stderr, "Unexpected read length: %d\n", count);
+        return -1;
+    }
+    return be32toh(pkt->records[0].value) & 0xff;
 }
 
 uint16_t csr_read16(struct wb_connection *conn, uint32_t addr) {
-	uint16_t val = 0;
-	int i;
-	for (i = 0; i < 2; i++)
-		val |= ((uint16_t)csr_read8(conn, addr + (i * 4))) << ((1 - i) * 8);
-	return le16toh(val);
+    uint16_t val = 0;
+    int i;
+    for (i = 0; i < 2; i++)
+        val |= ((uint16_t)csr_read8(conn, addr + (i * 4))) << ((1 - i) * 8);
+    return le16toh(val);
 }
 
 uint32_t csr_read32(struct wb_connection *conn, uint32_t addr) {
-	uint32_t val = 0;
-	int i;
-	for (i = 0; i < 4; i++)
-		val |= ((uint32_t)csr_read8(conn, addr + (i * 4))) << ((3 - i) * 8);
-	return le32toh(val);
+    uint32_t val = 0;
+    int i;
+    for (i = 0; i < 4; i++)
+        val |= ((uint32_t)csr_read8(conn, addr + (i * 4))) << ((3 - i) * 8);
+    return le32toh(val);
 }
 
 uint64_t csr_read64(struct wb_connection *conn, uint32_t addr) {
-	uint64_t val = 0;
-	int i;
-	for (i = 0; i < 8; i++)
-		val |= ((uint64_t)csr_read8(conn, addr + (i * 4))) << ((7 - i) * 8);
-	return le64toh(val);
+    uint64_t val = 0;
+    int i;
+    for (i = 0; i < 8; i++)
+        val |= ((uint64_t)csr_read8(conn, addr + (i * 4))) << ((7 - i) * 8);
+    return le64toh(val);
 }
 
 #elif CSR_WIDTH == 32
 
 void csr_write32(struct wb_connection *conn, uint32_t addr, uint32_t val) {
-	uint8_t raw_pkt[20];
-	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
-	wb_fillpkt(raw_pkt, 0, 1);
+    uint8_t raw_pkt[20];
+    struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
+    wb_fillpkt(raw_pkt, 0, 1);
 
-	pkt->records[0].write_addr = htobe32(addr);
-	pkt->records[0].value = htobe32(val);
+    pkt->records[0].write_addr = htobe32(addr);
+    pkt->records[0].value = htobe32(val);
 
-	wb_send(conn, raw_pkt, 20);
+    wb_send(conn, raw_pkt, 20);
 }
 
 void csr_write16(struct wb_connection *conn, uint32_t addr, uint16_t val) {
-	csr_write32(conn, addr, val & 0xffff);
+    csr_write32(conn, addr, val & 0xffff);
 }
 
 void csr_write8(struct wb_connection *conn, uint32_t addr, uint8_t val) {
-	csr_write32(conn, addr, val & 0xff);
+    csr_write32(conn, addr, val & 0xff);
 }
 
 void csr_write64(struct wb_connection *conn, uint32_t addr, uint64_t val) {
-	val = htole64(val);
-	int i;
-	for (i = 0; i < 2; i++)
-		csr_write32(conn, addr + (i * 4), val >> ((1 - i) * 8));
+    val = htole64(val);
+    int i;
+    for (i = 0; i < 2; i++)
+        csr_write32(conn, addr + (i * 4), val >> ((1 - i) * 8));
 }
 
 uint32_t csr_read32(struct wb_connection *conn, uint32_t addr) {
-	uint8_t raw_pkt[20];
-	struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
-	wb_fillpkt(raw_pkt, 1, 0);
-	pkt->records[0].value = htobe32(addr);
+    uint8_t raw_pkt[20];
+    struct etherbone_packet *pkt = (struct etherbone_packet *)raw_pkt;
+    wb_fillpkt(raw_pkt, 1, 0);
+    pkt->records[0].value = htobe32(addr);
 
-	wb_send(conn, raw_pkt, sizeof(raw_pkt));
+    wb_send(conn, raw_pkt, sizeof(raw_pkt));
 
-	int count = wb_recv(conn, raw_pkt, sizeof(raw_pkt));
-	if (count != sizeof(raw_pkt)) {
-		fprintf(stderr, "Unexpected read length: %d\n", count);
-		return -1;
-	}
-	return be32toh(pkt->records[0].value);
+    int count = wb_recv(conn, raw_pkt, sizeof(raw_pkt));
+    if (count != sizeof(raw_pkt)) {
+        fprintf(stderr, "Unexpected read length: %d\n", count);
+        return -1;
+    }
+    return be32toh(pkt->records[0].value);
 }
 
 uint16_t csr_read16(struct wb_connection *conn, uint32_t addr) {
-	return csr_read32(conn, addr) & 0xffff;
+    return csr_read32(conn, addr) & 0xffff;
 }
 
 uint8_t csr_read8(struct wb_connection *conn, uint32_t addr) {
-	return csr_read32(conn, addr) & 0xff;
+    return csr_read32(conn, addr) & 0xff;
 }
 
 uint64_t csr_read64(struct wb_connection *conn, uint32_t addr) {
-	uint64_t val = 0;
-	int i;
-	for (i = 0; i < 2; i++)
-		val |= ((uint64_t)csr_read32(conn, addr + (i * 4))) << ((1 - i) * 8);
-	return le64toh(val);
+    uint64_t val = 0;
+    int i;
+    for (i = 0; i < 2; i++)
+        val |= ((uint64_t)csr_read32(conn, addr + (i * 4))) << ((1 - i) * 8);
+    return le64toh(val);
 }
 
 #else
