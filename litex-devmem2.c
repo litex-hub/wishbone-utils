@@ -366,11 +366,6 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "Unable to create connection\n");
 		return 1;
 	}
-
-	fprintf(stderr, "Reading temperature: ");
-	uint32_t temperature = csr_read16(&conn, 0xe0005800);
-	fprintf(stderr, "Temperature: %g (0x%04x)\n", temperature * 503.975 / 4096 - 273.15, temperature);
-
 	if (argc == 1) {
 		fprintf(stderr, "Must specify an address\n");
 		return 1;
