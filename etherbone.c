@@ -1,7 +1,21 @@
+#include <stdio.h>
 #include <endian.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "etherbone.h"
+
+struct eb_connection {
+	int fd;
+	struct addrinfo* addr;
+};
 
 int eb_unfill_read32(uint8_t wb_buffer[20]) {
     int buffer;
@@ -50,6 +64,93 @@ int eb_fill_write32(uint8_t wb_buffer[20], uint32_t address, uint32_t data) {
 
 int eb_fill_read32(uint8_t wb_buffer[20], uint32_t address) {
     return eb_fill_readwrite32(wb_buffer, address, 0, 1);
+}
+
+int eb_send(struct eb_connection *conn, const void *bytes, size_t len) {
+	return write(conn->fd, bytes, len);
+}
+
+int eb_recv(struct eb_connection *conn, void *bytes, size_t max_len) {
+	return read(conn->fd, bytes, max_len);
+}
+
+void eb_write32(struct eb_connection *conn, uint32_t addr, uint32_t val) {
+	uint8_t raw_pkt[20];
+	eb_fill_write32(raw_pkt, addr, val);
+	eb_send(conn, raw_pkt, sizeof(raw_pkt));
+}
+
+uint32_t eb_read32(struct eb_connection *conn, uint32_t addr) {
+	uint8_t raw_pkt[20];
+	eb_fill_read32(raw_pkt, addr);
+
+	eb_send(conn, raw_pkt, sizeof(raw_pkt));
+
+	int count = eb_recv(conn, raw_pkt, sizeof(raw_pkt));
+	if (count != sizeof(raw_pkt)) {
+		fprintf(stderr, "unexpected read length: %d\n", count);
+		return -1;
+	}
+	return eb_unfill_read32(raw_pkt);
+}
+
+struct eb_connection *eb_connect(const char *addr, const char *port) {
+
+	struct addrinfo hints;
+	struct addrinfo* res = 0;
+	int err;
+	int sock;
+
+    struct eb_connection *conn = malloc(sizeof(struct eb_connection));
+    if (!conn) {
+        perror("couldn't allocate memory for eb_connection");
+        return NULL;
+    }
+
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock == -1) {
+		fprintf(stderr, "failed to create socket: %s\n", strerror(errno));
+        free(conn);
+		return NULL;
+	}
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	hints.ai_flags = AI_ADDRCONFIG;
+	err = getaddrinfo(addr, port, &hints, &res);
+	if (err != 0) {
+		close(sock);
+		fprintf(stderr, "failed to resolve remote socket address (err=%d / %s)\n", err, gai_strerror(err));
+        free(conn);
+		return NULL;
+	}
+
+	int connection = connect(sock, res->ai_addr, res->ai_addrlen);
+	if (connection == -1) {
+		close(sock);
+		freeaddrinfo(res);
+		fprintf(stderr, "unable to create socket: %s\n", strerror(errno));
+        free(conn);
+		return NULL;
+	}
+
+	conn->fd = sock;
+	conn->addr = res;
+
+	return conn;
+}
+
+void eb_disconnect(struct eb_connection **conn) {
+    if (!conn || !*conn)
+        return;
+
+	freeaddrinfo((*conn)->addr);
+	close((*conn)->fd);
+    free(*conn);
+    *conn = NULL;
+	return;
 }
 
 #if 0
