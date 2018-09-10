@@ -1,4 +1,5 @@
 *.swp
 *.swo
 *~
-vexriscv-etherbone-bridge
+litex-devmem2
+*.o
