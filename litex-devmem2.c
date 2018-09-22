@@ -8,11 +8,14 @@
 static void print_help(const char *progname) {
     printf("Usage: %s [-t|--target target] [-p|--port port]\n"
            "                  [-a|--address address] [-v|--value value]\n"
+           "                  [-w|--write-only]\n"
+           "                  [-q|--quiet]\n"
            "                  [-d|--direct]\n", progname);
     printf("Target address defaults to 127.0.0.1, and port defaults to 1234.");
     printf("Connects to a device over Etherbone or the LiteX bridge, and accesses Wishbone.\n");
     printf("To connect directly over Etherbone without using litex_server, use --direct.\n");
     printf("If --value is omitted, then a read is performed.  Otherwise, a write is performed.\n");
+    printf("If --write-only is specified, then no readback is performed.\n");
 
     return;
 }
@@ -25,6 +28,8 @@ int main(int argc, char **argv) {
     int direct_connection = 0;
     int have_value = 0;
     int have_address = 0;
+    int write_only = 0;
+    int quiet = 0;
     int c;
     uint32_t address = 0;
     uint32_t value = 0;
@@ -37,11 +42,13 @@ int main(int argc, char **argv) {
             {"target", required_argument, 0, 't'},
             {"port", required_argument, 0, 'p'},
             {"direct", no_argument, 0, 'd'},
+            {"write-only", no_argument, 0, 'w'},
+            {"quiet", no_argument, 0, 'q'},
             {"help", no_argument, 0, 'h'},
             {0, 0, 0, 0},
         };
 
-        c = getopt_long(argc, argv, "a:v:t:p:dh", long_options, &option_index);
+        c = getopt_long(argc, argv, "a:v:t:p:dwqh", long_options, &option_index);
         if (c == -1)
             break;
 
@@ -65,9 +72,17 @@ int main(int argc, char **argv) {
             have_value = 1;
             break;
 
+        case 'q':
+            quiet = 1;
+            break;
+
         case 't':
             fprintf(stderr, "Setting target address: %s\n", optarg);
             host_address = strdup(optarg);
+            break;
+
+        case 'w':
+            write_only = 1;
             break;
 
         case 'p':
@@ -115,13 +130,21 @@ int main(int argc, char **argv) {
     }
 
     if (have_value) {
-        uint32_t old_val = eb_read32(conn, address);
-        eb_write32(conn, address, value);
-        uint32_t new_val = eb_read32(conn, address);
-        fprintf(stderr, "0x%08x 0x%08x -> 0x%08x (wanted: 0x%08x)\n", address, old_val, new_val, value);
+        if (write_only) {
+            eb_write32(conn, value, address);
+            if (!quiet)
+                fprintf(stderr, "0x%08x -> 0x%08x\n", address, value);
+        } else {
+            uint32_t old_val = eb_read32(conn, address);
+            eb_write32(conn, value, address);
+            uint32_t new_val = eb_read32(conn, address);
+            if (!quiet)
+                fprintf(stderr, "0x%08x 0x%08x -> 0x%08x (wanted: 0x%08x)\n", address, old_val, new_val, value);
+        }
     }
     else {
-        fprintf(stderr, "0x%08x: 0x%08x\n", address, eb_read32(conn, address));
+        if (!quiet)
+            fprintf(stderr, "0x%08x: 0x%08x\n", address, eb_read32(conn, address));
     }
 
     eb_disconnect(&conn);
