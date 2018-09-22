@@ -61,13 +61,13 @@ The same type of record is returned, so your data is at offset 16.
 struct eb_connection;
 
 int eb_unfill_read32(uint8_t wb_buffer[20]);
-int eb_fill_write32(uint8_t wb_buffer[20], uint32_t address, uint32_t data);
+int eb_fill_write32(uint8_t wb_buffer[20], uint32_t data, uint32_t address);
 int eb_fill_read32(uint8_t wb_buffer[20], uint32_t address);
 
 struct eb_connection *eb_connect(const char *addr, const char *port, int is_direct);
 void eb_disconnect(struct eb_connection **conn);
 uint32_t eb_read32(struct eb_connection *conn, uint32_t addr);
-void eb_write32(struct eb_connection *conn, uint32_t addr, uint32_t val);
+void eb_write32(struct eb_connection *conn, uint32_t val, uint32_t addr);
 
 #ifdef __cplusplus
 };

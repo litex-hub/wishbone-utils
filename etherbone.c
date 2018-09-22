@@ -28,7 +28,8 @@ int eb_unfill_read32(uint8_t wb_buffer[20]) {
     return buffer;
 }
 
-int eb_fill_readwrite32(uint8_t wb_buffer[20], uint32_t address, uint32_t data, int is_read) {
+int eb_fill_readwrite32(uint8_t wb_buffer[20], uint32_t data, uint32_t address, int is_read) {
+    memset(wb_buffer, 0, 20);
     wb_buffer[0] = 0x4e;	// Magic byte 0
     wb_buffer[1] = 0x6f;	// Magic byte 1
     wb_buffer[2] = 0x10;	// Version 1, all other flags 0
@@ -60,12 +61,12 @@ int eb_fill_readwrite32(uint8_t wb_buffer[20], uint32_t address, uint32_t data, 
     return 20;
 }
 
-int eb_fill_write32(uint8_t wb_buffer[20], uint32_t address, uint32_t data) {
-    return eb_fill_readwrite32(wb_buffer, address, data, 0);
+int eb_fill_write32(uint8_t wb_buffer[20], uint32_t data, uint32_t address) {
+    return eb_fill_readwrite32(wb_buffer, data, address, 0);
 }
 
 int eb_fill_read32(uint8_t wb_buffer[20], uint32_t address) {
-    return eb_fill_readwrite32(wb_buffer, address, 0, 1);
+    return eb_fill_readwrite32(wb_buffer, 0, address, 1);
 }
 
 int eb_send(struct eb_connection *conn, const void *bytes, size_t len) {
@@ -80,9 +81,9 @@ int eb_recv(struct eb_connection *conn, void *bytes, size_t max_len) {
     return read(conn->fd, bytes, max_len);
 }
 
-void eb_write32(struct eb_connection *conn, uint32_t addr, uint32_t val) {
+void eb_write32(struct eb_connection *conn, uint32_t val, uint32_t addr) {
     uint8_t raw_pkt[20];
-    eb_fill_write32(raw_pkt, addr, val);
+    eb_fill_write32(raw_pkt, val, addr);
     eb_send(conn, raw_pkt, sizeof(raw_pkt));
 }
 
