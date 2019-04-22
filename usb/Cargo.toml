@@ -1,0 +1,11 @@
+[package]
+name = "litex-usb-wishbone-bridge"
+version = "0.1.0"
+authors = ["Sean Cross <sean@xobs.io>"]
+edition = "2018"
+
+[dependencies]
+# git = "https://github.com/paritytech/libusb-rs.git"
+libusb-sys = { path="libusb-sys" }
+# git = "https://github.com/paritytech/libusb-rs.git"
+libusb = { path = "libusb-rs" }
