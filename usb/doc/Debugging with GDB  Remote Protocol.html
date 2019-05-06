@@ -1,0 +1,1044 @@
+<html><!-- Created on March, 29  2002 by texi2html 1.64 --><!-- 
+Written by: Lionel Cons <Lionel.Cons@cern.ch> (original author)
+            Karl Berry  <karl@freefriends.org>
+            Olaf Bachmann <obachman@mathematik.uni-kl.de>
+            and many others.
+Maintained by: Olaf Bachmann <obachman@mathematik.uni-kl.de>
+Send bugs and suggestions to <texi2html@mathematik.uni-kl.de>
+ 
+--><head>
+<meta http-equiv="content-type" content="text/html; charset=windows-1252">
+<title>Debugging with GDB: Remote Protocol</title>
+
+<meta name="description" content="Debugging with GDB: Remote Protocol">
+<meta name="keywords" content="Debugging with GDB: Remote Protocol">
+<meta name="resource-type" content="document">
+<meta name="distribution" content="global">
+<meta name="Generator" content="texi2html 1.64">
+
+</head>
+
+<body vlink="#800080" text="#000000" link="#0000FF" lang="" bgcolor="#FFFFFF" alink="#FF0000">
+
+<a name="SEC630"></a>
+<table cellspacing="1" cellpadding="1" border="0">
+<tbody><tr><td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_30.html#SEC629"> &lt; </a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_32.html#SEC631"> &gt; </a>]</td>
+<td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_32.html#SEC631"> &lt;&lt; </a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb.html#SEC_Top"> Up </a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_32.html#SEC631"> &gt;&gt; </a>]</td>
+<td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb.html#SEC_Top">Top</a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_toc.html#SEC_Contents">Contents</a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_34.html#SEC636">Index</a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_abt.html#SEC_About"> ? </a>]</td>
+</tr></tbody></table>
+<h1> D. GDB Remote Serial Protocol </h1>
+<!--docid::SEC630::-->
+<p>
+
+There may be occasions when you need to know something about the
+protocol--for example, if there is only one serial port to your target
+machine, you might want your program to do something special if it
+recognizes a packet meant for GDB.
+</p><p>
+
+In the examples below, <samp>`&lt;-'</samp> and <samp>`-&gt;'</samp> are used to indicate
+transmitted and received data respectfully.
+</p><p>
+
+<a name="IDX1148"></a>
+<a name="IDX1149"></a>
+<a name="IDX1150"></a>
+All GDB commands and responses (other than acknowledgments) are
+sent as a <var>packet</var>.  A <var>packet</var> is introduced with the character
+<samp>`$'</samp>, the actual <var>packet-data</var>, and the terminating character
+<samp>`#'</samp> followed by a two-digit <var>checksum</var>:
+</p><p>
+
+<table><tbody><tr><td>&nbsp;</td><td class="smallexample"><font size="-1"></font><pre><font size="-1"><code>$</code><var>packet-data</var><code>#</code><var>checksum</var>
+</font></pre></td></tr></tbody></table></p><p>
+
+<a name="IDX1151"></a>
+The two-digit <var>checksum</var> is computed as the modulo 256 sum of all
+characters between the leading <samp>`$'</samp> and the trailing <samp>`#'</samp> (an
+eight bit unsigned checksum).
+</p><p>
+
+Implementors should note that prior to GDB 5.0 the protocol
+specification also included an optional two-digit <var>sequence-id</var>:
+</p><p>
+
+<table><tbody><tr><td>&nbsp;</td><td class="smallexample"><font size="-1"></font><pre><font size="-1"><code>$</code><var>sequence-id</var><code>:</code><var>packet-data</var><code>#</code><var>checksum</var>
+</font></pre></td></tr></tbody></table></p><p>
+
+<a name="IDX1152"></a>
+That <var>sequence-id</var> was appended to the acknowledgment.  GDB
+has never output <var>sequence-id</var>s.  Stubs that handle packets added
+since GDB 5.0 must not accept <var>sequence-id</var>.
+</p><p>
+
+<a name="IDX1153"></a>
+When either the host or the target machine receives a packet, the first
+response expected is an acknowledgment: either <samp>`+'</samp> (to indicate
+the package was received correctly) or <samp>`-'</samp> (to request
+retransmission):
+</p><p>
+
+<table><tbody><tr><td>&nbsp;</td><td class="smallexample"><font size="-1"></font><pre><font size="-1">&lt;- <code>$</code><var>packet-data</var><code>#</code><var>checksum</var>
+-&gt; <code>+</code>
+</font></pre></td></tr></tbody></table></p><p>
+
+The host (GDB) sends <var>command</var>s, and the target (the
+debugging stub incorporated in your program) sends a <var>response</var>.  In
+the case of step and continue <var>command</var>s, the response is only sent
+when the operation has completed (the target has again stopped).
+</p><p>
+
+<var>packet-data</var> consists of a sequence of characters with the
+exception of <samp>`#'</samp> and <samp>`$'</samp> (see <samp>`X'</samp> packet for additional
+exceptions).
+</p><p>
+
+Fields within the packet should be separated using <samp>`,'</samp> <samp>`;'</samp> or
+<samp>`:'</samp>.  Except where otherwise noted all numbers are represented in
+HEX with leading zeros suppressed.
+</p><p>
+
+Implementors should note that prior to GDB 5.0, the character
+<samp>`:'</samp> could not appear as the third character in a packet (as it
+would potentially conflict with the <var>sequence-id</var>).
+</p><p>
+
+Response <var>data</var> can be run-length encoded to save space.  A <samp>`*'</samp>
+means that the next character is an ASCII encoding giving a repeat count
+which stands for that many repetitions of the character preceding the
+<samp>`*'</samp>.  The encoding is <code>n+29</code>, yielding a printable character
+where <code>n &gt;=3</code> (which is where rle starts to win).  The printable
+characters <samp>`$'</samp>, <samp>`#'</samp>, <samp>`+'</samp> and <samp>`-'</samp> or with a numeric
+value greater than 126 should not be used.
+</p><p>
+
+Some remote systems have used a different run-length encoding mechanism
+loosely refered to as the cisco encoding.  Following the <samp>`*'</samp>
+character are two hex digits that indicate the size of the packet.
+</p><p>
+
+So:
+<table><tbody><tr><td>&nbsp;</td><td class="smallexample"><font size="-1"></font><pre><font size="-1">"<code>0* </code>"
+</font></pre></td></tr></tbody></table>means the same as "0000".
+</p><p>
+
+The error response returned for some packets includes a two character
+error number.  That number is not well defined.
+</p><p>
+
+For any <var>command</var> not supported by the stub, an empty response
+(<samp>`$#00'</samp>) should be returned.  That way it is possible to extend the
+protocol.  A newer GDB can tell if a packet is supported based
+on that response.
+</p><p>
+
+A stub is required to support the <samp>`g'</samp>, <samp>`G'</samp>, <samp>`m'</samp>, <samp>`M'</samp>, 
+<samp>`c'</samp>, and <samp>`s'</samp> <var>command</var>s.  All other <var>command</var>s are 
+optional.
+</p><p>
+
+Below is a complete list of all currently defined <var>command</var>s and
+their corresponding response <var>data</var>:
+<table>
+<tbody><tr><td>Packet</td>
+<td> Request
+</td><td> Description
+
+</td></tr>
+<tr><td>extended mode</td>
+<td> <code>!</code>
+</td><td>
+Enable extended mode.  In extended mode, the remote server is made
+persistent.  The <samp>`R'</samp> packet is used to restart the program being
+debugged.
+</td></tr>
+<tr><td></td>
+<td> reply <samp>`OK'</samp>
+</td><td>
+The remote target both supports and has enabled extended mode.
+
+</td></tr>
+<tr><td>last signal</td>
+<td> <code>?</code>
+</td><td>
+Indicate the reason the target halted.  The reply is the same as for step
+and continue.
+</td></tr>
+<tr><td></td>
+<td> reply
+</td><td> see below
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>a</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>set program arguments <strong>(reserved)</strong></td>
+<td> <code>A</code><var>arglen</var><code>,</code><var>argnum</var><code>,</code><var>arg</var><code>,...</code>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+Initialized <samp>`argv[]'</samp> array passed into program. <var>arglen</var>
+specifies the number of bytes in the hex encoded byte stream <var>arg</var>.
+See <tt>`gdbserver'</tt> for more details.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+
+</td></tr>
+<tr><td>set baud <strong>(deprecated)</strong></td>
+<td> <code>b</code><var>baud</var>
+</td><td>
+Change the serial line speed to <var>baud</var>.  JTC: <em>When does the
+transport layer state change?  When it's received, or after the ACK is
+transmitted.  In either case, there are problems if the command or the
+acknowledgment packet is dropped.</em> Stan: <em>If people really wanted
+to add something like this, and get it working for the first time, they
+ought to modify ser-unix.c to send some kind of out-of-band message to a
+specially-setup stub and have the switch happen "in between" packets, so
+that from remote protocol's point of view, nothing actually
+happened.</em>
+
+</td></tr>
+<tr><td>set breakpoint <strong>(deprecated)</strong></td>
+<td> <code>B</code><var>addr</var>,<var>mode</var>
+</td><td>
+Set (<var>mode</var> is <samp>`S'</samp>) or clear (<var>mode</var> is <samp>`C'</samp>) a
+breakpoint at <var>addr</var>.  <em>This has been replaced by the <samp>`Z'</samp> and
+<samp>`z'</samp> packets.</em>
+
+</td></tr>
+<tr><td>continue</td>
+<td> <code>c</code><var>addr</var>
+</td><td>
+<var>addr</var> is address to resume. If <var>addr</var> is omitted, resume at
+current address.
+</td></tr>
+<tr><td></td>
+<td> reply
+</td><td> see below
+
+</td></tr>
+<tr><td>continue with signal</td>
+<td> <code>C</code><var>sig</var><code>;</code><var>addr</var>
+</td><td>
+Continue with signal <var>sig</var> (hex signal number).  If
+<code>;</code><var>addr</var> is omitted, resume at same address.
+</td></tr>
+<tr><td></td>
+<td> reply
+</td><td> see below
+
+</td></tr>
+<tr><td>toggle debug <strong>(deprecated)</strong></td>
+<td> <code>d</code>
+</td><td>
+toggle debug flag.
+
+</td></tr>
+<tr><td>detach</td>
+<td> <code>D</code>
+</td><td>
+Detach GDB from the remote system.  Sent to the remote target before
+GDB disconnects.
+</td></tr>
+<tr><td></td>
+<td> reply <em>no response</em>
+</td><td>
+GDB does not check for any response after sending this packet.
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>e</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>E</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>f</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>F</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>read registers</td>
+<td> <code>g</code>
+</td><td> Read general registers.
+</td></tr>
+<tr><td></td>
+<td> reply <var>XX...</var>
+</td><td>
+Each byte of register data is described by two hex digits.  The bytes
+with the register are transmitted in target byte order.  The size of
+each register and their position within the <samp>`g'</samp> <var>packet</var> are
+determined by the GDB internal macros <var>REGISTER_RAW_SIZE</var> and
+<var>REGISTER_NAME</var> macros.  The specification of several standard
+<code>g</code> packets is specified below.
+</td></tr>
+<tr><td></td>
+<td> <code>E</code><var>NN</var>
+</td><td> for an error.
+
+</td></tr>
+<tr><td>write regs</td>
+<td> <code>G</code><var>XX...</var>
+</td><td>
+See <samp>`g'</samp> for a description of the <var>XX...</var> data.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td> for success
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> for an error
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>h</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>set thread</td>
+<td> <code>H</code><var>c</var><var>t...</var>
+</td><td>
+Set thread for subsequent operations (<samp>`m'</samp>, <samp>`M'</samp>, <samp>`g'</samp>,
+<samp>`G'</samp>, et.al.).  <var>c</var> = <samp>`c'</samp> for thread used in step and
+continue; <var>t...</var> can be -1 for all threads.  <var>c</var> = <samp>`g'</samp> for
+thread used in other operations.  If zero, pick a thread, any thread.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td> for success
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> for an error
+
+</td></tr>
+<tr><td>cycle step <strong>(draft)</strong></td>
+<td> <code>i</code><var>addr</var><code>,</code><var>nnn</var>
+</td><td>
+Step the remote target by a single clock cycle.  If <code>,</code><var>nnn</var> is
+present, cycle step <var>nnn</var> cycles.  If <var>addr</var> is present, cycle
+step starting at that address.
+
+</td></tr>
+<tr><td>signal then cycle step <strong>(reserved)</strong></td>
+<td> <code>I</code>
+</td><td>
+See <samp>`i'</samp> and <samp>`S'</samp> for likely syntax and semantics.
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>j</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>J</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>kill request</td>
+<td> <code>k</code>
+</td><td>
+FIXME: <em>There is no description of how to operate when a specific
+thread context has been selected (i.e. does 'k' kill only that thread?)</em>.
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>l</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>L</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>read memory</td>
+<td> <code>m</code><var>addr</var><code>,</code><var>length</var>
+</td><td>
+Read <var>length</var> bytes of memory starting at address <var>addr</var>.
+Neither GDB nor the stub assume that sized memory transfers are assumed
+using word alligned accesses. FIXME: <em>A word aligned memory
+transfer mechanism is needed.</em>
+</td></tr>
+<tr><td></td>
+<td> reply <var>XX...</var>
+</td><td>
+<var>XX...</var> is mem contents. Can be fewer bytes than requested if able
+to read only part of the data.  Neither GDB nor the stub assume that
+sized memory transfers are assumed using word alligned accesses. FIXME:
+<em>A word aligned memory transfer mechanism is needed.</em>
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> <var>NN</var> is errno
+
+</td></tr>
+<tr><td>write mem</td>
+<td> <code>M</code><var>addr</var>,<var>length</var><code>:</code><var>XX...</var>
+</td><td>
+Write <var>length</var> bytes of memory starting at address <var>addr</var>.
+<var>XX...</var> is the data.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td> for success
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td>
+for an error (this includes the case where only part of the data was
+written).
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>n</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>N</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>o</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>O</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>read reg <strong>(reserved)</strong></td>
+<td> <code>p</code><var>n...</var>
+</td><td>
+See write register.
+</td></tr>
+<tr><td></td>
+<td> return <var>r....</var>
+</td><td> The hex encoded value of the register in target byte order.
+
+</td></tr>
+<tr><td>write reg</td>
+<td> <code>P</code><var>n...</var><code>=</code><var>r...</var>
+</td><td>
+Write register <var>n...</var> with value <var>r...</var>, which contains two hex
+digits for each byte in the register (target byte order).
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td> for success
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> for an error
+
+</td></tr>
+<tr><td>general query</td>
+<td> <code>q</code><var>query</var>
+</td><td>
+Request info about <var>query</var>.  In general GDB queries
+have a leading upper case letter.  Custom vendor queries should use a
+company prefix (in lower case) ex: <samp>`qfsf.var'</samp>.  <var>query</var> may
+optionally be followed by a <samp>`,'</samp> or <samp>`;'</samp> separated list.  Stubs
+must ensure that they match the full <var>query</var> name.
+</td></tr>
+<tr><td></td>
+<td> reply <code>XX...</code>
+</td><td> Hex encoded data from query.  The reply can not be empty.
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> error reply
+</td></tr>
+<tr><td></td>
+<td> reply <samp>`'</samp>
+</td><td> Indicating an unrecognized <var>query</var>.
+
+</td></tr>
+<tr><td>general set</td>
+<td> <code>Q</code><var>var</var><code>=</code><var>val</var>
+</td><td>
+Set value of <var>var</var> to <var>val</var>.  See <samp>`q'</samp> for a discussing of
+naming conventions.
+
+</td></tr>
+<tr><td>reset <strong>(deprecated)</strong></td>
+<td> <code>r</code>
+</td><td>
+Reset the entire system.
+
+</td></tr>
+<tr><td>remote restart</td>
+<td> <code>R</code><var>XX</var>
+</td><td>
+Restart the program being debugged.  <var>XX</var>, while needed, is ignored.
+This packet is only available in extended mode.
+</td></tr>
+<tr><td></td>
+<td>
+no reply
+</td><td>
+The <samp>`R'</samp> packet has no reply.
+
+</td></tr>
+<tr><td>step</td>
+<td> <code>s</code><var>addr</var>
+</td><td>
+<var>addr</var> is address to resume.  If <var>addr</var> is omitted, resume at
+same address.
+</td></tr>
+<tr><td></td>
+<td> reply
+</td><td> see below
+
+</td></tr>
+<tr><td>step with signal</td>
+<td> <code>S</code><var>sig</var><code>;</code><var>addr</var>
+</td><td>
+Like <samp>`C'</samp> but step not continue.
+</td></tr>
+<tr><td></td>
+<td> reply
+</td><td> see below
+
+</td></tr>
+<tr><td>search</td>
+<td> <code>t</code><var>addr</var><code>:</code><var>PP</var><code>,</code><var>MM</var>
+</td><td>
+Search backwards starting at address <var>addr</var> for a match with pattern
+<var>PP</var> and mask <var>MM</var>.  <var>PP</var> and <var>MM</var> are 4
+bytes.  <var>addr</var> must be at least 3 digits.
+
+</td></tr>
+<tr><td>thread alive</td>
+<td> <code>T</code><var>XX</var>
+</td><td> Find out if the thread XX is alive.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td> thread is still alive
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> thread is dead
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>u</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>U</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>v</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>V</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>w</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>W</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>x</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>write mem (binary)</td>
+<td> <code>X</code><var>addr</var><code>,</code><var>length</var><var>:</var><var>XX...</var>
+</td><td>
+<var>addr</var> is address, <var>length</var> is number of bytes, <var>XX...</var> is
+binary data.  The characters <code>$</code>, <code>#</code>, and <code>0x7d</code> are
+escaped using <code>0x7d</code>.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td> for success
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> for an error
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>y</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>reserved</td>
+<td> <code>Y</code>
+</td><td> Reserved for future use
+
+</td></tr>
+<tr><td>remove break or watchpoint <strong>(draft)</strong></td>
+<td> <code>z</code><var>t</var><code>,</code><var>addr</var><code>,</code><var>length</var>
+</td><td>
+See <samp>`Z'</samp>.
+
+</td></tr>
+<tr><td>insert break or watchpoint <strong>(draft)</strong></td>
+<td> <code>Z</code><var>t</var><code>,</code><var>addr</var><code>,</code><var>length</var>
+</td><td>
+<var>t</var> is type: <samp>`0'</samp> - software breakpoint, <samp>`1'</samp> - hardware
+breakpoint, <samp>`2'</samp> - write watchpoint, <samp>`3'</samp> - read watchpoint,
+<samp>`4'</samp> - access watchpoint; <var>addr</var> is address; <var>length</var> is in
+bytes.  For a software breakpoint, <var>length</var> specifies the size of
+the instruction to be patched.  For hardware breakpoints and watchpoints
+<var>length</var> specifies the memory region to be monitored.  To avoid
+potential problems with duplicate packets, the operations should be
+implemented in an idempotent way.
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> for an error
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td> for success
+</td></tr>
+<tr><td></td>
+<td> <samp>`'</samp>
+</td><td> If not supported.
+
+</td></tr>
+<tr><td>reserved</td>
+<td> &lt;other&gt;
+</td><td> Reserved for future use
+
+</td></tr></tbody></table>
+</p><p>
+
+The <samp>`C'</samp>, <samp>`c'</samp>, <samp>`S'</samp>, <samp>`s'</samp> and <samp>`?'</samp> packets can
+receive any of the below as a reply.  In the case of the <samp>`C'</samp>,
+<samp>`c'</samp>, <samp>`S'</samp> and <samp>`s'</samp> packets, that reply is only returned
+when the target halts.  In the below the exact meaning of <samp>`signal
+number'</samp> is poorly defined.  In general one of the UNIX signal numbering
+conventions is used.
+</p><p>
+
+<table>
+
+<tbody><tr><td><code>S</code><var>AA</var></td>
+<td> <var>AA</var> is the signal number
+
+</td></tr>
+<tr><td><code>T</code><var>AA</var><var>n...</var><code>:</code><var>r...</var><code>;</code><var>n...</var><code>:</code><var>r...</var><code>;</code><var>n...</var><code>:</code><var>r...</var><code>;</code></td>
+<td>
+<var>AA</var> = two hex digit signal number; <var>n...</var> = register number
+(hex), <var>r...</var>  = target byte ordered register contents, size defined
+by <code>REGISTER_RAW_SIZE</code>; <var>n...</var> = <samp>`thread'</samp>, <var>r...</var> =
+thread process ID, this is a hex integer; <var>n...</var> = other string not
+starting with valid hex digit.  GDB should ignore this
+<var>n...</var>, <var>r...</var> pair and go on to the next.  This way we can
+extend the protocol.
+
+</td></tr>
+<tr><td><code>W</code><var>AA</var></td>
+<td>
+The process exited, and <var>AA</var> is the exit status.  This is only
+applicable for certains sorts of targets.
+
+</td></tr>
+<tr><td><code>X</code><var>AA</var></td>
+<td>
+The process terminated with signal <var>AA</var>.
+
+</td></tr>
+<tr><td><code>N</code><var>AA</var><code>;</code><var>t...</var><code>;</code><var>d...</var><code>;</code><var>b...</var> <strong>(obsolete)</strong></td>
+<td>
+<var>AA</var> = signal number; <var>t...</var> = address of symbol "_start";
+<var>d...</var> = base of data section; <var>b...</var> = base of bss section.
+<em>Note: only used by Cisco Systems targets.  The difference between
+this reply and the "qOffsets" query is that the 'N' packet may arrive
+spontaneously whereas the 'qOffsets' is a query initiated by the host
+debugger.</em>
+
+</td></tr>
+<tr><td><code>O</code><var>XX...</var></td>
+<td>
+<var>XX...</var> is hex encoding of ASCII data.  This can happen at any time
+while the program is running and the debugger should continue to wait
+for 'W', 'T', etc.
+
+</td></tr></tbody></table>
+</p><p>
+
+The following set and query packets have already been defined.
+</p><p>
+
+<table>
+
+<tbody><tr><td>current thread</td>
+<td> <code>q</code><code>C</code>
+</td><td> Return the current thread id.
+</td></tr>
+<tr><td></td>
+<td> reply <code>QC</code><var>pid</var>
+</td><td>
+Where <var>pid</var> is a HEX encoded 16 bit process id.
+</td></tr>
+<tr><td></td>
+<td> reply *
+</td><td> Any other reply implies the old pid.
+
+</td></tr>
+<tr><td>all thread ids</td>
+<td> <code>q</code><code>fThreadInfo</code>
+</td></tr>
+<tr><td></td>
+<td> <code>q</code><code>sThreadInfo</code>
+</td><td>
+Obtain a list of active thread ids from the target (OS).  Since there
+may be too many active threads to fit into one reply packet, this query
+works iteratively: it may require more than one query/reply sequence to
+obtain the entire list of threads.  The first query of the sequence will
+be the <code>qf</code><code>ThreadInfo</code> query; subsequent queries in the
+sequence will be the <code>qs</code><code>ThreadInfo</code> query.
+</td></tr>
+<tr><td></td>
+<td>
+</td><td> NOTE: replaces the <code>qL</code> query (see below).
+</td></tr>
+<tr><td></td>
+<td> reply <code>m</code><var>&lt;id&gt;</var>
+</td><td> A single thread id
+</td></tr>
+<tr><td></td>
+<td> reply <code>m</code><var>&lt;id&gt;</var>,<var>&lt;id&gt;...</var>
+</td><td> a comma-separated list of thread ids
+</td></tr>
+<tr><td></td>
+<td> reply <code>l</code>
+</td><td> (lower case 'el') denotes end of list.
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+In response to each query, the target will reply with a list of one
+or more thread ids, in big-endian hex, separated by commas.  GDB will
+respond to each reply with a request for more thread ids (using the
+<code>qs</code> form of the query), until the target responds with <code>l</code>
+(lower-case el, for <code>'last'</code>).
+
+</td></tr>
+<tr><td>extra thread info</td>
+<td> <code>q</code><code>ThreadExtraInfo</code><code>,</code><var>id</var>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+Where <var>&lt;id&gt;</var> is a thread-id in big-endian hex.
+Obtain a printable string description of a thread's attributes from
+the target OS.  This string may contain anything that the target OS
+thinks is interesting for GDB to tell the user about the thread.
+The string is displayed in GDB's <samp>`info threads'</samp> display.
+Some examples of possible thread extra info strings are "Runnable", or
+"Blocked on Mutex".
+</td></tr>
+<tr><td></td>
+<td> reply <var>XX...</var>
+</td><td>
+Where <var>XX...</var> is a hex encoding of ASCII data, comprising the
+printable string containing the extra information about the thread's
+attributes.
+
+</td></tr>
+<tr><td>query <var>LIST</var> or <var>threadLIST</var> <strong>(deprecated)</strong></td>
+<td> <code>q</code><code>L</code><var>startflag</var><var>threadcount</var><var>nextthread</var>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+Obtain thread information from RTOS.  Where: <var>startflag</var> (one hex
+digit) is one to indicate the first query and zero to indicate a
+subsequent query; <var>threadcount</var> (two hex digits) is the maximum
+number of threads the response packet can contain; and <var>nextthread</var>
+(eight hex digits), for subsequent queries (<var>startflag</var> is zero), is
+returned in the response as <var>argthread</var>.
+</td></tr>
+<tr><td></td>
+<td>
+</td><td> NOTE: this query is replaced by the <code>q</code><code>fThreadInfo</code>
+query (see above).
+</td></tr>
+<tr><td></td>
+<td> reply <code>q</code><code>M</code><var>count</var><var>done</var><var>argthread</var><var>thread...</var>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+Where: <var>count</var> (two hex digits) is the number of threads being
+returned; <var>done</var> (one hex digit) is zero to indicate more threads
+and one indicates no further threads; <var>argthreadid</var> (eight hex
+digits) is <var>nextthread</var> from the request packet; <var>thread...</var> is
+a sequence of thread IDs from the target.  <var>threadid</var> (eight hex
+digits).  See <code>remote.c:parse_threadlist_response()</code>.
+
+</td></tr>
+<tr><td>compute CRC of memory block</td>
+<td> <code>q</code><code>CRC:</code><var>addr</var><code>,</code><var>length</var>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td> An error (such as memory fault)
+</td></tr>
+<tr><td></td>
+<td> reply <code>C</code><var>CRC32</var>
+</td><td> A 32 bit cyclic redundancy check of the specified memory region.
+
+</td></tr>
+<tr><td>query sect offs</td>
+<td> <code>q</code><code>Offsets</code>
+</td><td>
+Get section offsets that the target used when re-locating the downloaded
+image.  <em>Note: while a <code>Bss</code> offset is included in the
+response, GDB ignores this and instead applies the <code>Data</code>
+offset to the <code>Bss</code> section.</em>
+</td></tr>
+<tr><td></td>
+<td> reply <code>Text=</code><var>xxx</var><code>;Data=</code><var>yyy</var><code>;Bss=</code><var>zzz</var>
+
+</td></tr>
+<tr><td>thread info request</td>
+<td> <code>q</code><code>P</code><var>mode</var><var>threadid</var>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+Returns information on <var>threadid</var>.  Where: <var>mode</var> is a hex
+encoded 32 bit mode; <var>threadid</var> is a hex encoded 64 bit thread ID.
+</td></tr>
+<tr><td></td>
+<td> reply *
+</td><td>
+See <code>remote.c:remote_unpack_thread_info_response()</code>.
+
+</td></tr>
+<tr><td>remote command</td>
+<td> <code>q</code><code>Rcmd,</code><var>COMMAND</var>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+<var>COMMAND</var> (hex encoded) is passed to the local interpreter for
+execution.  Invalid commands should be reported using the output string.
+Before the final result packet, the target may also respond with a
+number of intermediate <code>O</code><var>OUTPUT</var> console output
+packets.  <em>Implementors should note that providing access to a
+stubs's interpreter may have security implications</em>.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td>
+A command response with no output.
+</td></tr>
+<tr><td></td>
+<td> reply <var>OUTPUT</var>
+</td><td>
+A command response with the hex encoded output string <var>OUTPUT</var>.
+</td></tr>
+<tr><td></td>
+<td> reply <code>E</code><var>NN</var>
+</td><td>
+Indicate a badly formed request.
+
+</td></tr>
+<tr><td></td>
+<td> reply <samp>`'</samp>
+</td><td>
+When <samp>`q'</samp><samp>`Rcmd'</samp> is not recognized.
+
+</td></tr>
+<tr><td>symbol lookup</td>
+<td> <code>qSymbol::</code>
+</td><td>
+Notify the target that GDB is prepared to serve symbol lookup
+requests.  Accept requests from the target for the values of symbols.
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td>
+The target does not need to look up any (more) symbols.
+</td></tr>
+<tr><td></td>
+<td> reply <code>qSymbol:</code><var>sym_name</var>
+</td><td>
+The target requests the value of symbol <var>sym_name</var> (hex encoded).  
+GDB may provide the value by using the 
+<code>qSymbol:</code><var>sym_value</var>:<var>sym_name</var>
+message, described below.
+
+</td></tr>
+<tr><td>symbol value</td>
+<td> <code>qSymbol:</code><var>sym_value</var>:<var>sym_name</var>
+</td><td>
+Set the value of SYM_NAME to SYM_VALUE.
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+<var>sym_name</var> (hex encoded) is the name of a symbol whose value
+the target has previously requested.
+</td></tr>
+<tr><td></td>
+<td>
+</td><td>
+<var>sym_value</var> (hex) is the value for symbol <var>sym_name</var>.
+If GDB cannot supply a value for <var>sym_name</var>, then this
+field will be empty.
+</td></tr>
+<tr><td></td>
+<td> reply <code>OK</code>
+</td><td>
+The target does not need to look up any (more) symbols.
+</td></tr>
+<tr><td></td>
+<td> reply <code>qSymbol:</code><var>sym_name</var>
+</td><td>
+The target requests the value of a new symbol <var>sym_name</var> (hex encoded).
+GDB will continue to supply the values of symbols (if available),
+until the target ceases to request them.
+
+</td></tr></tbody></table>
+</p><p>
+
+The following <samp>`g'</samp>/<samp>`G'</samp> packets have previously been defined.
+In the below, some thirty-two bit registers are transferred as sixty-four
+bits.  Those registers should be zero/sign extended (which?) to fill the
+space allocated.  Register bytes are transfered in target byte order.
+The two nibbles within a register byte are transfered most-significant -
+least-significant.
+</p><p>
+
+<table>
+
+<tbody><tr><td>MIPS32</td>
+<td>
+All registers are transfered as thirty-two bit quantities in the order:
+32 general-purpose; sr; lo; hi; bad; cause; pc; 32 floating-point
+registers; fsr; fir; fp.
+
+</td></tr>
+<tr><td>MIPS64</td>
+<td>
+All registers are transfered as sixty-four bit quantities (including
+thirty-two bit registers such as <code>sr</code>).  The ordering is the same
+as <code>MIPS32</code>.
+
+</td></tr></tbody></table>
+</p><p>
+
+Example sequence of a target being re-started.  Notice how the restart
+does not get any direct output:
+</p><p>
+
+<table><tbody><tr><td>&nbsp;</td><td class="smallexample"><font size="-1"></font><pre><font size="-1">&lt;- <code>R00</code>
+-&gt; <code>+</code>
+<em>target restarts</em>
+&lt;- <code>?</code>
+-&gt; <code>+</code>
+-&gt; <code>T001:1234123412341234</code>
+&lt;- <code>+</code>
+</font></pre></td></tr></tbody></table></p><p>
+
+Example sequence of a target being stepped by a single instruction:
+</p><p>
+
+<table><tbody><tr><td>&nbsp;</td><td class="smallexample"><font size="-1"></font><pre><font size="-1">&lt;- <code>G1445...</code>
+-&gt; <code>+</code>
+&lt;- <code>s</code>
+-&gt; <code>+</code>
+<em>time passes</em>
+-&gt; <code>T001:1234123412341234</code>
+&lt;- <code>+</code>
+&lt;- <code>g</code>
+-&gt; <code>+</code>
+-&gt; <code>1455...</code>
+&lt;- <code>+</code>
+</font></pre></td></tr></tbody></table></p><p>
+
+<a name="Copying"></a>
+</p><hr size="6">
+<table cellspacing="1" cellpadding="1" border="0">
+<tbody><tr><td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_32.html#SEC631"> &lt;&lt; </a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_32.html#SEC631"> &gt;&gt; </a>]</td>
+<td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT"> &nbsp; </td><td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb.html#SEC_Top">Top</a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_toc.html#SEC_Contents">Contents</a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_34.html#SEC636">Index</a>]</td>
+<td valign="MIDDLE" align="LEFT">[<a href="http://davis.lbl.gov/Manuals/GDB/gdb_abt.html#SEC_About"> ? </a>]</td>
+</tr></tbody></table>
+<br>  
+<font size="-1">
+
+<address>
+
+<p>Please send FSF &amp; GNU inquiries &amp; questions to <a href="mailto:gnu@gnu.org">gnu@gnu.org</a>.  There are also <a href="http://www.gnu.org/home.html#ContactInfo">other ways to
+contact</a> the FSF.</p>
+
+<p>These pages are maintained by <a href="http://www.gnu.org/software/gdb/">the GDB developers</a>.</p>
+
+<p>Copyright Free Software Foundation, Inc., 59 Temple Place - Suite
+330, Boston, MA 02111, USA.</p>
+
+<p>Verbatim copying and distribution of this entire article is
+permitted in any medium, provided this notice is preserved.</p>
+
+</address>
+
+This document was generated
+by <i>GDB Administrator</i> on <i>March, 29  2002</i>
+using <a href="http://www.mathematik.uni-kl.de/~obachman/Texi2html"><i>texi2html</i></a>
+
+
+
+</font></body></html>
