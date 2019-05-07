@@ -30,7 +30,7 @@ impl std::convert::From<io::Error> for GdbServerError {
 }
 
 impl std::convert::From<std::num::ParseIntError> for GdbServerError {
-    fn from(e: std::num::ParseIntError) -> Self {
+    fn from(_e: std::num::ParseIntError) -> Self {
         GdbServerError::ParseIntError
     }
 }

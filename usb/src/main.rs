@@ -13,8 +13,6 @@ use config::Config;
 use bridge::BridgeKind;
 use usb_bridge::UsbBridge;
 
-fn wishbone_server(cfg: &Config, usb: &libusb::DeviceHandle) {}
-
 fn main() {
     let matches = App::new("Wishbone USB Adapter")
         .version("1.0")
@@ -69,19 +67,34 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("kind")
-                .short("k")
+            Arg::with_name("bridge-kind")
+                .short("s")
                 .long("server-kind")
+                .takes_value(true)
                 .possible_values(&["gdb", "wishbone"])
-                .default_value("wishbone"),
         )
         .get_matches();
 
     let cfg = Config::parse(matches).unwrap();
-    let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
-    let mut usb_bridge = UsbBridge::new(&cfg).unwrap();
+    let usb_bridge = UsbBridge::new(&cfg).unwrap();
+    usb_bridge.connect().unwrap();
 
-/*
+    match cfg.bridge_kind {
+        BridgeKind::GDB => {
+            loop {
+                let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
+                loop {
+                    if let Err(e) = gdb.process() {
+                        println!("Error in GDB server: {:?}", e);
+                        break;
+                    }
+                }
+            }
+        },
+        BridgeKind::Wishbone => {
+            ()
+        },
+        BridgeKind::None => {
             if let Some(addr) = cfg.memory_address {
                 if let Some(value) = cfg.memory_value {
                     usb_bridge.poke(addr, value).unwrap();
@@ -89,17 +102,9 @@ fn main() {
                     let val = usb_bridge.peek(addr).unwrap();
                     println!("Value at {:08x}: {:08x}", addr, val);
                 }
+            } else {
+                panic!("No operation and no address specified!");
             }
-
-            match cfg.bridge_kind {
-                BridgeKind::None => (),
-                BridgeKind::GDB => {
-                    let server = gdb::GdbServer::new(&cfg);
-                    loop {
-                        gdb.process().unwrap();
-                    }
-                }
-                BridgeKind::Wishbone => wishbone_server(&cfg, &usb),
-            }
-            */
+        }
+    }
 }

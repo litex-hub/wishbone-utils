@@ -15,7 +15,7 @@ pub struct Config {
 #[derive(Debug)]
 pub enum ConfigError {
     /// Couldn't parse string as number
-    NumberParseError,
+    NumberParseError(std::num::ParseIntError),
 
     /// Specified a bridge kind that we didn't recognize
     UnknownBridgeKind(String),
@@ -23,7 +23,7 @@ pub enum ConfigError {
 
 impl std::convert::From<std::num::ParseIntError> for ConfigError {
     fn from(e: std::num::ParseIntError) -> Self {
-        ConfigError::NumberParseError
+        ConfigError::NumberParseError(e)
     }
 }
 
@@ -65,7 +65,7 @@ impl Config {
             "127.0.0.1".to_owned()
         };
 
-        let bridge_kind = BridgeKind::from_string(&matches.value_of("server-kind"))?;
+        let bridge_kind = BridgeKind::from_string(&matches.value_of("bridge-kind"))?;
 
         Ok(Config {
             usb_pid,

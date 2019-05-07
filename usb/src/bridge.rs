@@ -23,6 +23,12 @@ pub enum BridgeError {
     NotConnected,
 }
 
+impl std::convert::From<libusb::Error> for BridgeError {
+    fn from(e: libusb::Error) -> BridgeError {
+        BridgeError::USBError(e)
+    }
+}
+
 impl BridgeKind {
     pub fn from_string(item: &Option<&str>) -> Result<BridgeKind, ConfigError> {
         match item {
