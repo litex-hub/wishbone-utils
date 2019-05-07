@@ -5,8 +5,10 @@ authors = ["Sean Cross <sean@xobs.io>"]
 edition = "2018"
 
 [dependencies]
+byteorder = "1"
+clap = "2"
+
 # git = "https://github.com/paritytech/libusb-rs.git"
 libusb-sys = { path="libusb-sys" }
 # git = "https://github.com/paritytech/libusb-rs.git"
 libusb = { path = "libusb-rs" }
-clap = "2"

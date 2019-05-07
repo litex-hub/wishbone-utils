@@ -1,4 +1,5 @@
-use super::config::ConfigError;
+use super::config::{ConfigError, Config};
+use super::usb_bridge::UsbBridge;
 
 pub enum BridgeKind {
     /// Wishbone bridge
@@ -9,6 +10,10 @@ pub enum BridgeKind {
 
     /// No server
     None,
+}
+
+pub enum Bridge {
+    UsbBridge(UsbBridge),
 }
 
 #[derive(Debug)]
@@ -38,6 +43,30 @@ impl BridgeKind {
                 "wishbone" => Ok(BridgeKind::Wishbone),
                 unknown => Err(ConfigError::UnknownBridgeKind(unknown.to_owned())),
             },
+        }
+    }
+}
+
+impl Bridge {
+    pub fn new(cfg: &Config) -> Result<Bridge, BridgeError> {
+        Ok(Bridge::UsbBridge(UsbBridge::new(cfg)?))
+    }
+
+    pub fn connect(&self) -> Result<(), BridgeError> {
+        match self {
+            Bridge::UsbBridge(b) => b.connect()
+        }
+    }
+
+    pub fn peek(&self, addr: u32) -> Result<u32, BridgeError> {
+        match self {
+            Bridge::UsbBridge(b) => b.peek(addr),
+        }
+    }
+
+    pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
+        match self {
+            Bridge::UsbBridge(b) => b.poke(addr, value)
         }
     }
 }

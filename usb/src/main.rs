@@ -4,14 +4,14 @@ extern crate libusb;
 mod bridge;
 mod config;
 mod gdb;
-mod utils;
 mod usb_bridge;
+mod utils;
+mod wishbone;
 
 use clap::{App, Arg};
 use config::Config;
 
-use bridge::BridgeKind;
-use usb_bridge::UsbBridge;
+use bridge::{Bridge, BridgeKind};
 
 fn main() {
     let matches = App::new("Wishbone USB Adapter")
@@ -71,35 +71,42 @@ fn main() {
                 .short("s")
                 .long("server-kind")
                 .takes_value(true)
-                .possible_values(&["gdb", "wishbone"])
+                .possible_values(&["gdb", "wishbone"]),
         )
         .get_matches();
 
     let cfg = Config::parse(matches).unwrap();
-    let usb_bridge = UsbBridge::new(&cfg).unwrap();
-    usb_bridge.connect().unwrap();
+    let bridge = Bridge::new(&cfg).unwrap();
+    bridge.connect().unwrap();
 
     match cfg.bridge_kind {
-        BridgeKind::GDB => {
+        BridgeKind::GDB => loop {
+            let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
             loop {
-                let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
-                loop {
-                    if let Err(e) = gdb.process() {
-                        println!("Error in GDB server: {:?}", e);
-                        break;
-                    }
+                if let Err(e) = gdb.process() {
+                    println!("Error in GDB server: {:?}", e);
+                    break;
                 }
             }
         },
         BridgeKind::Wishbone => {
-            ()
-        },
+            let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
+            loop {
+                wishbone.connect().unwrap();
+                loop {
+                    if let Err(e) = wishbone.process(&bridge) {
+                        println!("Error in Wishbone server: {:?}", e);
+                        break;
+                    }
+                }
+            }
+        }
         BridgeKind::None => {
             if let Some(addr) = cfg.memory_address {
                 if let Some(value) = cfg.memory_value {
-                    usb_bridge.poke(addr, value).unwrap();
+                    bridge.poke(addr, value).unwrap();
                 } else {
-                    let val = usb_bridge.peek(addr).unwrap();
+                    let val = bridge.peek(addr).unwrap();
                     println!("Value at {:08x}: {:08x}", addr, val);
                 }
             } else {

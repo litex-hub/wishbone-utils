@@ -137,7 +137,7 @@ enum GdbCommand {
 }
 
 impl GdbServer {
-    pub fn new(cfg: &Config /*, usb: &libusb::DeviceHandle*/) -> Result<GdbServer, GdbServerError> {
+    pub fn new(cfg: &Config) -> Result<GdbServer, GdbServerError> {
         let listener = TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port))?;
 
         // accept connections and process them serially
