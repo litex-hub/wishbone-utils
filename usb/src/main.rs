@@ -7,11 +7,12 @@ mod gdb;
 mod usb_bridge;
 mod utils;
 mod wishbone;
-
-use clap::{App, Arg};
-use config::Config;
+mod riscv;
 
 use bridge::{Bridge, BridgeKind};
+use clap::{App, Arg};
+use config::Config;
+use riscv::RiscvCpu;
 
 fn main() {
     let matches = App::new("Wishbone USB Adapter")
@@ -75,6 +76,7 @@ fn main() {
         )
         .get_matches();
 
+    let cpu = RiscvCpu::new().unwrap();
     let cfg = Config::parse(matches).unwrap();
     let bridge = Bridge::new(&cfg).unwrap();
     bridge.connect().unwrap();
@@ -83,7 +85,7 @@ fn main() {
         BridgeKind::GDB => loop {
             let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
             loop {
-                if let Err(e) = gdb.process() {
+                if let Err(e) = gdb.process(&cpu) {
                     println!("Error in GDB server: {:?}", e);
                     break;
                 }

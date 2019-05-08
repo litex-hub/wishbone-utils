@@ -3,6 +3,8 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
 use super::Config;
+use super::utils::parse_u32;
+use super::riscv::{RiscvCpu, RiscvCpuError};
 
 pub struct GdbServer {
     connection: TcpStream,
@@ -21,6 +23,15 @@ pub enum GdbServerError {
 
     /// We were unable to parse an integer
     ParseIntError,
+
+    /// Something happened with the CPU
+    CpuError(RiscvCpuError),
+}
+
+impl std::convert::From<RiscvCpuError> for GdbServerError {
+    fn from(e: RiscvCpuError) -> Self {
+        GdbServerError::CpuError(e)
+    }
 }
 
 impl std::convert::From<io::Error> for GdbServerError {
@@ -134,6 +145,15 @@ enum GdbCommand {
         u32, /* address */
         u32, /* length */
     ),
+
+    /// qOffsets
+    GetOffsets,
+
+    /// qXfer:features:read:target.xml:0,1000
+    ReadFeature(String /* filename */, u32 /* offset */, u32 /* len */),
+
+    /// qXfer:threads:read::0,1000
+    ReadThreads(u32 /* offset */, u32 /* len */),
 }
 
 impl GdbServer {
@@ -164,6 +184,21 @@ impl GdbServer {
             Ok(GdbCommand::StartNoAckMode)
         } else if pkt == "qAttached" {
             Ok(GdbCommand::CheckIsAttached)
+        } else if pkt == "qOffsets" {
+            Ok(GdbCommand::GetOffsets)
+        } else if pkt.starts_with("qXfer:features:read:") {
+            let pkt = pkt.trim_start_matches("qXfer:features:read:");
+            let fields: Vec<&str> = pkt.split(':').collect();
+            let offsets: Vec<&str> = fields[1].split(',').collect();
+            let offset = u32::from_str_radix(offsets[0], 16)?;
+            let len = u32::from_str_radix(offsets[1], 16)?;
+            Ok(GdbCommand::ReadFeature(fields[0].to_string(), offset, len))
+        } else if pkt.starts_with("qXfer:threads:read::") {
+            let pkt = pkt.trim_start_matches("qXfer:threads:read::");
+            let offsets: Vec<&str> = pkt.split(',').collect();
+            let offset = u32::from_str_radix(offsets[0], 16)?;
+            let len = u32::from_str_radix(offsets[1], 16)?;
+            Ok(GdbCommand::ReadThreads(offset, len))
         } else if pkt.starts_with("Z") {
             let pkt = pkt.trim_start_matches("Z");
             let fields: Vec<&str> = pkt.split(',').collect();
@@ -294,6 +329,7 @@ impl GdbServer {
                                     }
                                 }
                                 let (buffer, _remainder) = buffer.split_at(buffer_offset);
+                                println!("<- Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
                                 return self.packet_to_command(&buffer);
                             }
                             other => {
@@ -312,12 +348,12 @@ impl GdbServer {
         }
     }
 
-    pub fn process(&mut self) -> Result<(), GdbServerError> {
+    pub fn process(&mut self, cpu: &RiscvCpu) -> Result<(), GdbServerError> {
         let cmd = self.get_command()?;
 
         println!("<- Read packet {:?}", cmd);
         match cmd {
-            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:memory-map:read-;qXfer:features:read-;qXfer:threads:read-;QStartNoAckMode+;vContSupported+")?,
+            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:memory-map:read+;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,
             GdbCommand::StartNoAckMode => { self.no_ack_mode = true; self.gdb_send(b"OK")?},
             GdbCommand::SetCurrentThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::ContinueThread(_) => self.gdb_send(b"OK")?,
@@ -344,9 +380,31 @@ impl GdbServer {
             GdbCommand::VContContinue => 0,
             GdbCommand::VContContinueFromSignal(_) => 0,
             GdbCommand::VContStepFromSignal(_) => self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?,
+            GdbCommand::GetOffsets => self.gdb_send(b"Text=0;Data=0;Bss=0")?,
             GdbCommand::Continue => 0,
             GdbCommand::Step => 0,
             GdbCommand::MonitorCommand(_) => self.gdb_send(b"OK")?,
+            GdbCommand::ReadFeature(filename, offset, len) => {
+                let mut feature_file = cpu.get_feature(&filename)?;
+                let offset = offset as usize;
+                let len = len as usize;
+                let mut end = offset + len;
+                if offset > feature_file.len() {
+                    self.gdb_send(b"l")?
+                } else {
+                    if end > feature_file.len() {
+                        end = feature_file.len();
+                    }
+                    let mut trimmed_features: Vec<u8> = feature_file.drain(offset..end).collect();
+                    if trimmed_features.len() >= len { // XXX should this be <= or < ?
+                        trimmed_features.insert(0, 'm' as u8);
+                    } else {
+                        trimmed_features.insert(0, 'l' as u8);
+                    }
+                    self.gdb_send(&trimmed_features)?
+                }
+            },
+            GdbCommand::ReadThreads(offset, len) => self.gdb_send(b"l<?xml version=\"1.0\"?>\n<threads>\n</threads>")?,
             GdbCommand::Interrupt => {self.last_signal = 2; self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?},
             GdbCommand::Unknown(_) => self.gdb_send(b"")?,
         };
