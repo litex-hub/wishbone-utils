@@ -389,26 +389,9 @@ impl GdbServer {
             GdbCommand::Step => 0,
             GdbCommand::MonitorCommand(_) => self.gdb_send(b"OK")?,
             GdbCommand::ReadFeature(filename, offset, len) => {
-                let mut feature_file = cpu.get_feature(&filename)?;
-                let offset = offset as usize;
-                let len = len as usize;
-                let mut end = offset + len;
-                if offset > feature_file.len() {
-                    self.gdb_send(b"l")?
-                } else {
-                    if end > feature_file.len() {
-                        end = feature_file.len();
-                    }
-                    let mut trimmed_features: Vec<u8> = feature_file.drain(offset..end).collect();
-                    if trimmed_features.len() >= len { // XXX should this be <= or < ?
-                        trimmed_features.insert(0, 'm' as u8);
-                    } else {
-                        trimmed_features.insert(0, 'l' as u8);
-                    }
-                    self.gdb_send(&trimmed_features)?
-                }
+                self.gdb_send_file(cpu.get_feature(&filename)?, offset, len)?
             },
-            GdbCommand::ReadThreads(offset, len) => self.gdb_send(&cpu.get_threads()?)?,
+            GdbCommand::ReadThreads(offset, len) => self.gdb_send_file(cpu.get_threads()?, offset, len)?,
             GdbCommand::Interrupt => {self.last_signal = 2; self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?},
             GdbCommand::Unknown(_) => self.gdb_send(b"")?,
         };
@@ -443,5 +426,26 @@ impl GdbServer {
             String::from_utf8_lossy(&to_write)
         );
         self.connection.write(&to_write)
+    }
+
+    fn gdb_send_file(&mut self, mut data: Vec<u8>, offset: u32, len: u32) -> io::Result<usize> {
+        let offset = offset as usize;
+        let len = len as usize;
+        let mut end = offset + len;
+        if offset > data.len() {
+            self.gdb_send(b"l")
+        } else {
+            if end > data.len() {
+                end = data.len();
+            }
+            let mut trimmed_features: Vec<u8> = data.drain(offset..end).collect();
+            if trimmed_features.len() >= len {
+                // XXX should this be <= or < ?
+                trimmed_features.insert(0, 'm' as u8);
+            } else {
+                trimmed_features.insert(0, 'l' as u8);
+            }
+            self.gdb_send(&trimmed_features)
+        }
     }
 }
