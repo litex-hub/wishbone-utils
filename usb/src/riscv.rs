@@ -1,8 +1,7 @@
-
 #[derive(Debug)]
 pub enum RiscvCpuError {
     /// Someone tried to request an unrecognized feature file
-    UnrecognizedFile(String /* requested filename */)
+    UnrecognizedFile(String /* requested filename */),
 }
 
 const THREADS_XML: &str = r#"<?xml version="1.0"?>
@@ -35,7 +34,6 @@ impl RiscvRegisterType {
 }
 
 struct RiscvRegister {
-
     /// Which register group this belongs to
     register_type: RiscvRegisterType,
 
@@ -71,7 +69,6 @@ impl RiscvRegister {
 }
 
 pub struct RiscvCpu {
-
     /// A list of all available registers on this CPU
     registers: Vec<RiscvRegister>,
 
@@ -83,7 +80,10 @@ impl RiscvCpu {
     pub fn new() -> Result<RiscvCpu, RiscvCpuError> {
         let registers = Self::make_registers();
         let target_xml = Self::make_target_xml(&registers);
-        Ok(RiscvCpu {registers, target_xml})
+        Ok(RiscvCpu {
+            registers,
+            target_xml,
+        })
     }
 
     fn make_registers() -> Vec<RiscvRegister> {
@@ -114,13 +114,21 @@ impl RiscvCpu {
         registers.push(RiscvRegister::csr(0xc01, "time", false));
         registers.push(RiscvRegister::csr(0xc02, "instret", false));
         for hpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(0xc00 + hpmcounter_n, &format!("hpmcounter{}", hpmcounter_n), false));
+            registers.push(RiscvRegister::csr(
+                0xc00 + hpmcounter_n,
+                &format!("hpmcounter{}", hpmcounter_n),
+                false,
+            ));
         }
         registers.push(RiscvRegister::csr(0xc80, "cycleh", true));
         registers.push(RiscvRegister::csr(0xc81, "timeh", false));
         registers.push(RiscvRegister::csr(0xc82, "instreth", false));
         for hpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(0xc80 + hpmcounter_n, &format!("hpmcounter{}h", hpmcounter_n), false));
+            registers.push(RiscvRegister::csr(
+                0xc80 + hpmcounter_n,
+                &format!("hpmcounter{}h", hpmcounter_n),
+                false,
+            ));
         }
 
         // Supervisor Trap Setup
@@ -169,24 +177,40 @@ impl RiscvCpu {
         registers.push(RiscvRegister::csr(0x3a2, "mpmcfg2", false));
         registers.push(RiscvRegister::csr(0x3a3, "mpmcfg3", false));
         for pmpaddr_n in 0..16 {
-            registers.push(RiscvRegister::csr(0x3b0 + pmpaddr_n, &format!("pmpaddr{}", pmpaddr_n), false));
+            registers.push(RiscvRegister::csr(
+                0x3b0 + pmpaddr_n,
+                &format!("pmpaddr{}", pmpaddr_n),
+                false,
+            ));
         }
 
         // Machine counter/timers
         registers.push(RiscvRegister::csr(0xb00, "mcycle", true));
         registers.push(RiscvRegister::csr(0xb02, "minstret", true));
         for mhpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(0xb00 + mhpmcounter_n, &format!("mhpmcounter{}", mhpmcounter_n), false));
+            registers.push(RiscvRegister::csr(
+                0xb00 + mhpmcounter_n,
+                &format!("mhpmcounter{}", mhpmcounter_n),
+                false,
+            ));
         }
         registers.push(RiscvRegister::csr(0xb80, "mcycleh", true));
         registers.push(RiscvRegister::csr(0xb82, "minstreth", true));
         for mhpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(0xb80 + mhpmcounter_n, &format!("mhpmcounter{}h", mhpmcounter_n), false));
+            registers.push(RiscvRegister::csr(
+                0xb80 + mhpmcounter_n,
+                &format!("mhpmcounter{}h", mhpmcounter_n),
+                false,
+            ));
         }
 
         // Machine counter setup
         for mhpmevent_n in 3..32 {
-            registers.push(RiscvRegister::csr(0x320 + mhpmevent_n, &format!("mhpmevent{}", mhpmevent_n), false));
+            registers.push(RiscvRegister::csr(
+                0x320 + mhpmevent_n,
+                &format!("mhpmevent{}", mhpmevent_n),
+                false,
+            ));
         }
 
         // Debug/trace registers
@@ -208,13 +232,14 @@ impl RiscvCpu {
             <?xml version=\"1.0\"?>
                 <!DOCTYPE target SYSTEM "gdb-target.dtd">
                 <target version="1.0">
-        "#.to_string();
+        "#
+        .to_string();
 
         // Add in general-purpose registers
         for ft in &[RiscvRegisterType::General, RiscvRegisterType::CSR] {
             target_xml.push_str(&format!("<feature name=\"{}\">\n", ft.feature_name()));
             for reg in registers {
-                if ! reg.present || reg.register_type != *ft {
+                if !reg.present || reg.register_type != *ft {
                     continue;
                 }
                 target_xml.push_str(
