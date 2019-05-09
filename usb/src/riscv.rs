@@ -110,13 +110,13 @@ impl RiscvCpu {
         registers.push(RiscvRegister::csr(0x044, "uip", false));
 
         // User counter/timers
-        registers.push(RiscvRegister::csr(0xc00, "cycle", false));
+        registers.push(RiscvRegister::csr(0xc00, "cycle", true));
         registers.push(RiscvRegister::csr(0xc01, "time", false));
         registers.push(RiscvRegister::csr(0xc02, "instret", false));
         for hpmcounter_n in 3..32 {
             registers.push(RiscvRegister::csr(0xc00 + hpmcounter_n, &format!("hpmcounter{}", hpmcounter_n), false));
         }
-        registers.push(RiscvRegister::csr(0xc80, "cycleh", false));
+        registers.push(RiscvRegister::csr(0xc80, "cycleh", true));
         registers.push(RiscvRegister::csr(0xc81, "timeh", false));
         registers.push(RiscvRegister::csr(0xc82, "instreth", false));
         for hpmcounter_n in 3..32 {
@@ -124,44 +124,44 @@ impl RiscvCpu {
         }
 
         // Supervisor Trap Setup
-        registers.push(RiscvRegister::csr(0x100, "sstatus", false));
+        registers.push(RiscvRegister::csr(0x100, "sstatus", true));
         registers.push(RiscvRegister::csr(0x102, "sedeleg", false));
         registers.push(RiscvRegister::csr(0x103, "sideleg", false));
-        registers.push(RiscvRegister::csr(0x104, "sie", false));
-        registers.push(RiscvRegister::csr(0x105, "stvec", false));
-        registers.push(RiscvRegister::csr(0x106, "scounteren", false));
+        registers.push(RiscvRegister::csr(0x104, "sie", true));
+        registers.push(RiscvRegister::csr(0x105, "stvec", true));
+        registers.push(RiscvRegister::csr(0x106, "scounteren", true));
 
         // Supervisor Trap Handling
-        registers.push(RiscvRegister::csr(0x140, "sscratch", false));
-        registers.push(RiscvRegister::csr(0x141, "sepc", false));
-        registers.push(RiscvRegister::csr(0x142, "scause", false));
-        registers.push(RiscvRegister::csr(0x143, "stval", false));
-        registers.push(RiscvRegister::csr(0x144, "sip", false));
+        registers.push(RiscvRegister::csr(0x140, "sscratch", true));
+        registers.push(RiscvRegister::csr(0x141, "sepc", true));
+        registers.push(RiscvRegister::csr(0x142, "scause", true));
+        registers.push(RiscvRegister::csr(0x143, "stval", true));
+        registers.push(RiscvRegister::csr(0x144, "sip", true));
 
         // Supervisor protection and translation
-        registers.push(RiscvRegister::csr(0x180, "satp", false));
+        registers.push(RiscvRegister::csr(0x180, "satp", true));
 
         // Machine information registers
-        registers.push(RiscvRegister::csr(0xf11, "mvendorid", false));
-        registers.push(RiscvRegister::csr(0xf12, "marchid", false));
-        registers.push(RiscvRegister::csr(0xf13, "mimpid", false));
-        registers.push(RiscvRegister::csr(0xf14, "mhartid", false));
+        registers.push(RiscvRegister::csr(0xf11, "mvendorid", true));
+        registers.push(RiscvRegister::csr(0xf12, "marchid", true));
+        registers.push(RiscvRegister::csr(0xf13, "mimpid", true));
+        registers.push(RiscvRegister::csr(0xf14, "mhartid", true));
 
         // Machine trap setup
-        registers.push(RiscvRegister::csr(0x300, "mstatus", false));
-        registers.push(RiscvRegister::csr(0x301, "misa", false));
+        registers.push(RiscvRegister::csr(0x300, "mstatus", true));
+        registers.push(RiscvRegister::csr(0x301, "misa", true));
         registers.push(RiscvRegister::csr(0x302, "medeleg", false));
         registers.push(RiscvRegister::csr(0x303, "mideleg", false));
-        registers.push(RiscvRegister::csr(0x304, "mie", false));
-        registers.push(RiscvRegister::csr(0x305, "mtvec", false));
+        registers.push(RiscvRegister::csr(0x304, "mie", true));
+        registers.push(RiscvRegister::csr(0x305, "mtvec", true));
         registers.push(RiscvRegister::csr(0x306, "mcounteren", false));
 
         // Machine trap handling
-        registers.push(RiscvRegister::csr(0x340, "mscratch", false));
-        registers.push(RiscvRegister::csr(0x341, "mepc", false));
-        registers.push(RiscvRegister::csr(0x342, "mcause", false));
-        registers.push(RiscvRegister::csr(0x343, "mtval", false));
-        registers.push(RiscvRegister::csr(0x344, "mip", false));
+        registers.push(RiscvRegister::csr(0x340, "mscratch", true));
+        registers.push(RiscvRegister::csr(0x341, "mepc", true));
+        registers.push(RiscvRegister::csr(0x342, "mcause", true));
+        registers.push(RiscvRegister::csr(0x343, "mtval", true));
+        registers.push(RiscvRegister::csr(0x344, "mip", true));
 
         // Machine protection and translation
         registers.push(RiscvRegister::csr(0x3a0, "mpmcfg0", false));
@@ -173,13 +173,13 @@ impl RiscvCpu {
         }
 
         // Machine counter/timers
-        registers.push(RiscvRegister::csr(0xb00, "mcycle", false));
-        registers.push(RiscvRegister::csr(0xb02, "minstret", false));
+        registers.push(RiscvRegister::csr(0xb00, "mcycle", true));
+        registers.push(RiscvRegister::csr(0xb02, "minstret", true));
         for mhpmcounter_n in 3..32 {
             registers.push(RiscvRegister::csr(0xb00 + mhpmcounter_n, &format!("mhpmcounter{}", mhpmcounter_n), false));
         }
-        registers.push(RiscvRegister::csr(0xb80, "mcycleh", false));
-        registers.push(RiscvRegister::csr(0xb82, "minstreth", false));
+        registers.push(RiscvRegister::csr(0xb80, "mcycleh", true));
+        registers.push(RiscvRegister::csr(0xb82, "minstreth", true));
         for mhpmcounter_n in 3..32 {
             registers.push(RiscvRegister::csr(0xb80 + mhpmcounter_n, &format!("mhpmcounter{}h", mhpmcounter_n), false));
         }
