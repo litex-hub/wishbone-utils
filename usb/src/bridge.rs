@@ -1,4 +1,4 @@
-use super::config::{ConfigError, Config};
+use super::config::{Config, ConfigError};
 use super::usb_bridge::UsbBridge;
 
 pub enum BridgeKind {
@@ -54,7 +54,7 @@ impl Bridge {
 
     pub fn connect(&self) -> Result<(), BridgeError> {
         match self {
-            Bridge::UsbBridge(b) => b.connect()
+            Bridge::UsbBridge(b) => b.connect(),
         }
     }
 
@@ -66,7 +66,7 @@ impl Bridge {
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
         match self {
-            Bridge::UsbBridge(b) => b.poke(addr, value)
+            Bridge::UsbBridge(b) => b.poke(addr, value),
         }
     }
 }
