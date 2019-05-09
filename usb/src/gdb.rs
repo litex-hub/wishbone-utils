@@ -3,7 +3,6 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
 use super::Config;
-use super::utils::parse_u32;
 use super::riscv::{RiscvCpu, RiscvCpuError};
 
 pub struct GdbServer {
@@ -404,7 +403,7 @@ impl GdbServer {
                     self.gdb_send(&trimmed_features)?
                 }
             },
-            GdbCommand::ReadThreads(offset, len) => self.gdb_send(b"l<?xml version=\"1.0\"?>\n<threads>\n</threads>")?,
+            GdbCommand::ReadThreads(offset, len) => self.gdb_send(&cpu.get_threads()?)?,
             GdbCommand::Interrupt => {self.last_signal = 2; self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?},
             GdbCommand::Unknown(_) => self.gdb_send(b"")?,
         };
