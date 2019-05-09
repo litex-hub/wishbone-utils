@@ -2,8 +2,9 @@ use std::io;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use super::Config;
 use super::riscv::{RiscvCpu, RiscvCpuError};
+use super::Bridge;
+use super::Config;
 
 pub struct GdbServer {
     connection: TcpStream,
@@ -149,7 +150,11 @@ enum GdbCommand {
     GetOffsets,
 
     /// qXfer:features:read:target.xml:0,1000
-    ReadFeature(String /* filename */, u32 /* offset */, u32 /* len */),
+    ReadFeature(
+        String, /* filename */
+        u32,    /* offset */
+        u32,    /* len */
+    ),
 
     /// qXfer:threads:read::0,1000
     ReadThreads(u32 /* offset */, u32 /* len */),
@@ -347,7 +352,7 @@ impl GdbServer {
         }
     }
 
-    pub fn process(&mut self, cpu: &RiscvCpu) -> Result<(), GdbServerError> {
+    pub fn process(&mut self, cpu: &RiscvCpu, bridge: &Bridge) -> Result<(), GdbServerError> {
         let cmd = self.get_command()?;
 
         println!("<- Read packet {:?}", cmd);

@@ -4,10 +4,10 @@ extern crate libusb;
 mod bridge;
 mod config;
 mod gdb;
+mod riscv;
 mod usb_bridge;
 mod utils;
 mod wishbone;
-mod riscv;
 
 use bridge::{Bridge, BridgeKind};
 use clap::{App, Arg};
@@ -85,7 +85,7 @@ fn main() {
         BridgeKind::GDB => loop {
             let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
             loop {
-                if let Err(e) = gdb.process(&cpu) {
+                if let Err(e) = gdb.process(&cpu, &bridge) {
                     println!("Error in GDB server: {:?}", e);
                     break;
                 }
