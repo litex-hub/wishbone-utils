@@ -1,3 +1,19 @@
+use super::bridge::{Bridge, BridgeError};
+
+bitflags! {
+    struct VexRiscvFlags: u32 {
+        const RESET = 1 << 0;
+        const HALT = 1 << 1;
+        const PIP_BUSY = 1 << 2;
+        const HALTED_BY_BREAK = 1 << 3;
+        const STEP = 1 << 4;
+        const RESET_SET = 1 << 16;
+        const HALT_SET = 1 << 17;
+        const RESET_CLEAR = 1 << 24;
+        const HALT_CLEAR = 1 << 25;
+    }
+}
+
 #[derive(Debug)]
 pub enum RiscvCpuError {
     /// Someone tried to request an unrecognized feature file
@@ -74,6 +90,9 @@ pub struct RiscvCpu {
 
     /// An XML representation of the register mapping
     target_xml: String,
+
+    /// The memory offset of the debug register
+    debug_offset: u32,
 }
 
 impl RiscvCpu {
@@ -83,6 +102,7 @@ impl RiscvCpu {
         Ok(RiscvCpu {
             registers,
             target_xml,
+            debug_offset: 0xf00f0000,
         })
     }
 
@@ -228,12 +248,7 @@ impl RiscvCpu {
     }
 
     fn make_target_xml(registers: &Vec<RiscvRegister>) -> String {
-        let mut target_xml = r#"
-            <?xml version=\"1.0\"?>
-                <!DOCTYPE target SYSTEM "gdb-target.dtd">
-                <target version="1.0">
-        "#
-        .to_string();
+        let mut target_xml = "<?xml version=\"1.0\"?>\n<!DOCTYPE target SYSTEM \"gdb-target.dtd\">\n<target version=\"1.0\">\n".to_string();
 
         // Add in general-purpose registers
         for ft in &[RiscvRegisterType::General, RiscvRegisterType::CSR] {
@@ -247,8 +262,8 @@ impl RiscvCpu {
                         reg.name, reg.index, reg.register_type.group())
                 );
             }
+            target_xml.push_str("</feature>\n");
         }
-        target_xml.push_str("</feature>\n");
         target_xml.push_str("</target>\n");
 
         target_xml
@@ -265,5 +280,87 @@ impl RiscvCpu {
 
     pub fn get_threads(&self) -> Result<Vec<u8>, RiscvCpuError> {
         Ok(THREADS_XML.to_string().into_bytes())
+    }
+
+    pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, BridgeError> {
+        self.write_register(bridge, 1, addr)?;
+
+        let inst = match sz {
+            // LW x1, 0(x1)
+            4 => (1 << 15) | (0x2 << 12) | (1 << 7) | 0x3,
+
+            // LHU x1, 0(x1)
+            2 => (1 << 15) | (0x5 << 12) | (1 << 7) | 0x3,
+
+            // LBU x1, 0(x1)
+            1 => (1 << 15) | (0x4 << 12) | (1 << 7) | 0x3,
+
+            x => panic!("Unrecognized memory size: {}", x),
+        };
+        self.write_instruction(bridge, inst)?;
+        self.read_result(bridge)
+    }
+
+    pub fn halt(&self, bridge: &Bridge) -> Result<(), BridgeError> {
+        self.write_status(bridge, VexRiscvFlags::HALT_SET)
+    }
+
+    pub fn resume(&self, bridge: &Bridge) -> Result<(), BridgeError> {
+        self.write_status(
+            bridge,
+            VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::RESET_CLEAR,
+        )
+    }
+
+    pub fn step(&self, bridge: &Bridge) -> Result<(), BridgeError> {
+        self.write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
+    }
+
+    /* --- */
+    fn write_register(&self, bridge: &Bridge, reg: u32, value: u32) -> Result<(), BridgeError> {
+        assert!(reg <= 32);
+        // Use LUI instruction if necessary
+        if (value & 0xffff_f800) != 0 {
+            let low = value & 0x0000_0fff;
+            let high = if (low & 0x800) != 0 {
+                (value & 0xffff_f000) + 0x1000
+            } else {
+                value & 0xffff_f000
+            };
+
+            // Also issue ADDI
+            if low != 0 {
+                // LUI regId, high
+                self.write_instruction(bridge, 0x37 | (reg << 7) | high)?;
+
+                // ADDI regId, regId, low
+                self.write_instruction(bridge, 0x13 | (reg << 7) | (reg << 15) | (low << 20))
+            } else {
+                // LUI regId, high
+                self.write_instruction(bridge, 0x37 | (reg << 7) | high)
+            }
+        } else {
+            // ORI regId, x0, value
+            self.write_instruction(bridge, 0x13 | (reg << 7) | (6 << 12) | (value << 20))
+        }
+    }
+    /* --- */
+    fn write_status(&self, bridge: &Bridge, value: VexRiscvFlags) -> Result<(), BridgeError> {
+        bridge.poke(self.debug_offset, value.bits)
+    }
+
+    fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, BridgeError> {
+        match bridge.peek(self.debug_offset) {
+            Err(e) => Err(e),
+            Ok(bits) => Ok(VexRiscvFlags { bits }),
+        }
+    }
+
+    fn write_instruction(&self, bridge: &Bridge, value: u32) -> Result<(), BridgeError> {
+        bridge.poke(self.debug_offset + 4, value)
+    }
+
+    fn read_result(&self, bridge: &Bridge) -> Result<u32, BridgeError> {
+        bridge.peek(self.debug_offset + 4)
     }
 }

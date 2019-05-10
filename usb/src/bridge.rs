@@ -26,6 +26,9 @@ pub enum BridgeError {
 
     /// Attempted to communicate with the bridge, but it wasn't connected
     NotConnected,
+
+    /// We got something weird back from the bridge
+    WrongResponse,
 }
 
 impl std::convert::From<libusb::Error> for BridgeError {
@@ -59,14 +62,24 @@ impl Bridge {
     }
 
     pub fn peek(&self, addr: u32) -> Result<u32, BridgeError> {
-        match self {
+        let result = match self {
             Bridge::UsbBridge(b) => b.peek(addr),
+        };
+        match result {
+            Ok(v) => println!("<- R {:08x}: {:08x}", addr, v),
+            Err(ref e) => println!("<- R {:08x}: {:?}", addr, e),
         }
+        result
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
-        match self {
+        let result = match self {
             Bridge::UsbBridge(b) => b.poke(addr, value),
+        };
+        match result {
+            Ok(()) => println!("-> W {:08x}: {:08x}", addr, value),
+            Err(ref e) => println!("-> W {:08x}: {:?}", addr, e),
         }
+        result
     }
 }

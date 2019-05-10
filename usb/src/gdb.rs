@@ -1,10 +1,14 @@
+extern crate byteorder;
 use std::io;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
+use super::bridge::{Bridge, BridgeError};
 use super::riscv::{RiscvCpu, RiscvCpuError};
-use super::Bridge;
 use super::Config;
+
+use crate::gdb::byteorder::ByteOrder;
+use byteorder::{BigEndian, NativeEndian};
 
 pub struct GdbServer {
     connection: TcpStream,
@@ -26,6 +30,15 @@ pub enum GdbServerError {
 
     /// Something happened with the CPU
     CpuError(RiscvCpuError),
+
+    /// The bridge failed somehow
+    BridgeError(BridgeError),
+}
+
+impl std::convert::From<BridgeError> for GdbServerError {
+    fn from(e: BridgeError) -> Self {
+        GdbServerError::BridgeError(e)
+    }
 }
 
 impl std::convert::From<RiscvCpuError> for GdbServerError {
@@ -379,20 +392,33 @@ impl GdbServer {
             }
             GdbCommand::GetRegister(_) => self.gdb_send(b"12345678")?,
             GdbCommand::SymbolsReady => self.gdb_send(b"OK")?,
-            GdbCommand::ReadMemory(_, _) => self.gdb_send(b"12345678")?,
+            GdbCommand::ReadMemory(addr, len) => {
+                let mut values = vec![];
+                for offset in (0 .. len).step_by(4) {
+                    values.push(cpu.read_memory(bridge, addr + offset, 4)?);
+                }
+                self.gdb_send_u32(values)?
+            },
             GdbCommand::VContQuery => self.gdb_send(b"vCont;c;C;s;S")?,
-            GdbCommand::VContContinue => 0,
-            GdbCommand::VContContinueFromSignal(_) => 0,
-            GdbCommand::VContStepFromSignal(_) => self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?,
+            GdbCommand::VContContinue => cpu.resume(bridge)?,
+            GdbCommand::VContContinueFromSignal(_) => cpu.resume(bridge)?,
+            GdbCommand::VContStepFromSignal(_) => {
+                cpu.step(bridge)?;
+                self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?;
+            },
             GdbCommand::GetOffsets => self.gdb_send(b"Text=0;Data=0;Bss=0")?,
-            GdbCommand::Continue => 0,
-            GdbCommand::Step => 0,
+            GdbCommand::Continue => cpu.resume(&bridge)?,
+            GdbCommand::Step => cpu.step(&bridge)?,
             GdbCommand::MonitorCommand(_) => self.gdb_send(b"OK")?,
             GdbCommand::ReadFeature(filename, offset, len) => {
                 self.gdb_send_file(cpu.get_feature(&filename)?, offset, len)?
             },
             GdbCommand::ReadThreads(offset, len) => self.gdb_send_file(cpu.get_threads()?, offset, len)?,
-            GdbCommand::Interrupt => {self.last_signal = 2; self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?},
+            GdbCommand::Interrupt => {
+                self.last_signal = 2;
+                cpu.halt(bridge)?;
+                self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?
+            },
             GdbCommand::Unknown(_) => self.gdb_send(b"")?,
         };
         Ok(())
@@ -406,7 +432,17 @@ impl GdbServer {
         self.connection.write(&['-' as u8])
     }
 
-    fn gdb_send(&mut self, inp: &[u8]) -> io::Result<usize> {
+    fn gdb_send_u32(&mut self, vals: Vec<u32>) -> io::Result<()> {
+        let mut out_str = String::new();
+        for val in vals {
+            let mut buf = [0; 4];
+            BigEndian::write_u32(&mut buf, val);
+            out_str.push_str(&format!("{:08x}", NativeEndian::read_u32(&buf)));
+        }
+        self.gdb_send(out_str.as_bytes())
+    }
+
+    fn gdb_send(&mut self, inp: &[u8]) -> io::Result<()> {
         let mut buffer = [0; 16388];
         let mut checksum: u8 = 0;
         buffer[0] = '$' as u8;
@@ -425,15 +461,16 @@ impl GdbServer {
             to_write.len(),
             String::from_utf8_lossy(&to_write)
         );
-        self.connection.write(&to_write)
+        self.connection.write(&to_write)?;
+        Ok(())
     }
 
-    fn gdb_send_file(&mut self, mut data: Vec<u8>, offset: u32, len: u32) -> io::Result<usize> {
+    fn gdb_send_file(&mut self, mut data: Vec<u8>, offset: u32, len: u32) -> io::Result<()> {
         let offset = offset as usize;
         let len = len as usize;
         let mut end = offset + len;
         if offset > data.len() {
-            self.gdb_send(b"l")
+            self.gdb_send(b"l")?;
         } else {
             if end > data.len() {
                 end = data.len();
@@ -445,7 +482,8 @@ impl GdbServer {
             } else {
                 trimmed_features.insert(0, 'l' as u8);
             }
-            self.gdb_send(&trimmed_features)
+            self.gdb_send(&trimmed_features)?;
         }
+        Ok(())
     }
 }

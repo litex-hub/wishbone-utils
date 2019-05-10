@@ -5,6 +5,7 @@ authors = ["Sean Cross <sean@xobs.io>"]
 edition = "2018"
 
 [dependencies]
+bitflags = "1"
 byteorder = "1"
 clap = "2"
 
