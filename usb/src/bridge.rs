@@ -8,6 +8,9 @@ pub enum BridgeKind {
     /// GDB server
     GDB,
 
+    /// Send random data back and forth
+    RandomTest,
+
     /// No server
     None,
 }
@@ -44,6 +47,7 @@ impl BridgeKind {
             Some(k) => match *k {
                 "gdb" => Ok(BridgeKind::GDB),
                 "wishbone" => Ok(BridgeKind::Wishbone),
+                "random-test" => Ok(BridgeKind::RandomTest),
                 unknown => Err(ConfigError::UnknownBridgeKind(unknown.to_owned())),
             },
         }
