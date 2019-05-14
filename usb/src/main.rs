@@ -2,6 +2,7 @@
 extern crate bitflags;
 extern crate clap;
 extern crate libusb;
+extern crate rand;
 
 mod bridge;
 mod config;
@@ -15,6 +16,7 @@ use bridge::{Bridge, BridgeKind};
 use clap::{App, Arg};
 use config::Config;
 use riscv::RiscvCpu;
+use rand::prelude::*;
 
 fn main() {
     let matches = App::new("Wishbone USB Adapter")
@@ -74,7 +76,7 @@ fn main() {
                 .short("s")
                 .long("server-kind")
                 .takes_value(true)
-                .possible_values(&["gdb", "wishbone"]),
+                .possible_values(&["gdb", "wishbone", "random-test"]),
         )
         .get_matches();
 
@@ -103,6 +105,21 @@ fn main() {
                         break;
                     }
                 }
+            }
+        }
+        BridgeKind::RandomTest => {
+            let mut loop_counter: u32 = 0;
+            loop {
+                let val = random::<u32>();
+                bridge.poke(0x10000000, val).unwrap();
+                let cmp = bridge.peek(0x10000000).unwrap();
+                if cmp != val {
+                    panic!("Loop {}: Expected {}, got {}", loop_counter, val, cmp);
+                }
+                if (loop_counter % 1000) == 0 {
+                    println!("loop: {} ({:08x})", loop_counter, val);
+                }
+                loop_counter = loop_counter.wrapping_add(1);
             }
         }
         BridgeKind::None => {
