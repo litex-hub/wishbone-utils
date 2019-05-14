@@ -69,10 +69,10 @@ impl Bridge {
         let result = match self {
             Bridge::UsbBridge(b) => b.peek(addr),
         };
-        match result {
-            Ok(v) => println!("<- R {:08x}: {:08x}", addr, v),
-            Err(ref e) => println!("<- R {:08x}: {:?}", addr, e),
-        }
+        // match result {
+        //     Ok(v) => println!("<- R {:08x}: {:08x}", addr, v),
+        //     Err(ref e) => println!("<- R {:08x}: {:?}", addr, e),
+        // }
         result
     }
 
@@ -80,10 +80,10 @@ impl Bridge {
         let result = match self {
             Bridge::UsbBridge(b) => b.poke(addr, value),
         };
-        match result {
-            Ok(()) => println!("-> W {:08x}: {:08x}", addr, value),
-            Err(ref e) => println!("-> W {:08x}: {:?}", addr, e),
-        }
+        // match result {
+        //     Ok(()) => println!("-> W {:08x}: {:08x}", addr, value),
+        //     Err(ref e) => println!("-> W {:08x}: {:?}", addr, e),
+        // }
         result
     }
 }
