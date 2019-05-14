@@ -13,3 +13,5 @@ clap = "2"
 libusb-sys = { path="libusb-sys" }
 # git = "https://github.com/paritytech/libusb-rs.git"
 libusb = { path = "libusb-rs" }
+
+rand = "0"
