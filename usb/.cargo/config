@@ -1,0 +1,7 @@
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "arm-linux-musleabihf-gcc"
+
+# This doesn't seem to actually work, so you may need to
+# export AR="arm-linux-musleabihf-ar"
+ar = "arm-linux-musleabihf-ar"
