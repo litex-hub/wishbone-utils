@@ -1,9 +1,9 @@
 extern crate libusb;
 
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
-use std::sync::Mutex;
 
 use super::bridge::BridgeError;
 use super::config::Config;
@@ -38,7 +38,7 @@ impl UsbBridge {
         let thr_pid = cfg.usb_pid.clone();
         let thr_vid = cfg.usb_vid.clone();
         thread::spawn(move || {
-            Self::usb_connect_thread(usb_ctx, thread_tx, thread_rx, thr_pid, thr_vid)
+            Self::usb_connect_thread(usb_ctx, thread_tx, thread_rx, thr_pid, thr_vid, 0x43)
         });
 
         Ok(UsbBridge {
@@ -90,6 +90,7 @@ impl UsbBridge {
         rx: Receiver<ConnectThreadRequests>,
         pid: Option<u16>,
         vid: Option<u16>,
+        debug_byte: u8,
     ) {
         let mut pid = pid;
         let mut vid = vid;
@@ -121,13 +122,13 @@ impl UsbBridge {
                                     vid = v.clone();
                                 }
                                 ConnectThreadRequests::Peek(addr) => {
-                                    let result = Self::do_peek(&usb, addr);
+                                    let result = Self::do_peek(&usb, addr, debug_byte);
                                     keep_going = result.is_ok();
                                     tx.send(ConnectThreadResponses::PeekResult(result))
                                         .expect("Couldn't post peek response to main thread");
                                 }
                                 ConnectThreadRequests::Poke(addr, val) => {
-                                    let result = Self::do_poke(&usb, addr, val);
+                                    let result = Self::do_poke(&usb, addr, val, debug_byte);
                                     keep_going = result.is_ok();
                                     tx.send(ConnectThreadResponses::PokeResult(result))
                                         .expect("Couldn't post poke response to main thread");
@@ -168,14 +169,19 @@ impl UsbBridge {
         }
     }
 
-    fn do_poke(usb: &libusb::DeviceHandle, addr: u32, value: u32) -> Result<(), BridgeError> {
+    fn do_poke(
+        usb: &libusb::DeviceHandle,
+        addr: u32,
+        value: u32,
+        debug_byte: u8,
+    ) -> Result<(), BridgeError> {
         let mut data_val = [0; 4];
         data_val[0] = ((value >> 0) & 0xff) as u8;
         data_val[1] = ((value >> 8) & 0xff) as u8;
         data_val[2] = ((value >> 16) & 0xff) as u8;
         data_val[3] = ((value >> 24) & 0xff) as u8;
         match usb.write_control(
-            0x43,
+            debug_byte,
             0,
             ((addr >> 0) & 0xffff) as u16,
             ((addr >> 16) & 0xffff) as u16,
@@ -193,10 +199,10 @@ impl UsbBridge {
         }
     }
 
-    fn do_peek(usb: &libusb::DeviceHandle, addr: u32) -> Result<u32, BridgeError> {
-        let mut data_val = [0; 4];
+    fn do_peek(usb: &libusb::DeviceHandle, addr: u32, debug_byte: u8) -> Result<u32, BridgeError> {
+        let mut data_val = [0; 512];
         match usb.read_control(
-            0xc3,
+            0x80 | debug_byte,
             0,
             ((addr >> 0) & 0xffff) as u16,
             ((addr >> 16) & 0xffff) as u16,
@@ -219,8 +225,13 @@ impl UsbBridge {
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
         let _mtx = self.connect_mutex.lock().unwrap();
-        self.main_tx.send(ConnectThreadRequests::Poke(addr, value)).expect("Unable to send poke to connect thread");
-        let result = self.main_rx.recv().expect("Unable to receive poke from connect thread");
+        self.main_tx
+            .send(ConnectThreadRequests::Poke(addr, value))
+            .expect("Unable to send poke to connect thread");
+        let result = self
+            .main_rx
+            .recv()
+            .expect("Unable to receive poke from connect thread");
         if let ConnectThreadResponses::PokeResult(r) = result {
             Ok(r?)
         } else {
@@ -230,8 +241,13 @@ impl UsbBridge {
 
     pub fn peek(&self, addr: u32) -> Result<u32, BridgeError> {
         let _mtx = self.connect_mutex.lock().unwrap();
-        self.main_tx.send(ConnectThreadRequests::Peek(addr)).expect("Unable to send peek to connect thread");
-        let result = self.main_rx.recv().expect("Unable to receive peek from connect thread");
+        self.main_tx
+            .send(ConnectThreadRequests::Peek(addr))
+            .expect("Unable to send peek to connect thread");
+        let result = self
+            .main_rx
+            .recv()
+            .expect("Unable to receive peek from connect thread");
         if let ConnectThreadResponses::PeekResult(r) = result {
             Ok(r?)
         } else {
@@ -243,6 +259,8 @@ impl UsbBridge {
 impl Drop for UsbBridge {
     fn drop(&mut self) {
         let _mtx = self.connect_mutex.lock().unwrap();
-        self.main_tx.send(ConnectThreadRequests::Exit).expect("Unable to send Exit request to thread");
+        self.main_tx
+            .send(ConnectThreadRequests::Exit)
+            .expect("Unable to send Exit request to thread");
     }
 }
