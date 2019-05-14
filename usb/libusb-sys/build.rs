@@ -6,6 +6,7 @@ fn main() {
 	let target_os = var("CARGO_CFG_TARGET_OS").unwrap();
 	let target_family = var("CARGO_CFG_TARGET_FAMILY").unwrap();
 	let target_env = var("CARGO_CFG_TARGET_ENV").unwrap();
+	let target_triple = var("TARGET").unwrap();
 
 	let mut base_config = cc::Build::new();
 	base_config.include(".");
@@ -28,6 +29,9 @@ fn main() {
 		base_config.file("libusb/libusb/os/linux_usbfs.c");
 		base_config.define("POLL_NFDS_TYPE", Some("nfds_t"));
 		base_config.define("_GNU_SOURCE", Some("1"));
+		if target_triple == "armv7-unknown-linux-musleabihf" {
+			base_config.flag("-mfpu=neon");
+		}
 	}
 
 	if target_family == "unix" {
