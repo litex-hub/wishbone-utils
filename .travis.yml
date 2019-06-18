@@ -103,7 +103,7 @@ deploy:
   api_key:
     secure: eIpiI43FCIOUAJ9mLmM7pggkI2zAFmp3pueqRbUJ7RkOYyFENl6XYUeqNlIGKK7RD3y+sJIuwSB31zoLn11/j9CMKlaHMLrMcNsKMYcOntkpQvp1Br03YXrhJk/IxIttQ+bkKKHJZF2TfnDUaOMudIAMalYn7ArZJGTpqtvVl4yWdPMckD0XBr+u25ABSSiAHw8BVF2SFfjQG/GK0TjXdBDDD0W+HMMir2B7nelc1eg1nZlDauegCjk+HaxMMDm9rr96UJ256iCJuXG5/rZEd/YfGvXy8qooJb5tFK7s4kqMw4W+xlDgSBeYY23aqgr9oBlJl1R+cD4Q7nmyo9XYs2ZwsBNqOP9E01uT7CnbFTzZxx2+9nvfkmpCub9rWpIEwaNf8+jCoFaYCuBSK0JPLtbOu4bHqmRiPmwKgeZHI5KC47h3fh0S/tuvGpQfZC64h6uK83EuuhX+N+9bkQJWfCJykE4Qf/sZKpLgiXDw3wZGaHX7hi32g9BUDGFQ9jrSIeYoXp7bcIA7p57IBlSSlWrkC7WDwQp87REsX4Bt+U2YRqYxtyeHuaP8L8rjgqVw/FOrpriCAogxESODHBu248KZFaKSn5mFkdgpDpwTD++TWpHkSoDB4Nv8kcJyE7rLliCXP8gIhJOemV6iV5BrTwt8z5W+DgYUk0vkkZo7vlY=
   file_glob: true
-  file: $CRATE_NAME-$TRAVIS_TAG-$TARGET.*
+  file: wishbone-tool/$CRATE_NAME-$TRAVIS_TAG-$TARGET.*
   on:
     # TODO Here you can pick which targets will generate binary releases
     # In this example, there are some targets that are tested using the stable
