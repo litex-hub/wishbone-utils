@@ -3,6 +3,7 @@
 set -ex
 
 main() {
+    cd wishbone-tool
     local src=$(pwd) \
           stage=
 

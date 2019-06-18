@@ -1,7 +1,7 @@
 # This script takes care of packaging the build artifacts that will go in the
 # release zipfile
 
-$SRC_DIR = $PWD.Path
+$SRC_DIR = "$PWD.Path\wishbone-tool"
 $STAGE = [System.Guid]::NewGuid().ToString()
 
 Set-Location $ENV:Temp
