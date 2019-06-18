@@ -56,6 +56,18 @@ fn main() {
 
 		base_config.file("libusb/libusb/os/poll_posix.c");
 		base_config.file("libusb/libusb/os/threads_posix.c");
+
+		if target_os == "netbsd" {
+			base_config.file("libusb/libusb/os/netbsd_usb.c");
+		}
+
+		if target_os == "openbsd" {
+			base_config.file("libusb/libusb/os/openbsd_usb.c");
+		}
+
+		if target_os == "dragonfly" {
+			base_config.file("libusb/libusb/os/openbsd_usb.c");
+		}
 	}
 
 	if target_os == "windows" {
