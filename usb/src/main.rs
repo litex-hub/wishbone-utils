@@ -15,8 +15,49 @@ mod wishbone;
 use bridge::{Bridge, BridgeKind};
 use clap::{App, Arg};
 use config::Config;
-use riscv::RiscvCpu;
+
 use rand::prelude::*;
+use riscv::RiscvCpu;
+
+use std::time::Duration;
+
+fn list_usb() -> Result<(), libusb::Error> {
+    let usb_ctx = libusb::Context::new().unwrap();
+    let devices = usb_ctx.devices().unwrap();
+    println!("Devices:");
+    for device in devices.iter() {
+        let device_desc = device.device_descriptor().unwrap();
+        let mut line = format!(
+            "[{:04x}:{:04x}] - ",
+            device_desc.vendor_id(),
+            device_desc.product_id()
+        );
+        if let Ok(usb) = device.open() {
+            if let Ok(langs) = usb.read_languages(Duration::from_secs(1)) {
+                let product =
+                    match usb.read_product_string(langs[0], &device_desc, Duration::from_secs(1)) {
+                        Ok(s) => s,
+                        Err(_) => "(unknown product)".to_owned(),
+                    };
+                let manufacturer = match usb.read_manufacturer_string(
+                    langs[0],
+                    &device_desc,
+                    Duration::from_secs(1),
+                ) {
+                    Ok(s) => s,
+                    Err(_) => "(unknown manufacturer)".to_owned(),
+                };
+                line.push_str(&format!("{} - {}", product, manufacturer));
+            } else {
+                line.push_str("(no strings found)");
+            }
+        } else {
+            line.push_str("(couldn't open device)");
+        }
+        println!("    {}", line);
+    }
+    Ok(())
+}
 
 fn main() {
     let matches = App::new("Wishbone USB Adapter")
@@ -24,12 +65,18 @@ fn main() {
         .author("Sean Cross <sean@xobs.io>")
         .about("Bridge Wishbone over USB")
         .arg(
+            Arg::with_name("list")
+                .short("l")
+                .long("list")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("pid")
                 .short("p")
                 .long("pid")
                 .value_name("USB_PID")
                 .help("USB PID to match")
-                .required_unless("vid")
+                .default_value("0x5bf0")
                 .takes_value(true),
         )
         .arg(
@@ -38,7 +85,6 @@ fn main() {
                 .long("vid")
                 .value_name("USB_VID")
                 .help("USB VID to match")
-                .required_unless("pid")
                 .takes_value(true),
         )
         .arg(
@@ -80,8 +126,16 @@ fn main() {
         )
         .get_matches();
 
+    if matches.is_present("list") {
+        if list_usb().is_err() {
+            println!("USB is not properly configured");
+        };
+        return;
+    }
+
     let cpu = RiscvCpu::new().unwrap();
     let cfg = Config::parse(matches).unwrap();
+
     let bridge = Bridge::new(&cfg).unwrap();
     bridge.connect().unwrap();
 
@@ -131,7 +185,8 @@ fn main() {
                     println!("Value at {:08x}: {:08x}", addr, val);
                 }
             } else {
-                panic!("No operation and no address specified!");
+                println!("No operation and no address specified!");
+                println!("Try specifying an address such as \"0x10000000\".  See --help for more information");
             }
         }
     }
