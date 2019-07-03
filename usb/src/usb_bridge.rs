@@ -99,12 +99,12 @@ impl UsbBridge {
             for device in devices.iter() {
                 let device_desc = device.device_descriptor().unwrap();
                 if Self::device_matches(&device_desc, &pid, &vid) {
-                    println!(
-                        "Opening device {:03} on bus {:03}",
-                        device.bus_number(),
-                        device.address()
-                    );
-                    let usb = device.open().unwrap();
+                    // println!(
+                    //     "Opening device {:03} on bus {:03}",
+                    //     device.bus_number(),
+                    //     device.address()
+                    // );
+                    let usb = device.open().expect("Unable to open USB device");
                     tx.send(ConnectThreadResponses::OpenedDevice)
                         .expect("Couldn't post message to main thread");
                     let mut keep_going = true;
@@ -114,7 +114,7 @@ impl UsbBridge {
                             Err(e) => panic!("error in connect thread: {}", e),
                             Ok(o) => match o {
                                 ConnectThreadRequests::Exit => {
-                                    println!("usb_connect_thread requested exit");
+                                    // println!("usb_connect_thread requested exit");
                                     return;
                                 }
                                 ConnectThreadRequests::StartPolling(p, v) => {
