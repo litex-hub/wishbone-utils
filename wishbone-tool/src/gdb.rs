@@ -19,6 +19,13 @@ pub struct GdbServer {
     last_signal: u8,
 }
 
+fn swab(src: u32) -> u32 {
+    (src << 24) & 0xff000000
+        | (src << 8) & 0x00ff0000
+        | (src >> 8) & 0x0000ff00
+        | (src >> 24) & 0x000000ff
+}
+
 #[derive(Debug)]
 pub enum GdbServerError {
     /// Rust standard IO error
@@ -128,6 +135,9 @@ enum GdbCommand {
 
     /// m#,#
     ReadMemory(u32 /* addr */, u32 /* length */),
+
+    /// M#,#:#
+    WriteMemory(u32 /* addr */, u32 /* length */, u32 /* value */),
 
     /// vCont?
     VContQuery,
@@ -271,7 +281,7 @@ impl GdbServer {
             let pkt = pkt.trim_start_matches("P").to_string();
             let v: Vec<&str> = pkt.split('=').collect();
             let addr = u32::from_str_radix(v[0], 16)?;
-            let value = u32::from_str_radix(v[1], 16)?;
+            let value = swab(u32::from_str_radix(v[1], 16)?);
             Ok(GdbCommand::SetRegister(addr, value))
         } else if pkt == "c" {
             Ok(GdbCommand::Continue)
@@ -283,6 +293,14 @@ impl GdbServer {
             let addr = u32::from_str_radix(v[0], 16)?;
             let length = u32::from_str_radix(v[1], 16)?;
             Ok(GdbCommand::ReadMemory(addr, length))
+        } else if pkt.starts_with("M") {
+            let pkt = pkt.trim_start_matches("M").to_string();
+            let d: Vec<&str> = pkt.split(':').collect();
+            let v: Vec<&str> = d[0].split(',').collect();
+            let addr = u32::from_str_radix(v[0], 16)?;
+            let length = u32::from_str_radix(v[1], 16)?;
+            let value = swab(u32::from_str_radix(d[1], 16)?);
+            Ok(GdbCommand::WriteMemory(addr, length, value))
         } else if pkt.starts_with("p") {
             Ok(GdbCommand::GetRegister(u32::from_str_radix(
                 pkt.trim_start_matches("p"),
@@ -407,12 +425,12 @@ impl GdbServer {
             GdbCommand::GetRegisters => {
                 let mut register_list = String::new();
                 for i in 0..33 {
-                    register_list.push_str(format!("{:08x}", cpu.read_register(bridge, i)?).as_str());
+                    register_list.push_str(format!("{:08x}", swab(cpu.read_register(bridge, i)?)).as_str());
                 }
                 self.gdb_send(register_list.as_bytes())?
             }
             GdbCommand::GetRegister(reg) => {
-                self.gdb_send(format!("{:08x}", cpu.read_register(bridge, reg)?).as_bytes())?
+                self.gdb_send(format!("{:08x}", swab(cpu.read_register(bridge, reg)?)).as_bytes())?
             }
             GdbCommand::SetRegister(reg, val) => {
                 let response = match cpu.write_register(bridge, reg, val) {
@@ -429,6 +447,13 @@ impl GdbServer {
                     values.push(cpu.read_memory(bridge, addr + offset, 4)?);
                 }
                 self.gdb_send_u32(values)?
+            },
+            GdbCommand::WriteMemory(addr, len, value) => {
+                debug!("Writing memory {:08x} -> {:08x}", addr, value);
+                for offset in (0 .. len).step_by(4) {
+                    cpu.write_memory(bridge, addr + offset, 4, value)?;
+                }
+                self.gdb_send("OK".as_bytes())?
             },
             GdbCommand::VContQuery => self.gdb_send(b"vCont;c;C;s;S")?,
             GdbCommand::VContContinue => cpu.resume(bridge)?,

@@ -131,6 +131,9 @@ pub struct RiscvCpu {
 
     /// We'll use $x1 as an accumulator sometimes, so save its value here.
     x1_value: Cell<Option<u32>>,
+
+    /// $x2 sometimes gets used during debug.  Back up its value here
+    x2_value: Cell<Option<u32>>,
 }
 
 impl RiscvCpu {
@@ -142,6 +145,7 @@ impl RiscvCpu {
             target_xml,
             debug_offset: 0xf00f0000,
             x1_value: Cell::new(None),
+            x2_value: Cell::new(None),
         })
     }
 
@@ -358,7 +362,7 @@ impl RiscvCpu {
         if self.x1_value.get().is_none() {
             self.x1_value.set(Some(self.read_register(bridge, 1)?));
         }
-        let addr = swab(addr);
+        // let addr = swab(addr);
         self.write_register(bridge, 1, addr)?;
         let inst = match sz {
             // LW x1, 0(x1)
@@ -373,7 +377,41 @@ impl RiscvCpu {
             x => panic!("Unrecognized memory size: {}", x),
         };
         self.write_instruction(bridge, inst)?;
-        Ok(swab(self.read_result(bridge)?))
+        Ok(self.read_result(bridge)?)
+    }
+
+    pub fn write_memory(&self, bridge: &Bridge, addr: u32, sz: u32, value: u32) -> Result<(), BridgeError> {
+        // if sz == 4 {
+        //     return bridge.poke(addr, value);
+        // }
+
+        // We clobber $x1 in this function, so read its previous value
+        // (if we haven't already).
+        // This will get restored when we do a reset.
+        if self.x1_value.get().is_none() {
+            self.x1_value.set(Some(self.read_register(bridge, 1)?));
+        }
+        if self.x2_value.get().is_none() {
+            self.x2_value.set(Some(self.read_register(bridge, 1)?));
+        }
+
+        // let addr = swab(addr);
+        self.write_register(bridge, 1, value)?;
+        self.write_register(bridge, 2, addr)?;
+        let inst = match sz {
+            // SW x1,0(x2)
+            4 =>  (1 << 20) | (2 << 15) | (0x2 << 12) | 0x23,
+
+            // SH x1,0(x2)
+            2 => (1 << 20) | (2 << 15) | (0x1 << 12) | 0x23,
+
+            //SB x1,0(x2)
+            1 => (1 << 20) | (2 << 15) | (0x0 << 12) | 0x23,
+
+            x => panic!("Unrecognized memory size: {}", x),
+        };
+        self.write_instruction(bridge, inst)?;
+        Ok(())
     }
 
     pub fn halt(&self, bridge: &Bridge) -> Result<(), BridgeError> {
@@ -384,6 +422,10 @@ impl RiscvCpu {
         if let Some(old_value) = self.x1_value.get().take() {
             debug!("Updating old value of x1 to {:08x}", old_value);
             self.write_register(bridge, 1, old_value)?;
+        }
+        if let Some(old_value) = self.x2_value.get().take() {
+            debug!("Updating old value of x2 to {:08x}", old_value);
+            self.write_register(bridge, 2, old_value)?;
         }
 
         self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)
@@ -454,7 +496,7 @@ impl RiscvCpu {
 
         match reg.register_type {
             RiscvRegisterType::General => {
-                let value = swab(value);
+                // let value = swab(value);
                 // Use LUI instruction if necessary
                 if (value & 0xffff_f800) != 0 {
                     let low = value & 0x0000_0fff;
@@ -540,6 +582,6 @@ impl RiscvCpu {
 
     fn read_result(&self, bridge: &Bridge) -> Result<u32, BridgeError> {
         let result = bridge.peek(self.debug_offset + 4)?;
-        Ok(swab(result))
+        Ok(result)
     }
 }
