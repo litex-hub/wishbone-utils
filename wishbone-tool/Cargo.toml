@@ -15,3 +15,6 @@ libusb-sys = { path="libusb-sys" }
 libusb = { path = "libusb-rs" }
 
 rand = "0"
+
+log = "0"
+flexi_logger = "0"
