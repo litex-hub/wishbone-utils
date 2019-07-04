@@ -146,6 +146,7 @@ fn main() {
     match cfg.bridge_kind {
         BridgeKind::GDB => loop {
             let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
+            cpu.halt(&bridge).expect("Couldn't halt CPU");
             loop {
                 if let Err(e) = gdb.process(&cpu, &bridge) {
                     println!("Error in GDB server: {:?}", e);

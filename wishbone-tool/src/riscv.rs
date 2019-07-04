@@ -1,4 +1,5 @@
 use super::bridge::{Bridge, BridgeError};
+use log::debug;
 
 bitflags! {
     struct VexRiscvFlags: u32 {
@@ -344,9 +345,15 @@ impl RiscvCpu {
             self.write_instruction(bridge, 0x13 | (reg << 7) | (6 << 12) | (value << 20))
         }
     }
+
     /* --- */
     fn write_status(&self, bridge: &Bridge, value: VexRiscvFlags) -> Result<(), BridgeError> {
-        bridge.poke(self.debug_offset, value.bits)
+        debug!("SETTING BRIDGE STATUS: {:08x}", value.bits);
+        let status = (value.bits << 24) & 0xff000000
+                   | (value.bits << 8)  & 0x00ff0000
+                   | (value.bits >> 8)  & 0x0000ff00
+                   | (value.bits >> 24) & 0x000000ff;
+        bridge.poke(self.debug_offset, status)
     }
 
     fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, BridgeError> {
@@ -356,8 +363,14 @@ impl RiscvCpu {
         }
     }
 
-    fn write_instruction(&self, bridge: &Bridge, value: u32) -> Result<(), BridgeError> {
-        bridge.poke(self.debug_offset + 4, value)
+    fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), BridgeError> {
+        debug!("ORIGINAL OPCODE {:08x}", opcode);
+        // let opcode = (opcode << 24) & 0xff000000
+        //            | (opcode << 8)  & 0x00ff0000
+        //            | (opcode >> 8)  & 0x0000ff00
+        //            | (opcode >> 24) & 0x000000ff;
+        debug!("WRITING OPCODE {:08x}", opcode);
+        bridge.poke(self.debug_offset + 4, opcode)
     }
 
     fn read_result(&self, bridge: &Bridge) -> Result<u32, BridgeError> {

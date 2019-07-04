@@ -7,6 +7,8 @@ use super::bridge::{Bridge, BridgeError};
 use super::riscv::{RiscvCpu, RiscvCpuError};
 use super::Config;
 
+use log::debug;
+
 use crate::gdb::byteorder::ByteOrder;
 use byteorder::{BigEndian, NativeEndian};
 
@@ -346,7 +348,7 @@ impl GdbServer {
                                     }
                                 }
                                 let (buffer, _remainder) = buffer.split_at(buffer_offset);
-                                println!("<- Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
+                                println!("<  Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
                                 return self.packet_to_command(&buffer);
                             }
                             other => {
@@ -368,7 +370,7 @@ impl GdbServer {
     pub fn process(&mut self, cpu: &RiscvCpu, bridge: &Bridge) -> Result<(), GdbServerError> {
         let cmd = self.get_command()?;
 
-        println!("<- Read packet {:?}", cmd);
+        println!("<  Read packet {:?}", cmd);
         match cmd {
             GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:memory-map:read+;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,
             GdbCommand::StartNoAckMode => { self.no_ack_mode = true; self.gdb_send(b"OK")?},
@@ -393,6 +395,7 @@ impl GdbServer {
             GdbCommand::GetRegister(_) => self.gdb_send(b"12345678")?,
             GdbCommand::SymbolsReady => self.gdb_send(b"OK")?,
             GdbCommand::ReadMemory(addr, len) => {
+                debug!("Reading memory {:08x}", addr);
                 let mut values = vec![];
                 for offset in (0 .. len).step_by(4) {
                     values.push(cpu.read_memory(bridge, addr + offset, 4)?);
@@ -457,7 +460,7 @@ impl GdbServer {
         buffer[inp.len() + 3] = checksum_bytes[1];
         let (to_write, _rest) = buffer.split_at(inp.len() + 4);
         println!(
-            "-> Writing {} bytes: {}",
+            " > Writing {} bytes: {}",
             to_write.len(),
             String::from_utf8_lossy(&to_write)
         );
