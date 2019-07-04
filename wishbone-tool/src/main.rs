@@ -4,6 +4,9 @@ extern crate clap;
 extern crate libusb;
 extern crate rand;
 
+extern crate log;
+extern crate flexi_logger;
+
 mod bridge;
 mod config;
 mod gdb;
@@ -60,6 +63,7 @@ fn list_usb() -> Result<(), libusb::Error> {
 }
 
 fn main() {
+    flexi_logger::Logger::with_str("debug").start().unwrap();//env_logger::init();
     let matches = App::new("Wishbone USB Adapter")
         .version("1.0")
         .author("Sean Cross <sean@xobs.io>")
