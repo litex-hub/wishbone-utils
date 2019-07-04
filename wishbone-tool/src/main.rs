@@ -149,7 +149,10 @@ fn main() {
             cpu.halt(&bridge).expect("Couldn't halt CPU");
             loop {
                 if let Err(e) = gdb.process(&cpu, &bridge) {
-                    println!("Error in GDB server: {:?}", e);
+                    match e {
+                        gdb::GdbServerError::ConnectionClosed => (),
+                        e => println!("Error in GDB server: {:?}", e),
+                    }
                     break;
                 }
             }

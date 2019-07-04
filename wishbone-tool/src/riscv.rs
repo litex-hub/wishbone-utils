@@ -1,6 +1,7 @@
 use super::bridge::{Bridge, BridgeError};
-use log::debug;
 
+use log::debug;
+use std::cell::Cell;
 bitflags! {
     struct VexRiscvFlags: u32 {
         const RESET = 1 << 0;
@@ -13,6 +14,13 @@ bitflags! {
         const RESET_CLEAR = 1 << 24;
         const HALT_CLEAR = 1 << 25;
     }
+}
+
+fn swab(src: u32) -> u32 {
+    (src << 24) & 0xff000000
+        | (src << 8) & 0x00ff0000
+        | (src >> 8) & 0x0000ff00
+        | (src >> 24) & 0x000000ff
 }
 
 #[derive(Debug)]
@@ -50,6 +58,12 @@ impl RiscvRegisterType {
     }
 }
 
+enum RegisterContentsType {
+    Int,
+    DataPtr,
+    CodePtr,
+}
+
 struct RiscvRegister {
     /// Which register group this belongs to
     register_type: RiscvRegisterType,
@@ -58,20 +72,37 @@ struct RiscvRegister {
     /// even though GDB registers are offset by 65, so GDB calls `ustatus` register 65.)
     index: u32,
 
+    /// The "index" as understood by gdb.
+    gdb_index: u32,
+
     /// Architecture name
     name: String,
 
     /// Whether this register is present on this device
     present: bool,
+
+    /// Whether GDB needs to save and restore it
+    save_restore: bool,
+
+    /// What kind of data this register contains
+    contents: RegisterContentsType,
 }
 
 impl RiscvRegister {
-    pub fn general(index: u32, name: &str) -> RiscvRegister {
+    pub fn general(
+        index: u32,
+        name: &str,
+        save_restore: bool,
+        contents: RegisterContentsType,
+    ) -> RiscvRegister {
         RiscvRegister {
             register_type: RiscvRegisterType::General,
             index,
+            gdb_index: index,
             name: name.to_string(),
             present: true,
+            save_restore,
+            contents,
         }
     }
 
@@ -79,8 +110,11 @@ impl RiscvRegister {
         RiscvRegister {
             register_type: RiscvRegisterType::CSR,
             index,
+            gdb_index: index + 65,
             name: name.to_string(),
             present,
+            save_restore: true,
+            contents: RegisterContentsType::Int,
         }
     }
 }
@@ -94,6 +128,9 @@ pub struct RiscvCpu {
 
     /// The memory offset of the debug register
     debug_offset: u32,
+
+    /// We'll use $x1 as an accumulator sometimes, so save its value here.
+    x1_value: Cell<Option<u32>>,
 }
 
 impl RiscvCpu {
@@ -104,6 +141,7 @@ impl RiscvCpu {
             registers,
             target_xml,
             debug_offset: 0xf00f0000,
+            x1_value: Cell::new(None),
         })
     }
 
@@ -112,11 +150,25 @@ impl RiscvCpu {
 
         // Add in general purpose registers x0 to x31
         for reg_num in 0..32 {
-            registers.push(RiscvRegister::general(reg_num, &format!("x{}", reg_num)));
+            let contents_type = match reg_num {
+                2 => RegisterContentsType::DataPtr,
+                _ => RegisterContentsType::Int,
+            };
+            registers.push(RiscvRegister::general(
+                reg_num,
+                &format!("x{}", reg_num),
+                true,
+                contents_type,
+            ));
         }
 
         // Add the program counter
-        registers.push(RiscvRegister::general(32, "pc"));
+        registers.push(RiscvRegister::general(
+            32,
+            "pc",
+            true,
+            RegisterContentsType::CodePtr,
+        ));
 
         // User trap setup
         registers.push(RiscvRegister::csr(0x000, "ustatus", false));
@@ -131,7 +183,7 @@ impl RiscvCpu {
         registers.push(RiscvRegister::csr(0x044, "uip", false));
 
         // User counter/timers
-        registers.push(RiscvRegister::csr(0xc00, "cycle", true));
+        registers.push(RiscvRegister::csr(0xc00, "cycle", false));
         registers.push(RiscvRegister::csr(0xc01, "time", false));
         registers.push(RiscvRegister::csr(0xc02, "instret", false));
         for hpmcounter_n in 3..32 {
@@ -141,7 +193,7 @@ impl RiscvCpu {
                 false,
             ));
         }
-        registers.push(RiscvRegister::csr(0xc80, "cycleh", true));
+        registers.push(RiscvRegister::csr(0xc80, "cycleh", false));
         registers.push(RiscvRegister::csr(0xc81, "timeh", false));
         registers.push(RiscvRegister::csr(0xc82, "instreth", false));
         for hpmcounter_n in 3..32 {
@@ -153,22 +205,22 @@ impl RiscvCpu {
         }
 
         // Supervisor Trap Setup
-        registers.push(RiscvRegister::csr(0x100, "sstatus", true));
+        registers.push(RiscvRegister::csr(0x100, "sstatus", false));
         registers.push(RiscvRegister::csr(0x102, "sedeleg", false));
         registers.push(RiscvRegister::csr(0x103, "sideleg", false));
-        registers.push(RiscvRegister::csr(0x104, "sie", true));
-        registers.push(RiscvRegister::csr(0x105, "stvec", true));
-        registers.push(RiscvRegister::csr(0x106, "scounteren", true));
+        registers.push(RiscvRegister::csr(0x104, "sie", false));
+        registers.push(RiscvRegister::csr(0x105, "stvec", false));
+        registers.push(RiscvRegister::csr(0x106, "scounteren", false));
 
         // Supervisor Trap Handling
-        registers.push(RiscvRegister::csr(0x140, "sscratch", true));
-        registers.push(RiscvRegister::csr(0x141, "sepc", true));
-        registers.push(RiscvRegister::csr(0x142, "scause", true));
-        registers.push(RiscvRegister::csr(0x143, "stval", true));
-        registers.push(RiscvRegister::csr(0x144, "sip", true));
+        registers.push(RiscvRegister::csr(0x140, "sscratch", false));
+        registers.push(RiscvRegister::csr(0x141, "sepc", false));
+        registers.push(RiscvRegister::csr(0x142, "scause", false));
+        registers.push(RiscvRegister::csr(0x143, "stval", false));
+        registers.push(RiscvRegister::csr(0x144, "sip", false));
 
         // Supervisor protection and translation
-        registers.push(RiscvRegister::csr(0x180, "satp", true));
+        registers.push(RiscvRegister::csr(0x180, "satp", false));
 
         // Machine information registers
         registers.push(RiscvRegister::csr(0xf11, "mvendorid", true));
@@ -178,7 +230,7 @@ impl RiscvCpu {
 
         // Machine trap setup
         registers.push(RiscvRegister::csr(0x300, "mstatus", true));
-        registers.push(RiscvRegister::csr(0x301, "misa", true));
+        registers.push(RiscvRegister::csr(0x301, "misa", false));
         registers.push(RiscvRegister::csr(0x302, "medeleg", false));
         registers.push(RiscvRegister::csr(0x303, "mideleg", false));
         registers.push(RiscvRegister::csr(0x304, "mie", true));
@@ -258,10 +310,22 @@ impl RiscvCpu {
                 if !reg.present || reg.register_type != *ft {
                     continue;
                 }
-                target_xml.push_str(
-                    &format!("<reg name=\"{}\" bitsize=\"32\" regnum=\"{}\" save-restore=\"no\" type=\"int\" group=\"{}\"/>\n",
-                        reg.name, reg.index, reg.register_type.group())
-                );
+                let reg_type = match reg.contents {
+                    RegisterContentsType::Int => "int",
+                    RegisterContentsType::CodePtr => "code_ptr",
+                    RegisterContentsType::DataPtr => "data_ptr",
+                };
+                target_xml.push_str(&format!(
+                    "<reg name=\"{}\" bitsize=\"32\" regnum=\"{}\" type=\"{}\" group=\"{}\"",
+                    reg.name,
+                    reg.gdb_index,
+                    reg_type,
+                    reg.register_type.group()
+                ));
+                if !reg.save_restore {
+                    target_xml.push_str(" save-restore=\"no\"");
+                }
+                target_xml.push_str("/>\n");
             }
             target_xml.push_str("</feature>\n");
         }
@@ -284,8 +348,18 @@ impl RiscvCpu {
     }
 
     pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, BridgeError> {
-        self.write_register(bridge, 1, addr)?;
+        // if sz == 4 {
+        //     return bridge.peek(addr);
+        // }
 
+        // We clobber $x1 in this function, so read its previous value
+        // (if we haven't already).
+        // This will get restored when we do a reset.
+        if self.x1_value.get().is_none() {
+            self.x1_value.set(Some(self.read_register(bridge, 1)?));
+        }
+        let addr = swab(addr);
+        self.write_register(bridge, 1, addr)?;
         let inst = match sz {
             // LW x1, 0(x1)
             4 => (1 << 15) | (0x2 << 12) | (1 << 7) | 0x3,
@@ -299,7 +373,7 @@ impl RiscvCpu {
             x => panic!("Unrecognized memory size: {}", x),
         };
         self.write_instruction(bridge, inst)?;
-        self.read_result(bridge)
+        Ok(swab(self.read_result(bridge)?))
     }
 
     pub fn halt(&self, bridge: &Bridge) -> Result<(), BridgeError> {
@@ -307,10 +381,12 @@ impl RiscvCpu {
     }
 
     pub fn resume(&self, bridge: &Bridge) -> Result<(), BridgeError> {
-        self.write_status(
-            bridge,
-            VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::RESET_CLEAR,
-        )
+        if let Some(old_value) = self.x1_value.get().take() {
+            debug!("Updating old value of x1 to {:08x}", old_value);
+            self.write_register(bridge, 1, old_value)?;
+        }
+
+        self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)
     }
 
     pub fn step(&self, bridge: &Bridge) -> Result<(), BridgeError> {
@@ -318,62 +394,152 @@ impl RiscvCpu {
     }
 
     /* --- */
-    fn write_register(&self, bridge: &Bridge, reg: u32, value: u32) -> Result<(), BridgeError> {
-        assert!(reg <= 32);
-        // Use LUI instruction if necessary
-        if (value & 0xffff_f800) != 0 {
-            let low = value & 0x0000_0fff;
-            let high = if (low & 0x800) != 0 {
-                (value & 0xffff_f000) + 0x1000
-            } else {
-                value & 0xffff_f000
-            };
-
-            // Also issue ADDI
-            if low != 0 {
-                // LUI regId, high
-                self.write_instruction(bridge, 0x37 | (reg << 7) | high)?;
-
-                // ADDI regId, regId, low
-                self.write_instruction(bridge, 0x13 | (reg << 7) | (reg << 15) | (low << 20))
-            } else {
-                // LUI regId, high
-                self.write_instruction(bridge, 0x37 | (reg << 7) | high)
+    fn get_register(&self, regnum: u32) -> Option<&RiscvRegister> {
+        for reg in &self.registers {
+            if reg.gdb_index == regnum {
+                return Some(&reg);
             }
-        } else {
-            // ORI regId, x0, value
-            self.write_instruction(bridge, 0x13 | (reg << 7) | (6 << 12) | (value << 20))
+        }
+        None
+    }
+    pub fn read_register(&self, bridge: &Bridge, regnum: u32) -> Result<u32, BridgeError> {
+        let reg = match self.get_register(regnum) {
+            None => return Err(BridgeError::InvalidArgument(regnum)),
+            Some(s) => s,
+        };
+
+        match reg.register_type {
+            RiscvRegisterType::General => {
+                if reg.index == 32 {
+                    self.write_instruction(bridge, 0x17) //AUIPC x0,0
+                } else {
+                    self.write_instruction(bridge, (reg.index << 15) | 0x13) //ADDI x0, x?, 0
+                }
+            }
+            RiscvRegisterType::CSR => {
+                // We clobber $x1 in this function, so read its previous value
+                // (if we haven't already).
+                // This will get restored when we do a reset.
+                if self.x1_value.get().is_none() {
+                    self.x1_value.set(Some(self.read_register(bridge, 1)?));
+                }
+
+                // Perform a CSRRW which does a Read/Write.  If rs1 is $x0, then the write
+                // is ignored and side-effect free.  Set rd to $x1 to make the read
+                // not side-effect free.
+                self.write_instruction(
+                    bridge,
+                    0
+                    | ((reg.index & 0x1fff) << 20)
+                    | (0 << 15)	    // rs1: x0
+                    | (2 << 12)	    // CSRRW
+                    | (1 << 7)	    // rd: x1
+                    | (0x73 << 0), // SYSTEM
+                )
+            }
+        }?;
+        self.read_result(bridge)
+    }
+
+    pub fn write_register(
+        &self,
+        bridge: &Bridge,
+        regnum: u32,
+        value: u32,
+    ) -> Result<(), BridgeError> {
+        let reg = match self.get_register(regnum) {
+            None => return Err(BridgeError::InvalidArgument(regnum)),
+            Some(s) => s,
+        };
+
+        match reg.register_type {
+            RiscvRegisterType::General => {
+                let value = swab(value);
+                // Use LUI instruction if necessary
+                if (value & 0xffff_f800) != 0 {
+                    let low = value & 0x0000_0fff;
+                    let high = if (low & 0x800) != 0 {
+                        (value & 0xffff_f000).wrapping_add(0x1000)
+                    } else {
+                        value & 0xffff_f000
+                    };
+
+                    // LUI regId, high
+                    self.write_instruction(bridge, (reg.index << 7) | high | 0x37)?;
+
+                    // Also issue ADDI
+                    if low != 0 {
+                        // ADDI regId, regId, low
+                        self.write_instruction(
+                            bridge,
+                            (reg.index << 7) | (reg.index << 15) | (low << 20) | 0x13,
+                        )?;
+                    }
+                    Ok(())
+                } else {
+                    // ORI regId, x0, value
+                    self.write_instruction(
+                        bridge,
+                        (reg.index << 7) | (6 << 12) | (value << 20) | 0x13,
+                    )
+                }
+            }
+            RiscvRegisterType::CSR => {
+                // We clobber $x1 in this function, so read its previous value
+                // (if we haven't already).
+                // This will get restored when we do a reset.
+                if self.x1_value.get().is_none() {
+                    self.x1_value.set(Some(self.read_register(bridge, 1)?));
+                }
+
+                // Perform a CSRRW which does a Read/Write.  If rd is $x0, then the read
+                // is ignored and side-effect free.  Set rs1 to $x1 to make the write
+                // not side-effect free.
+                //
+                // cccc cccc cccc ssss s fff ddddd ooooooo
+                // c: CSR number
+                // s: rs1 (source register)
+                // f: Function
+                // d: rd (destination register)
+                // o: opcode - 0x73
+                self.write_register(bridge, 1, value)?;
+                self.write_instruction(
+                    bridge,
+                    0
+                    | ((reg.index & 0x1fff) << 20)
+                    | (1 << 15)	    // rs1: x1
+                    | (1 << 12)	    // CSRRW
+                    | (0 << 7)	    // rd: x0
+                    | (0x73 << 0), // SYSTEM
+                )
+            }
         }
     }
 
     /* --- */
     fn write_status(&self, bridge: &Bridge, value: VexRiscvFlags) -> Result<(), BridgeError> {
         debug!("SETTING BRIDGE STATUS: {:08x}", value.bits);
-        let status = (value.bits << 24) & 0xff000000
-                   | (value.bits << 8)  & 0x00ff0000
-                   | (value.bits >> 8)  & 0x0000ff00
-                   | (value.bits >> 24) & 0x000000ff;
-        bridge.poke(self.debug_offset, status)
+        bridge.poke(self.debug_offset, value.bits)
     }
 
-    fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, BridgeError> {
-        match bridge.peek(self.debug_offset) {
-            Err(e) => Err(e),
-            Ok(bits) => Ok(VexRiscvFlags { bits }),
-        }
-    }
+    // fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, BridgeError> {
+    //     match bridge.peek(self.debug_offset) {
+    //         Err(e) => Err(e),
+    //         Ok(bits) => Ok(VexRiscvFlags { bits }),
+    //     }
+    // }
 
     fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), BridgeError> {
-        debug!("ORIGINAL OPCODE {:08x}", opcode);
-        // let opcode = (opcode << 24) & 0xff000000
-        //            | (opcode << 8)  & 0x00ff0000
-        //            | (opcode >> 8)  & 0x0000ff00
-        //            | (opcode >> 24) & 0x000000ff;
-        debug!("WRITING OPCODE {:08x}", opcode);
+        debug!(
+            "WRITE INSTRUCTION: 0x{:08x} -- 0x{:08x}",
+            opcode,
+            swab(opcode)
+        );
         bridge.poke(self.debug_offset + 4, opcode)
     }
 
     fn read_result(&self, bridge: &Bridge) -> Result<u32, BridgeError> {
-        bridge.peek(self.debug_offset + 4)
+        let result = bridge.peek(self.debug_offset + 4)?;
+        Ok(swab(result))
     }
 }

@@ -32,6 +32,9 @@ pub enum BridgeError {
 
     /// We got something weird back from the bridge
     WrongResponse,
+
+    /// The argument was not in range
+    InvalidArgument(u32),
 }
 
 impl std::convert::From<libusb::Error> for BridgeError {

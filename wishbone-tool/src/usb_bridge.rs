@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use super::bridge::BridgeError;
 use super::config::Config;
+// use log::debug;
 
 pub struct UsbBridge {
     usb_pid: Option<u16>,
@@ -175,6 +176,7 @@ impl UsbBridge {
         value: u32,
         debug_byte: u8,
     ) -> Result<(), BridgeError> {
+        // debug!("POKE @ {:08x}", addr);
         let mut data_val = [0; 4];
         data_val[0] = ((value >> 0) & 0xff) as u8;
         data_val[1] = ((value >> 8) & 0xff) as u8;
@@ -186,7 +188,7 @@ impl UsbBridge {
             ((addr >> 0) & 0xffff) as u16,
             ((addr >> 16) & 0xffff) as u16,
             &data_val,
-            Duration::from_millis(500),
+            Duration::from_millis(100),
         ) {
             Err(e) => Err(BridgeError::USBError(e)),
             Ok(len) => {
@@ -201,6 +203,7 @@ impl UsbBridge {
 
     fn do_peek(usb: &libusb::DeviceHandle, addr: u32, debug_byte: u8) -> Result<u32, BridgeError> {
         let mut data_val = [0; 512];
+        // debug!("PEEK @ {:08x}", addr);
         match usb.read_control(
             0x80 | debug_byte,
             0,

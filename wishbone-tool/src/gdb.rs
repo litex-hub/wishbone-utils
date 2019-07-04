@@ -7,7 +7,7 @@ use super::bridge::{Bridge, BridgeError};
 use super::riscv::{RiscvCpu, RiscvCpuError};
 use super::Config;
 
-use log::debug;
+use log::{debug, error, info};
 
 use crate::gdb::byteorder::ByteOrder;
 use byteorder::{BigEndian, NativeEndian};
@@ -93,6 +93,9 @@ enum GdbCommand {
     /// QStartNoAckMode
     StartNoAckMode,
 
+    /// D
+    Disconnect,
+
     /// Hg#
     SetCurrentThread(u64),
 
@@ -116,6 +119,9 @@ enum GdbCommand {
 
     /// p#
     GetRegister(u32),
+
+    /// P#=#
+    SetRegister(u32, u32),
 
     /// qSymbol::
     SymbolsReady,
@@ -180,12 +186,12 @@ impl GdbServer {
         let listener = TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port))?;
 
         // accept connections and process them serially
-        println!(
+        info!(
             "Accepting connections on {}:{}",
             cfg.bind_addr, cfg.bind_port
         );
         let (connection, _sockaddr) = listener.accept()?;
-        println!("Connection from {:?}", connection.peer_addr()?);
+        info!("Connection from {:?}", connection.peer_addr()?);
         Ok(GdbServer {
             connection,
             no_ack_mode: false,
@@ -199,6 +205,8 @@ impl GdbServer {
 
         if pkt == "qSupported" || pkt.starts_with("qSupported:") {
             Ok(GdbCommand::SupportedQueries(pkt))
+        } else if pkt == "D" {
+            Ok(GdbCommand::Disconnect)
         } else if pkt == "QStartNoAckMode" {
             Ok(GdbCommand::StartNoAckMode)
         } else if pkt == "qAttached" {
@@ -259,6 +267,12 @@ impl GdbServer {
             ))
         } else if pkt == "g" {
             Ok(GdbCommand::GetRegisters)
+        } else if pkt.starts_with("P") {
+            let pkt = pkt.trim_start_matches("P").to_string();
+            let v: Vec<&str> = pkt.split('=').collect();
+            let addr = u32::from_str_radix(v[0], 16)?;
+            let value = u32::from_str_radix(v[1], 16)?;
+            Ok(GdbCommand::SetRegister(addr, value))
         } else if pkt == "c" {
             Ok(GdbCommand::Continue)
         } else if pkt == "s" {
@@ -271,7 +285,7 @@ impl GdbServer {
             Ok(GdbCommand::ReadMemory(addr, length))
         } else if pkt.starts_with("p") {
             Ok(GdbCommand::GetRegister(u32::from_str_radix(
-                pkt.trim_start_matches("r"),
+                pkt.trim_start_matches("p"),
                 16,
             )?))
         } else if pkt.starts_with("Hg") {
@@ -297,7 +311,7 @@ impl GdbServer {
         } else if pkt.starts_with("vCont;C") {
             //vCont;C04:0;c
             let pkt = pkt.trim_start_matches("vCont;C").to_string();
-            let v: Vec<&str> = pkt.split(',').collect();
+            // let v: Vec<&str> = pkt.split(',').collect();
             Ok(GdbCommand::VContContinueFromSignal(pkt))
         } else if pkt.starts_with("vCont;s") {
             let pkt = pkt.trim_start_matches("vCont;s").to_string();
@@ -336,7 +350,7 @@ impl GdbServer {
                                 self.connection.read(&mut remote_checksum)?;
                                 let checksum_str = format!("{:02x}", checksum);
                                 if checksum_str != String::from_utf8_lossy(&remote_checksum) {
-                                    println!(
+                                    info!(
                                         "Checksum mismatch: Calculated {:?} vs {}",
                                         checksum_str,
                                         String::from_utf8_lossy(&remote_checksum)
@@ -348,7 +362,7 @@ impl GdbServer {
                                     }
                                 }
                                 let (buffer, _remainder) = buffer.split_at(buffer_offset);
-                                println!("<  Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
+                                debug!("<  Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
                                 return self.packet_to_command(&buffer);
                             }
                             other => {
@@ -362,7 +376,7 @@ impl GdbServer {
                 0x2b /*'+'*/ => {}
                 0x2d /*'-'*/ => {}
                 0x3 => return Ok(GdbCommand::Interrupt),
-                other => println!("Warning: unrecognied byte received: {}", other),
+                other => error!("Warning: unrecognied byte received: {}", other),
             }
         }
     }
@@ -370,9 +384,10 @@ impl GdbServer {
     pub fn process(&mut self, cpu: &RiscvCpu, bridge: &Bridge) -> Result<(), GdbServerError> {
         let cmd = self.get_command()?;
 
-        println!("<  Read packet {:?}", cmd);
+        debug!("<  Read packet {:?}", cmd);
         match cmd {
-            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:memory-map:read+;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,
+            // qXfer:memory-map:read+;
+            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,
             GdbCommand::StartNoAckMode => { self.no_ack_mode = true; self.gdb_send(b"OK")?},
             GdbCommand::SetCurrentThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::ContinueThread(_) => self.gdb_send(b"OK")?,
@@ -385,14 +400,27 @@ impl GdbServer {
             GdbCommand::GetThreadInfo => self.gdb_send(b"l")?,
             GdbCommand::GetCurrentThreadId => self.gdb_send(b"QC0")?,
             GdbCommand::CheckIsAttached => self.gdb_send(b"1")?,
+            GdbCommand::Disconnect => {
+                cpu.resume(bridge)?;
+                self.gdb_send("OK".as_bytes())?
+            }
             GdbCommand::GetRegisters => {
                 let mut register_list = String::new();
                 for i in 0..33 {
-                    register_list.push_str(format!("{:08x}", i).as_str());
+                    register_list.push_str(format!("{:08x}", cpu.read_register(bridge, i)?).as_str());
                 }
                 self.gdb_send(register_list.as_bytes())?
             }
-            GdbCommand::GetRegister(_) => self.gdb_send(b"12345678")?,
+            GdbCommand::GetRegister(reg) => {
+                self.gdb_send(format!("{:08x}", cpu.read_register(bridge, reg)?).as_bytes())?
+            }
+            GdbCommand::SetRegister(reg, val) => {
+                let response = match cpu.write_register(bridge, reg, val) {
+                    Ok(()) => "OK",
+                    Err(_) => "E 01",
+                };
+                self.gdb_send(response.as_bytes())?
+            }
             GdbCommand::SymbolsReady => self.gdb_send(b"OK")?,
             GdbCommand::ReadMemory(addr, len) => {
                 debug!("Reading memory {:08x}", addr);
@@ -459,7 +487,7 @@ impl GdbServer {
         buffer[inp.len() + 2] = checksum_bytes[0];
         buffer[inp.len() + 3] = checksum_bytes[1];
         let (to_write, _rest) = buffer.split_at(inp.len() + 4);
-        println!(
+        debug!(
             " > Writing {} bytes: {}",
             to_write.len(),
             String::from_utf8_lossy(&to_write)
