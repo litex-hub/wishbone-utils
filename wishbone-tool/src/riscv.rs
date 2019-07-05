@@ -25,6 +25,13 @@ fn swab(src: u32) -> u32 {
         | (src >> 24) & 0x000000ff
 }
 
+#[derive(Debug, PartialEq)]
+pub enum RiscvCpuState {
+    Unknown,
+    Halted,
+    Running,
+}
+
 #[derive(Debug)]
 pub enum RiscvCpuError {
     /// Someone tried to request an unrecognized feature file
@@ -171,7 +178,15 @@ pub struct RiscvCpu {
     breakpoints: RefCell<[RiscvBreakpoint; 4]>,
 
     /// CPU state
-    cpu_state: Arc<Mutex<u32>>,
+    cpu_state: Arc<Mutex<RiscvCpuState>>,
+}
+
+pub struct RiscvCpuController {
+    /// The bridge offset for the debug register
+    debug_offset: u32,
+
+    /// A copy of the CPU's state object
+    cpu_state: Arc<Mutex<RiscvCpuState>>,
 }
 
 impl RiscvCpu {
@@ -185,12 +200,28 @@ impl RiscvCpu {
             x1_value: Cell::new(None),
             x2_value: Cell::new(None),
             breakpoints: RefCell::new([
-                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
-                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
-                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
-                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
+                RiscvBreakpoint {
+                    address: 0,
+                    enabled: false,
+                    allocated: false,
+                },
+                RiscvBreakpoint {
+                    address: 0,
+                    enabled: false,
+                    allocated: false,
+                },
+                RiscvBreakpoint {
+                    address: 0,
+                    enabled: false,
+                    allocated: false,
+                },
+                RiscvBreakpoint {
+                    address: 0,
+                    enabled: false,
+                    allocated: false,
+                },
             ]),
-            cpu_state: Arc::new(Mutex::new(0)),
+            cpu_state: Arc::new(Mutex::new(RiscvCpuState::Unknown)),
         })
     }
 
@@ -425,7 +456,13 @@ impl RiscvCpu {
         Ok(self.read_result(bridge)?)
     }
 
-    pub fn write_memory(&self, bridge: &Bridge, addr: u32, sz: u32, value: u32) -> Result<(), RiscvCpuError> {
+    pub fn write_memory(
+        &self,
+        bridge: &Bridge,
+        addr: u32,
+        sz: u32,
+        value: u32,
+    ) -> Result<(), RiscvCpuError> {
         // if sz == 4 {
         //     return bridge.poke(addr, value);
         // }
@@ -445,7 +482,7 @@ impl RiscvCpu {
         self.write_register(bridge, 2, addr)?;
         let inst = match sz {
             // SW x1,0(x2)
-            4 =>  (1 << 20) | (2 << 15) | (0x2 << 12) | 0x23,
+            4 => (1 << 20) | (2 << 15) | (0x2 << 12) | 0x23,
 
             // SH x1,0(x2)
             2 => (1 << 20) | (2 << 15) | (0x1 << 12) | 0x23,
@@ -463,7 +500,7 @@ impl RiscvCpu {
         let mut bp_index = None;
         let mut bps = self.breakpoints.borrow_mut();
         for (bpidx, bp) in bps.iter().enumerate() {
-            if ! bp.allocated {
+            if !bp.allocated {
                 bp_index = Some(bpidx);
             }
         }
@@ -503,7 +540,10 @@ impl RiscvCpu {
     }
 
     pub fn halt(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-        self.write_status(bridge, VexRiscvFlags::HALT_SET)
+        self.write_status(bridge, VexRiscvFlags::HALT_SET)?;
+        *self.cpu_state.lock().unwrap() = RiscvCpuState::Halted;
+        debug!("HALT: CPU is now halted");
+        Ok(())
     }
 
     pub fn resume(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
@@ -516,7 +556,10 @@ impl RiscvCpu {
             self.write_register(bridge, 2, old_value)?;
         }
 
-        self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)
+        self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)?;
+        *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
+        debug!("RESUME: CPU is now running");
+        Ok(())
     }
 
     pub fn step(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
@@ -653,17 +696,17 @@ impl RiscvCpu {
         Ok(())
     }
 
-    pub fn poll(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-        let flags = self.read_status(bridge)?;
-        Ok(())
-    }
+    // pub fn poll(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+    //     let flags = self.read_status(bridge)?;
+    //     Ok(())
+    // }
 
-    fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
-        match bridge.peek(self.debug_offset) {
-            Err(e) => Err(RiscvCpuError::BridgeError(e)),
-            Ok(bits) => Ok(VexRiscvFlags { bits }),
-        }
-    }
+    // fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
+    //     match bridge.peek(self.debug_offset) {
+    //         Err(e) => Err(RiscvCpuError::BridgeError(e)),
+    //         Ok(bits) => Ok(VexRiscvFlags { bits }),
+    //     }
+    // }
 
     fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), RiscvCpuError> {
         debug!(
@@ -677,5 +720,47 @@ impl RiscvCpu {
 
     fn read_result(&self, bridge: &Bridge) -> Result<u32, RiscvCpuError> {
         Ok(bridge.peek(self.debug_offset + 4)?)
+    }
+
+    pub fn get_controller(&self) -> RiscvCpuController {
+        RiscvCpuController {
+            cpu_state: self.cpu_state.clone(),
+            debug_offset: self.debug_offset,
+        }
+    }
+}
+
+fn is_running(flags: VexRiscvFlags) -> bool {
+    debug!("CPU flags: {:?}", flags);
+    ((flags & VexRiscvFlags::PIP_BUSY) == VexRiscvFlags::PIP_BUSY)
+        || ((flags & VexRiscvFlags::HALT) != VexRiscvFlags::HALT)
+}
+
+impl RiscvCpuController {
+    pub fn poll(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        let flags = self.read_status(bridge)?;
+        let mut current_status = self.cpu_state.lock().unwrap();
+        if is_running(flags) {
+            debug!("POLL: CPU seems running?");
+            if *current_status == RiscvCpuState::Running {
+                *current_status = RiscvCpuState::Halted;
+                debug!("POLL: CPU is now halted");
+                // We're halted now
+            }
+        } else {
+            debug!("POLL: CPU seems halted?");
+            if *current_status == RiscvCpuState::Halted {
+                *current_status = RiscvCpuState::Running;
+                debug!("POLL: CPU is now running");
+            }
+        }
+        Ok(())
+    }
+
+    fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
+        match bridge.peek(self.debug_offset) {
+            Err(e) => Err(RiscvCpuError::BridgeError(e)),
+            Ok(bits) => Ok(VexRiscvFlags { bits }),
+        }
     }
 }

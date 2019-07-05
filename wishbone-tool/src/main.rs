@@ -149,11 +149,12 @@ fn main() {
     match cfg.bridge_kind {
         BridgeKind::GDB => loop {
             let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
+            let cpu_controller = cpu.get_controller();
             cpu.halt(&bridge).expect("Couldn't halt CPU");
             let poll_bridge = bridge.clone();
             thread::spawn(move || {
                 loop {
-                    if let Err(e) = cpu.poll(&poll_bridge) {
+                    if let Err(e) = cpu_controller.poll(&poll_bridge) {
                         error!("Error while polling bridge: {:?}", e);
                     }
                     thread::park_timeout(Duration::from_millis(500));
