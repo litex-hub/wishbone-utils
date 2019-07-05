@@ -28,6 +28,24 @@ fn swab(src: u32) -> u32 {
 pub enum RiscvCpuError {
     /// Someone tried to request an unrecognized feature file
     UnrecognizedFile(String /* requested filename */),
+
+    /// The given register could not be decoded
+    InvalidRegister(u32),
+
+    /// Ran out of breakpoionts
+    BreakpointExhausted,
+
+    /// Couldn't find that breakpoint
+    BreakpointNotFound(u32 /* address */),
+
+    /// An error occurred with the bridge
+    BridgeError(BridgeError),
+}
+
+impl std::convert::From<BridgeError> for RiscvCpuError {
+    fn from(e: BridgeError) -> RiscvCpuError {
+        RiscvCpuError::BridgeError(e)
+    }
 }
 
 const THREADS_XML: &str = r#"<?xml version="1.0"?>
@@ -373,7 +391,7 @@ impl RiscvCpu {
         Ok(THREADS_XML.to_string().into_bytes())
     }
 
-    pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, BridgeError> {
+    pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, RiscvCpuError> {
         // if sz == 4 {
         //     return bridge.peek(addr);
         // }
@@ -402,7 +420,7 @@ impl RiscvCpu {
         Ok(self.read_result(bridge)?)
     }
 
-    pub fn write_memory(&self, bridge: &Bridge, addr: u32, sz: u32, value: u32) -> Result<(), BridgeError> {
+    pub fn write_memory(&self, bridge: &Bridge, addr: u32, sz: u32, value: u32) -> Result<(), RiscvCpuError> {
         // if sz == 4 {
         //     return bridge.poke(addr, value);
         // }
@@ -436,7 +454,7 @@ impl RiscvCpu {
         Ok(())
     }
 
-    pub fn add_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), BridgeError> {
+    pub fn add_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), RiscvCpuError> {
         let mut bp_index = None;
         let mut bps = self.breakpoints.borrow_mut();
         for (bpidx, bp) in bps.iter().enumerate() {
@@ -445,7 +463,7 @@ impl RiscvCpu {
             }
         }
         if bp_index.is_none() {
-            return Err(BridgeError::InvalidArgument(addr));
+            return Err(RiscvCpuError::BreakpointExhausted);
         }
 
         let bp_index = bp_index.unwrap();
@@ -458,7 +476,7 @@ impl RiscvCpu {
         Ok(())
     }
 
-    pub fn remove_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), BridgeError> {
+    pub fn remove_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), RiscvCpuError> {
         let mut bp_index = None;
         let mut bps = self.breakpoints.borrow_mut();
         for (bpidx, bp) in bps.iter().enumerate() {
@@ -467,7 +485,7 @@ impl RiscvCpu {
             }
         }
         if bp_index.is_none() {
-            return Err(BridgeError::InvalidArgument(addr));
+            return Err(RiscvCpuError::BreakpointNotFound(addr));
         }
 
         let bp_index = bp_index.unwrap();
@@ -479,11 +497,11 @@ impl RiscvCpu {
         Ok(())
     }
 
-    pub fn halt(&self, bridge: &Bridge) -> Result<(), BridgeError> {
+    pub fn halt(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.write_status(bridge, VexRiscvFlags::HALT_SET)
     }
 
-    pub fn resume(&self, bridge: &Bridge) -> Result<(), BridgeError> {
+    pub fn resume(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         if let Some(old_value) = self.x1_value.get().take() {
             debug!("Updating old value of x1 to {:08x}", old_value);
             self.write_register(bridge, 1, old_value)?;
@@ -496,7 +514,7 @@ impl RiscvCpu {
         self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)
     }
 
-    pub fn step(&self, bridge: &Bridge) -> Result<(), BridgeError> {
+    pub fn step(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
     }
 
@@ -509,9 +527,9 @@ impl RiscvCpu {
         }
         None
     }
-    pub fn read_register(&self, bridge: &Bridge, regnum: u32) -> Result<u32, BridgeError> {
+    pub fn read_register(&self, bridge: &Bridge, regnum: u32) -> Result<u32, RiscvCpuError> {
         let reg = match self.get_register(regnum) {
-            None => return Err(BridgeError::InvalidArgument(regnum)),
+            None => return Err(RiscvCpuError::InvalidRegister(regnum)),
             Some(s) => s,
         };
 
@@ -553,9 +571,9 @@ impl RiscvCpu {
         bridge: &Bridge,
         regnum: u32,
         value: u32,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<(), RiscvCpuError> {
         let reg = match self.get_register(regnum) {
-            None => return Err(BridgeError::InvalidArgument(regnum)),
+            None => return Err(RiscvCpuError::InvalidRegister(regnum)),
             Some(s) => s,
         };
 
@@ -624,29 +642,30 @@ impl RiscvCpu {
     }
 
     /* --- */
-    fn write_status(&self, bridge: &Bridge, value: VexRiscvFlags) -> Result<(), BridgeError> {
+    fn write_status(&self, bridge: &Bridge, value: VexRiscvFlags) -> Result<(), RiscvCpuError> {
         debug!("SETTING BRIDGE STATUS: {:08x}", value.bits);
-        bridge.poke(self.debug_offset, value.bits)
+        bridge.poke(self.debug_offset, value.bits)?;
+        Ok(())
     }
 
-    // fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, BridgeError> {
+    // fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
     //     match bridge.peek(self.debug_offset) {
     //         Err(e) => Err(e),
     //         Ok(bits) => Ok(VexRiscvFlags { bits }),
     //     }
     // }
 
-    fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), BridgeError> {
+    fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), RiscvCpuError> {
         debug!(
             "WRITE INSTRUCTION: 0x{:08x} -- 0x{:08x}",
             opcode,
             swab(opcode)
         );
-        bridge.poke(self.debug_offset + 4, opcode)
+        bridge.poke(self.debug_offset + 4, opcode)?;
+        Ok(())
     }
 
-    fn read_result(&self, bridge: &Bridge) -> Result<u32, BridgeError> {
-        let result = bridge.peek(self.debug_offset + 4)?;
-        Ok(result)
+    fn read_result(&self, bridge: &Bridge) -> Result<u32, RiscvCpuError> {
+        Ok(bridge.peek(self.debug_offset + 4)?)
     }
 }
