@@ -409,8 +409,14 @@ impl GdbServer {
             GdbCommand::StartNoAckMode => { self.no_ack_mode = true; self.gdb_send(b"OK")?},
             GdbCommand::SetCurrentThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::ContinueThread(_) => self.gdb_send(b"OK")?,
-            GdbCommand::AddBreakpoint(_, _, _) => self.gdb_send(b"OK")?,
-            GdbCommand::RemoveBreakpoint(_, _, _) => self.gdb_send(b"OK")?,
+            GdbCommand::AddBreakpoint(_bptype, address, _size) => {
+                cpu.add_breakpoint(bridge, address)?;
+                self.gdb_send(b"OK")?
+            },
+            GdbCommand::RemoveBreakpoint(_bptype, address, _size) => {
+                cpu.remove_breakpoint(bridge, address)?;
+                self.gdb_send(b"OK")?
+            },
             GdbCommand::LastSignalPacket => {
                 let sig_str = format!("S{:02x}", self.last_signal);
                 self.gdb_send(if self.is_alive { sig_str.as_bytes() } else { b"W00" })?

@@ -1,7 +1,8 @@
 use super::bridge::{Bridge, BridgeError};
 
 use log::debug;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+
 bitflags! {
     struct VexRiscvFlags: u32 {
         const RESET = 1 << 0;
@@ -119,6 +120,18 @@ impl RiscvRegister {
     }
 }
 
+struct RiscvBreakpoint {
+
+    /// The address of the breakpoint
+    address: u32,
+
+    /// Whether this breakpoint is enabled
+    enabled: bool,
+
+    /// Whether this value is empty or not
+    allocated: bool,
+}
+
 pub struct RiscvCpu {
     /// A list of all available registers on this CPU
     registers: Vec<RiscvRegister>,
@@ -134,6 +147,9 @@ pub struct RiscvCpu {
 
     /// $x2 sometimes gets used during debug.  Back up its value here
     x2_value: Cell<Option<u32>>,
+
+    /// All available breakpoints
+    breakpoints: RefCell<[RiscvBreakpoint; 4]>,
 }
 
 impl RiscvCpu {
@@ -146,6 +162,12 @@ impl RiscvCpu {
             debug_offset: 0xf00f0000,
             x1_value: Cell::new(None),
             x2_value: Cell::new(None),
+            breakpoints: RefCell::new([
+                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
+                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
+                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
+                RiscvBreakpoint {address: 0, enabled: false, allocated: false},
+            ]),
         })
     }
 
@@ -411,6 +433,49 @@ impl RiscvCpu {
             x => panic!("Unrecognized memory size: {}", x),
         };
         self.write_instruction(bridge, inst)?;
+        Ok(())
+    }
+
+    pub fn add_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), BridgeError> {
+        let mut bp_index = None;
+        let mut bps = self.breakpoints.borrow_mut();
+        for (bpidx, bp) in bps.iter().enumerate() {
+            if ! bp.allocated {
+                bp_index = Some(bpidx);
+            }
+        }
+        if bp_index.is_none() {
+            return Err(BridgeError::InvalidArgument(addr));
+        }
+
+        let bp_index = bp_index.unwrap();
+
+        bps[bp_index].address = addr;
+        bps[bp_index].allocated = true;
+        bps[bp_index].enabled = true;
+
+        bridge.poke(self.debug_offset + 0x40 + (bp_index as u32 * 4), addr | 1)?;
+        Ok(())
+    }
+
+    pub fn remove_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), BridgeError> {
+        let mut bp_index = None;
+        let mut bps = self.breakpoints.borrow_mut();
+        for (bpidx, bp) in bps.iter().enumerate() {
+            if bp.allocated && bp.address == addr {
+                bp_index = Some(bpidx);
+            }
+        }
+        if bp_index.is_none() {
+            return Err(BridgeError::InvalidArgument(addr));
+        }
+
+        let bp_index = bp_index.unwrap();
+
+        bps[bp_index].allocated = false;
+        bps[bp_index].enabled = false;
+
+        bridge.poke(self.debug_offset + 0x40 + (bp_index as u32 * 4), 0)?;
         Ok(())
     }
 
