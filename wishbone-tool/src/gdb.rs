@@ -69,7 +69,7 @@ impl std::convert::From<std::num::ParseIntError> for GdbServerError {
 }
 
 #[derive(Debug)]
-enum BreakPointType {
+pub enum BreakPointType {
     BreakSoft,
     BreakHard,
     WatchWrite,
@@ -91,7 +91,7 @@ impl BreakPointType {
 }
 
 #[derive(Debug)]
-enum GdbCommand {
+pub enum GdbCommand {
     Unknown(String),
 
     /// qSupported
@@ -341,7 +341,7 @@ impl GdbServer {
         }
     }
 
-    fn get_command(&mut self) -> Result<GdbCommand, GdbServerError> {
+    pub fn get_command(&mut self) -> Result<GdbCommand, GdbServerError> {
         let mut buffer = [0; 16384];
         let mut byte = [0; 1];
         let mut remote_checksum = [0; 2];
@@ -399,10 +399,7 @@ impl GdbServer {
         }
     }
 
-    pub fn process(&mut self, cpu: &RiscvCpu, bridge: &Bridge) -> Result<(), GdbServerError> {
-        let cmd = self.get_command()?;
-
-        debug!("<  Read packet {:?}", cmd);
+    pub fn process(&mut self, cmd: GdbCommand, cpu: &RiscvCpu, bridge: &Bridge) -> Result<(), GdbServerError> {
         match cmd {
             // qXfer:memory-map:read+;
             GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,

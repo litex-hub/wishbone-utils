@@ -19,7 +19,7 @@ pub enum Bridge {
     UsbBridge(UsbBridge),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BridgeError {
     /// Expected one size, but got another
     LengthError(usize, usize),

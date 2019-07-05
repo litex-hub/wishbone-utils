@@ -23,6 +23,7 @@ use rand::prelude::*;
 use riscv::RiscvCpu;
 
 use std::time::Duration;
+use log::{debug, error};
 
 fn list_usb() -> Result<(), libusb::Error> {
     let usb_ctx = libusb::Context::new().unwrap();
@@ -148,10 +149,15 @@ fn main() {
             let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
             cpu.halt(&bridge).expect("Couldn't halt CPU");
             loop {
-                if let Err(e) = gdb.process(&cpu, &bridge) {
+                let cmd = match gdb.get_command() {
+                    Err(e) => { error!("Unable to read command from GDB client: {:?}", e); break; },
+                    Ok(o) => { debug!("<  Read packet {:?}", o); o},
+                };
+
+                if let Err(e) = gdb.process(cmd, &cpu, &bridge) {
                     match e {
                         gdb::GdbServerError::ConnectionClosed => (),
-                        e => println!("Error in GDB server: {:?}", e),
+                        e => error!("Error in GDB server: {:?}", e),
                     }
                     break;
                 }

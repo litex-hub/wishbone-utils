@@ -10,7 +10,7 @@ pub type Result<T> = StdResult<T, Error>;
 
 
 /// Errors returned by the `libusb` library.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// Success (no error).
     Success,
