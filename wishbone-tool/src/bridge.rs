@@ -15,6 +15,7 @@ pub enum BridgeKind {
     None,
 }
 
+#[derive(Clone)]
 pub enum Bridge {
     UsbBridge(UsbBridge),
 }

@@ -2,6 +2,7 @@ use super::bridge::{Bridge, BridgeError};
 
 use log::debug;
 use std::cell::{Cell, RefCell};
+use std::sync::{Arc, Mutex};
 
 bitflags! {
     struct VexRiscvFlags: u32 {
@@ -168,6 +169,9 @@ pub struct RiscvCpu {
 
     /// All available breakpoints
     breakpoints: RefCell<[RiscvBreakpoint; 4]>,
+
+    /// CPU state
+    cpu_state: Arc<Mutex<u32>>,
 }
 
 impl RiscvCpu {
@@ -186,6 +190,7 @@ impl RiscvCpu {
                 RiscvBreakpoint {address: 0, enabled: false, allocated: false},
                 RiscvBreakpoint {address: 0, enabled: false, allocated: false},
             ]),
+            cpu_state: Arc::new(Mutex::new(0)),
         })
     }
 
@@ -648,12 +653,17 @@ impl RiscvCpu {
         Ok(())
     }
 
-    // fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
-    //     match bridge.peek(self.debug_offset) {
-    //         Err(e) => Err(e),
-    //         Ok(bits) => Ok(VexRiscvFlags { bits }),
-    //     }
-    // }
+    pub fn poll(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        let flags = self.read_status(bridge)?;
+        Ok(())
+    }
+
+    fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
+        match bridge.peek(self.debug_offset) {
+            Err(e) => Err(RiscvCpuError::BridgeError(e)),
+            Ok(bits) => Ok(VexRiscvFlags { bits }),
+        }
+    }
 
     fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), RiscvCpuError> {
         debug!(
