@@ -798,7 +798,7 @@ impl RiscvCpuController {
             if *current_status == RiscvCpuState::Running {
                 *current_status = RiscvCpuState::Halted;
                 debug!("POLL: CPU is now halted");
-                gdb_controller.gdb_send(b"S 03")?;
+                gdb_controller.gdb_send(b"T05 swbreak:;")?;
                 // We're halted now
             }
         } else {
