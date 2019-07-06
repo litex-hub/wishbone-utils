@@ -12,6 +12,40 @@ use log::{debug, error, info};
 use crate::gdb::byteorder::ByteOrder;
 use byteorder::{BigEndian, NativeEndian};
 
+pub struct GdbController {
+    connection: TcpStream,
+}
+
+impl Write for GdbController {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> { self.connection.write(buf) }
+    fn flush(&mut self) -> io::Result<()> { self.connection.flush() }
+}
+
+impl GdbController {
+    pub fn gdb_send(&mut self, inp: &[u8]) -> io::Result<()> {
+        let mut buffer = [0; 16388];
+        let mut checksum: u8 = 0;
+        buffer[0] = '$' as u8;
+        for i in 0..inp.len() {
+            buffer[i + 1] = inp[i];
+            checksum = checksum.wrapping_add(inp[i]);
+        }
+        let checksum_str = &format!("{:02x}", checksum);
+        let checksum_bytes = checksum_str.as_bytes();
+        buffer[inp.len() + 1] = '#' as u8;
+        buffer[inp.len() + 2] = checksum_bytes[0];
+        buffer[inp.len() + 3] = checksum_bytes[1];
+        let (to_write, _rest) = buffer.split_at(inp.len() + 4);
+        debug!(
+            " > Writing {} bytes: {}",
+            to_write.len(),
+            String::from_utf8_lossy(&to_write)
+        );
+        self.connection.write(&to_write)?;
+        Ok(())
+    }
+}
+
 pub struct GdbServer {
     connection: TcpStream,
     no_ack_mode: bool,
@@ -337,8 +371,13 @@ impl GdbServer {
         } else if pkt == "qSymbol::" {
             Ok(GdbCommand::SymbolsReady)
         } else {
+            info!("Unrecognized GDB command: {}", pkt);
             Ok(GdbCommand::Unknown(pkt))
         }
+    }
+
+    pub fn get_controller(&self) -> GdbController {
+        GdbController { connection: self.connection.try_clone().unwrap() }
     }
 
     pub fn get_command(&mut self) -> Result<GdbCommand, GdbServerError> {
@@ -468,7 +507,13 @@ impl GdbServer {
             GdbCommand::GetOffsets => self.gdb_send(b"Text=0;Data=0;Bss=0")?,
             GdbCommand::Continue => cpu.resume(&bridge)?,
             GdbCommand::Step => cpu.step(&bridge)?,
-            GdbCommand::MonitorCommand(_) => self.gdb_send(b"OK")?,
+            GdbCommand::MonitorCommand(cmd) => {
+                match cmd.as_str() {
+                    "reset" => cpu.reset(&bridge)?,
+                    _ => (),
+                }
+                self.gdb_send(b"OK")?
+            },
             GdbCommand::ReadFeature(filename, offset, len) => {
                 self.gdb_send_file(cpu.get_feature(&filename)?, offset, len)?
             },
