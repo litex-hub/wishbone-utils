@@ -191,11 +191,12 @@ fn main() {
         BridgeKind::RandomTest => {
             let mut loop_counter: u32 = 0;
             loop {
+                let random_addr = 0x10000000 + 8192;
                 let val = random::<u32>();
-                bridge.poke(0x10000000, val).unwrap();
-                let cmp = bridge.peek(0x10000000).unwrap();
+                bridge.poke(random_addr, val).unwrap();
+                let cmp = bridge.peek(random_addr).unwrap();
                 if cmp != val {
-                    panic!("Loop {}: Expected {}, got {}", loop_counter, val, cmp);
+                    panic!("Loop {}: Expected {:08x}, got {:08x}", loop_counter, val, cmp);
                 }
                 if (loop_counter % 1000) == 0 {
                     println!("loop: {} ({:08x})", loop_counter, val);
