@@ -10,6 +10,7 @@ pub struct Config {
     pub bridge_kind: BridgeKind,
     pub bind_addr: String,
     pub bind_port: u32,
+    pub random_loops: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -67,6 +68,12 @@ impl Config {
 
         let bridge_kind = BridgeKind::from_string(&matches.value_of("bridge-kind"))?;
 
+        let random_loops = if let Some(random_loops) = matches.value_of("random-loops") {
+            Some(parse_u32(random_loops)?)
+        } else {
+            None
+        };
+
         Ok(Config {
             usb_pid,
             usb_vid,
@@ -75,6 +82,7 @@ impl Config {
             bridge_kind,
             bind_port,
             bind_addr,
+            random_loops,
         })
     }
 }

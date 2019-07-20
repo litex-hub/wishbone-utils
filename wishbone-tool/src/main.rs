@@ -4,8 +4,8 @@ extern crate clap;
 extern crate libusb;
 extern crate rand;
 
-extern crate log;
 extern crate flexi_logger;
+extern crate log;
 
 mod bridge;
 mod config;
@@ -22,8 +22,8 @@ use config::Config;
 use rand::prelude::*;
 use riscv::RiscvCpu;
 
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 use log::{debug, error};
 
@@ -66,7 +66,7 @@ fn list_usb() -> Result<(), libusb::Error> {
 }
 
 fn main() {
-    flexi_logger::Logger::with_str("debug").start().unwrap();//env_logger::init();
+    flexi_logger::Logger::with_str("debug").start().unwrap(); //env_logger::init();
     let matches = App::new("Wishbone USB Adapter")
         .version("1.0")
         .author("Sean Cross <sean@xobs.io>")
@@ -120,7 +120,7 @@ fn main() {
                 .short("n")
                 .long("port")
                 .value_name("PORT_NUMBER")
-                .help("Port number to listen on")
+                .help("port number to listen on")
                 .default_value("1234")
                 .takes_value(true),
         )
@@ -129,7 +129,14 @@ fn main() {
                 .short("s")
                 .long("server-kind")
                 .takes_value(true)
+                .help("which server to run (if any)")
                 .possible_values(&["gdb", "wishbone", "random-test"]),
+        )
+        .arg(
+            Arg::with_name("random-loops")
+                .long("random-loops")
+                .help("number of loops to run when doing a random-test")
+                .takes_value(true),
         )
         .get_matches();
 
@@ -153,18 +160,22 @@ fn main() {
             let mut gdb_controller = gdb.get_controller();
             cpu.halt(&bridge).expect("Couldn't halt CPU");
             let poll_bridge = bridge.clone();
-            thread::spawn(move || {
-                loop {
-                    if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
-                        error!("Error while polling bridge: {:?}", e);
-                    }
-                    thread::park_timeout(Duration::from_millis(500));
+            thread::spawn(move || loop {
+                if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
+                    error!("Error while polling bridge: {:?}", e);
                 }
+                thread::park_timeout(Duration::from_millis(500));
             });
             loop {
                 let cmd = match gdb.get_command() {
-                    Err(e) => { error!("Unable to read command from GDB client: {:?}", e); break; },
-                    Ok(o) => { debug!("<  Read packet {:?}", o); o},
+                    Err(e) => {
+                        error!("Unable to read command from GDB client: {:?}", e);
+                        break;
+                    }
+                    Ok(o) => {
+                        debug!("<  Read packet {:?}", o);
+                        o
+                    }
                 };
 
                 if let Err(e) = gdb.process(cmd, &cpu, &bridge) {
@@ -196,12 +207,21 @@ fn main() {
                 bridge.poke(random_addr, val).unwrap();
                 let cmp = bridge.peek(random_addr).unwrap();
                 if cmp != val {
-                    panic!("Loop {}: Expected {:08x}, got {:08x}", loop_counter, val, cmp);
+                    panic!(
+                        "Loop {}: Expected {:08x}, got {:08x}",
+                        loop_counter, val, cmp
+                    );
                 }
                 if (loop_counter % 1000) == 0 {
                     println!("loop: {} ({:08x})", loop_counter, val);
                 }
                 loop_counter = loop_counter.wrapping_add(1);
+                if let Some(max_loops) = cfg.random_loops {
+                    if loop_counter > max_loops {
+                        println!("No errors encountered");
+                        return;
+                    }
+                }
             }
         }
         BridgeKind::None => {
