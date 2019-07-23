@@ -3,9 +3,9 @@ use super::gdb::GdbController;
 
 use log::debug;
 use std::cell::{Cell, RefCell};
-use std::sync::{Arc, Mutex};
-use std::io;
 
+use std::io;
+use std::sync::{Arc, Mutex};
 bitflags! {
     struct VexRiscvFlags: u32 {
         const RESET = 1 << 0;
@@ -185,6 +185,9 @@ pub struct RiscvCpu {
     /// $x2 sometimes gets used during debug.  Back up its value here
     x2_value: Cell<Option<u32>>,
 
+    /// $pc needs to get refreshed when we hit a breakpoint
+    pc_value: Arc<Mutex<Option<u32>>>,
+
     /// All available breakpoints
     breakpoints: RefCell<[RiscvBreakpoint; 4]>,
 
@@ -198,6 +201,9 @@ pub struct RiscvCpuController {
 
     /// A copy of the CPU's state object
     cpu_state: Arc<Mutex<RiscvCpuState>>,
+
+    /// $pc needs to get refreshed when we hit a breakpoint
+    pc_value: Arc<Mutex<Option<u32>>>,
 }
 
 impl RiscvCpu {
@@ -210,6 +216,7 @@ impl RiscvCpu {
             debug_offset: 0xf00f0000,
             x1_value: Cell::new(None),
             x2_value: Cell::new(None),
+            pc_value: Arc::new(Mutex::new(None)),
             breakpoints: RefCell::new([
                 RiscvBreakpoint {
                     address: 0,
@@ -553,6 +560,7 @@ impl RiscvCpu {
     pub fn halt(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.write_status(bridge, VexRiscvFlags::HALT_SET)?;
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Halted;
+        self.flush_cache(bridge)?;
         debug!("HALT: CPU is now halted");
         Ok(())
     }
@@ -561,24 +569,40 @@ impl RiscvCpu {
         self.write_status(bridge, VexRiscvFlags::HALT_SET | VexRiscvFlags::RESET_SET)?;
         self.write_status(bridge, VexRiscvFlags::RESET_CLEAR)?;
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Halted;
+        self.flush_cache(bridge)?;
         debug!("RESET: CPU is now halted and reset");
         Ok(())
     }
 
-    pub fn resume(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+    fn restore(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         if let Some(old_value) = self.x1_value.get().take() {
             debug!("Updating old value of x1 to {:08x}", old_value);
             self.write_register(bridge, 1, old_value)?;
         }
+
         if let Some(old_value) = self.x2_value.get().take() {
             debug!("Updating old value of x2 to {:08x}", old_value);
             self.write_register(bridge, 2, old_value)?;
         }
 
+        if let Some(old_value) = self.pc_value.lock().unwrap().take() {
+            debug!("Updating pc to {:08x}", old_value);
+            self.write_register(bridge, 32, old_value)?;
+        }
+
+        self.flush_cache(bridge)
+    }
+
+    pub fn resume(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        self.restore(bridge)?;
+
         // Rewrite breakpoints (is this necessary?)
         for (bpidx, bp) in self.breakpoints.borrow().iter().enumerate() {
-            if bp.allocated && bp.enabled{
-                bridge.poke(self.debug_offset + 0x40 + (bpidx as u32 * 4), bp.address | 1)?;
+            if bp.allocated && bp.enabled {
+                bridge.poke(
+                    self.debug_offset + 0x40 + (bpidx as u32 * 4),
+                    bp.address | 1,
+                )?;
             }
         }
 
@@ -589,6 +613,7 @@ impl RiscvCpu {
     }
 
     pub fn step(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        self.restore(bridge)?;
         self.write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
     }
 
@@ -601,6 +626,7 @@ impl RiscvCpu {
         }
         None
     }
+
     pub fn read_register(&self, bridge: &Bridge, regnum: u32) -> Result<u32, RiscvCpuError> {
         let reg = match self.get_register(regnum) {
             None => return Err(RiscvCpuError::InvalidRegister(regnum)),
@@ -641,7 +667,9 @@ impl RiscvCpu {
                 )
             }
         }?;
-        self.read_result(bridge)
+        let result = self.read_result(bridge)?;
+        debug!("Register x{} value: 0x{:08x}", reg.index, result);
+        Ok(result)
     }
 
     pub fn write_register(
@@ -678,6 +706,7 @@ impl RiscvCpu {
             Some(s) => s,
         };
 
+        debug!("Setting register x{} -> {:08x}", regnum, value);
         match reg.register_type {
             RiscvRegisterType::General => {
                 // let value = swab(value);
@@ -749,17 +778,12 @@ impl RiscvCpu {
         Ok(())
     }
 
-    // pub fn poll(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-    //     let flags = self.read_status(bridge)?;
-    //     Ok(())
-    // }
-
-    // fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
-    //     match bridge.peek(self.debug_offset) {
-    //         Err(e) => Err(RiscvCpuError::BridgeError(e)),
-    //         Ok(bits) => Ok(VexRiscvFlags { bits }),
-    //     }
-    // }
+    fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {
+        match bridge.peek(self.debug_offset) {
+            Err(e) => Err(RiscvCpuError::BridgeError(e)),
+            Ok(bits) => Ok(VexRiscvFlags { bits }),
+        }
+    }
 
     fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), RiscvCpuError> {
         debug!(
@@ -768,6 +792,11 @@ impl RiscvCpu {
             swab(opcode)
         );
         bridge.poke(self.debug_offset + 4, opcode)?;
+        loop {
+            if (self.read_status(bridge)? & VexRiscvFlags::PIP_BUSY) != VexRiscvFlags::PIP_BUSY {
+                break;
+            }
+        }
         Ok(())
     }
 
@@ -779,7 +808,15 @@ impl RiscvCpu {
         RiscvCpuController {
             cpu_state: self.cpu_state.clone(),
             debug_offset: self.debug_offset,
+            pc_value: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn flush_cache(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        for opcode in vec![4111, 19, 19, 19] {
+            self.write_instruction(bridge, opcode)?;
+        }
+        Ok(())
     }
 }
 
@@ -790,15 +827,26 @@ fn is_running(flags: VexRiscvFlags) -> bool {
 }
 
 impl RiscvCpuController {
-    pub fn poll(&self, bridge: &Bridge, gdb_controller: &mut GdbController) -> Result<(), RiscvCpuError> {
+    pub fn poll(
+        &self,
+        bridge: &Bridge,
+        gdb_controller: &mut GdbController,
+    ) -> Result<(), RiscvCpuError> {
         let flags = self.read_status(bridge)?;
         let mut current_status = self.cpu_state.lock().unwrap();
-        if ! is_running(flags) {
+        if !is_running(flags) {
             // debug!("POLL: CPU seems running?");
             if *current_status == RiscvCpuState::Running {
                 *current_status = RiscvCpuState::Halted;
                 debug!("POLL: CPU is now halted");
                 gdb_controller.gdb_send(b"T05 swbreak:;")?;
+
+                // If we were halted by a breakpoint, save the PC (because it will
+                // be unavailable later).
+                if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
+                    *self.pc_value.lock().unwrap() = Some(self.read_result(bridge)?);
+                }
+                self.flush_cache(bridge)?;
                 // We're halted now
             }
         } else {
@@ -816,5 +864,31 @@ impl RiscvCpuController {
             Err(e) => Err(RiscvCpuError::BridgeError(e)),
             Ok(bits) => Ok(VexRiscvFlags { bits }),
         }
+    }
+
+    fn flush_cache(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        for opcode in vec![4111, 19, 19, 19] {
+            self.write_instruction(bridge, opcode)?;
+        }
+        Ok(())
+    }
+
+    fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), RiscvCpuError> {
+        debug!(
+            "WRITE INSTRUCTION: 0x{:08x} -- 0x{:08x}",
+            opcode,
+            swab(opcode)
+        );
+        bridge.poke(self.debug_offset + 4, opcode)?;
+        loop {
+            if (self.read_status(bridge)? & VexRiscvFlags::PIP_BUSY) != VexRiscvFlags::PIP_BUSY {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn read_result(&self, bridge: &Bridge) -> Result<u32, RiscvCpuError> {
+        Ok(bridge.peek(self.debug_offset + 4)?)
     }
 }
