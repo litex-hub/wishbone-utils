@@ -536,8 +536,19 @@ impl GdbServer {
             },
             GdbCommand::WriteMemory(addr, len, value) => {
                 debug!("Writing memory {:08x} -> {:08x}", addr, value);
-                for offset in (0 .. len).step_by(4) {
-                    cpu.write_memory(bridge, addr + offset, 4, value)?;
+                if len == 1 {
+                    cpu.write_memory(bridge, addr, 1, value >> 24)?;
+                }
+                else if len == 2 {
+                    cpu.write_memory(bridge, addr, 2, value >> 16)?;
+                }
+                else if len == 4 {
+                    cpu.write_memory(bridge, addr, 4, value)?;
+                }
+                else {
+                    for offset in (0 .. len).step_by(4) {
+                        cpu.write_memory(bridge, addr + offset, 4, value)?;
+                    }
                 }
                 self.gdb_send("OK".as_bytes())?
             },
