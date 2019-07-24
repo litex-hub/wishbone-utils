@@ -126,7 +126,12 @@ impl BreakPointType {
 
 #[derive(Debug)]
 pub enum GdbCommand {
+    /// Server gave an unrecognized command
     Unknown(String),
+
+    /// This should be responded to in the same way as Unknown(String),
+    /// sent by the server to test how it responds to unknown packets.
+    MustReplyEmpty,
 
     /// qSupported
     SupportedQueries(String),
@@ -370,6 +375,8 @@ impl GdbServer {
             Ok(GdbCommand::VContStepFromSignal(pkt))
         } else if pkt == "qSymbol::" {
             Ok(GdbCommand::SymbolsReady)
+        } else if pkt == "vMustReplyEmpty" {
+            Ok(Gdbcommand::MustReplyEmpty)
         } else {
             info!("Unrecognized GDB command: {}", pkt);
             Ok(GdbCommand::Unknown(pkt))
@@ -419,7 +426,7 @@ impl GdbServer {
                                     }
                                 }
                                 let (buffer, _remainder) = buffer.split_at(buffer_offset);
-                                debug!("<  Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
+                                // debug!("<  Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
                                 return self.packet_to_command(&buffer);
                             }
                             other => {
@@ -523,6 +530,7 @@ impl GdbServer {
                 cpu.halt(bridge)?;
                 self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?
             },
+            GdbCommand::MustReplyEmpty => self.gdb_send(b"")?,
             GdbCommand::Unknown(_) => self.gdb_send(b"")?,
         };
         Ok(())
@@ -560,11 +568,11 @@ impl GdbServer {
         buffer[inp.len() + 2] = checksum_bytes[0];
         buffer[inp.len() + 3] = checksum_bytes[1];
         let (to_write, _rest) = buffer.split_at(inp.len() + 4);
-        debug!(
-            " > Writing {} bytes: {}",
-            to_write.len(),
-            String::from_utf8_lossy(&to_write)
-        );
+        // debug!(
+        //     " > Writing {} bytes: {}",
+        //     to_write.len(),
+        //     String::from_utf8_lossy(&to_write)
+        // );
         self.connection.write(&to_write)?;
         Ok(())
     }
