@@ -658,12 +658,9 @@ impl RiscvCpu {
     pub fn read_register(&self, bridge: &Bridge, gdb_idx: u32) -> Result<u32, RiscvCpuError> {
 
         // Give the cached value, if we have it.
-        debug!("Is {} in the cache?", gdb_idx);
         if let Some(val) = self.get_cached_reg(gdb_idx) {
-            debug!("   Yes it is!  Returning {:08x}", val);
             return Ok(val);
         }
-        debug!("No it is not.");
 
         let reg = match self.get_register(gdb_idx) {
             None => return Err(RiscvCpuError::InvalidRegister(gdb_idx)),
