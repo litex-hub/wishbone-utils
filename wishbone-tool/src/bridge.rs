@@ -1,5 +1,6 @@
 use super::config::{Config, ConfigError};
 use super::usb_bridge::UsbBridge;
+use std::sync::{Arc, Mutex};
 
 pub enum BridgeKind {
     /// Wishbone bridge
@@ -63,6 +64,12 @@ impl Bridge {
     pub fn connect(&self) -> Result<(), BridgeError> {
         match self {
             Bridge::UsbBridge(b) => b.connect(),
+        }
+    }
+
+    pub fn mutex(&self) -> &Arc<Mutex<()>> {
+        match self {
+            Bridge::UsbBridge(b) => b.mutex(),
         }
     }
 

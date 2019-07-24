@@ -173,7 +173,7 @@ fn main() {
                         break;
                     }
                     Ok(o) => {
-                        debug!("<  Read packet {:?}", o);
+                        debug!("<  GDB packet: {:?}", o);
                         o
                     }
                 };

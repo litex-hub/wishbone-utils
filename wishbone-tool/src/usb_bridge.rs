@@ -17,6 +17,7 @@ pub struct UsbBridge {
     usb_vid: Option<u16>,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
+    mutex: Arc<Mutex<()>>,
 }
 
 enum ConnectThreadRequests {
@@ -51,6 +52,7 @@ impl UsbBridge {
             usb_vid: cfg.usb_vid.clone(),
             main_tx,
             main_rx: cv,
+            mutex: Arc::new(Mutex::new(())),
         })
     }
 
@@ -70,6 +72,10 @@ impl UsbBridge {
             }
         }
         true
+    }
+
+    pub fn mutex(&self) -> &Arc<Mutex<()>> {
+        &self.mutex
     }
 
     pub fn connect(&self) -> Result<(), BridgeError> {
