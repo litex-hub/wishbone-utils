@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
 use std::time::Duration;
 
+use log::error;
+
 use super::bridge::BridgeError;
 use super::config::Config;
 // use log::debug;
@@ -24,7 +26,7 @@ enum ConnectThreadRequests {
     Peek(u32 /* addr */),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum ConnectThreadResponses {
     OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
@@ -247,10 +249,12 @@ impl UsbBridge {
         while _mtx.is_none() {
             _mtx = cvar.wait(_mtx).unwrap();
         }
-        if let Some(ConnectThreadResponses::PokeResult(r)) = _mtx.take() {
-            Ok(r?)
-        } else {
-            Err(BridgeError::WrongResponse)
+        match _mtx.take() {
+            Some(ConnectThreadResponses::PokeResult(r)) => Ok(r?),
+            e => {
+                error!("unexpected bridge poke response: {:?}", e);
+                Err(BridgeError::WrongResponse)
+            }
         }
     }
 
@@ -264,10 +268,12 @@ impl UsbBridge {
         while _mtx.is_none() {
             _mtx = cvar.wait(_mtx).unwrap();
         }
-        if let Some(ConnectThreadResponses::PeekResult(r)) = _mtx.take() {
-            Ok(r?)
-        } else {
-            Err(BridgeError::WrongResponse)
+        match _mtx.take() {
+            Some(ConnectThreadResponses::PeekResult(r)) => Ok(r?),
+            e => {
+                error!("unexpected bridge peek response: {:?}", e);
+                Err(BridgeError::WrongResponse)
+            }
         }
     }
 }
