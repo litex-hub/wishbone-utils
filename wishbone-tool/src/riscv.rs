@@ -72,7 +72,7 @@ const THREADS_XML: &str = r#"<?xml version="1.0"?>
 <threads>
 </threads>"#;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum RiscvRegisterType {
     /// Normal CPU registers
     General,
@@ -97,12 +97,14 @@ impl RiscvRegisterType {
     }
 }
 
+#[derive(Debug)]
 enum RegisterContentsType {
     Int,
     DataPtr,
     CodePtr,
 }
 
+#[derive(Debug)]
 struct RiscvRegister {
     /// Which register group this belongs to
     register_type: RiscvRegisterType,
@@ -155,6 +157,14 @@ impl RiscvRegister {
             save_restore: true,
             contents: RegisterContentsType::Int,
         }
+    }
+
+    pub fn x1() -> RiscvRegister {
+        RiscvRegister::general(1, "x1", false, RegisterContentsType::Int)
+    }
+
+    pub fn x2() -> RiscvRegister {
+        RiscvRegister::general(2, "x2", false, RegisterContentsType::Int)
     }
 }
 
@@ -484,45 +494,9 @@ impl RiscvCpu {
         Ok(THREADS_XML.to_string().into_bytes())
     }
 
-    fn get_cached_reg(&self, gdb_idx: u32) -> Option<u32> {
-        match self.cached_values.lock().unwrap().get(&gdb_idx) {
-            Some(x) => Some(*x),
-            None => None,
-        }
-    }
-
-    fn set_cached_reg(&self, gdb_idx: u32, value: u32) {
-        self.cached_values.lock().unwrap().insert(gdb_idx, value);
-    }
-
     pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, RiscvCpuError> {
         let _bridge_mutex = bridge.mutex().lock().unwrap();
-        if sz == 4 {
-            return Ok(bridge.peek(addr)?);
-        }
-
-        // We clobber $x1 in this function, so read its previous value
-        // (if we haven't already).
-        // This will get restored when we do a reset.
-        if self.get_cached_reg(1).is_none() {
-            self.set_cached_reg(1, self.do_read_register(bridge, 1)?);
-        }
-
-        self.do_write_register(bridge, 1, addr)?;
-        let inst = match sz {
-            // LW x1, 0(x1)
-            4 => (1 << 15) | (0x2 << 12) | (1 << 7) | 0x3,
-
-            // LHU x1, 0(x1)
-            2 => (1 << 15) | (0x5 << 12) | (1 << 7) | 0x3,
-
-            // LBU x1, 0(x1)
-            1 => (1 << 15) | (0x4 << 12) | (1 << 7) | 0x3,
-
-            x => panic!("Unrecognized memory size: {}", x),
-        };
-        self.controller.write_instruction(bridge, inst)?;
-        Ok(self.read_result(bridge)?)
+        self.controller.read_memory(bridge, addr, sz)
     }
 
     pub fn write_memory(
@@ -533,35 +507,7 @@ impl RiscvCpu {
         value: u32,
     ) -> Result<(), RiscvCpuError> {
         let _bridge_mutex = bridge.mutex().lock().unwrap();
-        if sz == 4 {
-            return Ok(bridge.poke(addr, value)?);
-        }
-
-        // We clobber $x1 and $x2 in this function, so read their previous
-        // values (if we haven't already).
-        // This will get restored when we do a reset.
-        for gdb_idx in &[1, 2] {
-            if self.get_cached_reg(*gdb_idx).is_none() {
-                self.set_cached_reg(*gdb_idx, self.do_read_register(bridge, *gdb_idx)?);
-            }
-        }
-
-        self.do_write_register(bridge, 1, value)?;
-        self.do_write_register(bridge, 2, addr)?;
-        let inst = match sz {
-            // SW x1,0(x2)
-            4 => (1 << 20) | (2 << 15) | (0x2 << 12) | 0x23,
-
-            // SH x1,0(x2)
-            2 => (1 << 20) | (2 << 15) | (0x1 << 12) | 0x23,
-
-            //SB x1,0(x2)
-            1 => (1 << 20) | (2 << 15) | (0x0 << 12) | 0x23,
-
-            x => panic!("Unrecognized memory size: {}", x),
-        };
-        self.controller.write_instruction(bridge, inst)?;
-        Ok(())
+        self.controller.write_memory(bridge, addr, sz, value)
     }
 
     pub fn add_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), RiscvCpuError> {
@@ -608,7 +554,7 @@ impl RiscvCpu {
     }
 
     pub fn halt(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-        self.write_status(bridge, VexRiscvFlags::HALT_SET)?;
+        self.controller.write_status(bridge, VexRiscvFlags::HALT_SET)?;
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Halted;
         self.flush_cache(bridge)?;
         debug!("HALT: CPU is now halted");
@@ -643,9 +589,9 @@ impl RiscvCpu {
         self.cached_values.lock().unwrap().drain();
         self.flush_cache(bridge)?;
 
-        self.write_status(bridge, VexRiscvFlags::HALT_SET)?;
-        self.write_status(bridge, VexRiscvFlags::HALT_SET | VexRiscvFlags::RESET_SET)?;
-        self.write_status(bridge, VexRiscvFlags::RESET_CLEAR)?;
+        self.controller.write_status(bridge, VexRiscvFlags::HALT_SET)?;
+        self.controller.write_status(bridge, VexRiscvFlags::HALT_SET | VexRiscvFlags::RESET_SET)?;
+        self.controller.write_status(bridge, VexRiscvFlags::RESET_CLEAR)?;
 
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Halted;
         debug!("RESET: CPU is now halted and reset");
@@ -666,14 +612,14 @@ impl RiscvCpu {
         for (gdb_idx, value) in &coll {
             debug!("Updating old value of x{} to {:08x}", gdb_idx, value);
             if *gdb_idx > 2 {
-                self.do_write_register(bridge, *gdb_idx, *value)?;
+                self.controller.write_register(bridge, self.get_register(*gdb_idx).unwrap(), *value)?;
             }
         }
 
         for (gdb_idx, value) in coll {
             debug!("Updating old value of x{} to {:08x}", gdb_idx, value);
             if gdb_idx <= 2 {
-                self.do_write_register(bridge, gdb_idx, value)?;
+                self.controller.write_register(bridge, self.get_register(gdb_idx).unwrap(), value)?;
             }
         }
 
@@ -687,7 +633,7 @@ impl RiscvCpu {
         // Rewrite breakpoints (is this necessary?)
         self.update_breakpoints(bridge)?;
 
-        self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)?;
+        self.controller.write_status(bridge, VexRiscvFlags::HALT_CLEAR)?;
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
         debug!("RESUME: CPU is now running");
         Ok(())
@@ -697,7 +643,8 @@ impl RiscvCpu {
     pub fn step(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.restore(bridge)?;
         self.flush_cache(bridge)?;
-        self.write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
+
+        self.controller.write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
     }
 
     /// Convert a GDB `regnum` into a `RiscvRegister`
@@ -711,54 +658,19 @@ impl RiscvCpu {
     pub fn read_register(&self, bridge: &Bridge, gdb_idx: u32) -> Result<u32, RiscvCpuError> {
 
         // Give the cached value, if we have it.
+        debug!("Is {} in the cache?", gdb_idx);
         if let Some(val) = self.get_cached_reg(gdb_idx) {
+            debug!("   Yes it is!  Returning {:08x}", val);
             return Ok(val);
         }
+        debug!("No it is not.");
 
-        self.do_read_register(bridge, gdb_idx)
-    }
-
-    fn do_read_register(&self, bridge: &Bridge, gdb_idx: u32) -> Result<u32, RiscvCpuError> {
         let reg = match self.get_register(gdb_idx) {
             None => return Err(RiscvCpuError::InvalidRegister(gdb_idx)),
             Some(s) => s,
         };
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
 
-        match reg.register_type {
-            RiscvRegisterType::General => {
-                if reg.index == 32 {
-                    self.controller.write_instruction(bridge, 0x17) // AUIPC x0,0
-                } else {
-                    self.controller
-                        .write_instruction(bridge, (reg.index << 15) | 0x13) // ADDI x0, x?, 0
-                }
-            }
-            RiscvRegisterType::CSR => {
-                // We clobber $x1 in this function, so read its previous value
-                // (if we haven't already).
-                // This will get restored when we resume.
-                if self.get_cached_reg(1).is_none() {
-                    self.set_cached_reg(1, self.do_read_register(bridge, 1)?);
-                }
-
-                // Perform a CSRRW which does a Read/Write.  If rs1 is $x0, then the write
-                // is ignored and side-effect free.  Set rd to $x1 to make the read
-                // not side-effect free.
-                self.controller.write_instruction(
-                    bridge,
-                    0
-                    | ((reg.index & 0x1fff) << 20)
-                    | (0 << 15)	    // rs1: x0
-                    | (2 << 12)	    // CSRRW
-                    | (1 << 7)	    // rd: x1
-                    | (0x73 << 0), // SYSTEM
-                )
-            }
-        }?;
-        let result = self.read_result(bridge)?;
-        debug!("Register x{} value: 0x{:08x}", reg.index, result);
-        Ok(result)
+        self.controller.read_register(bridge, reg)
     }
 
     /// Write a register on the device.
@@ -782,106 +694,27 @@ impl RiscvCpu {
             self.set_cached_reg(gdb_idx, value);
             Ok(())
         } else {
-            self.do_write_register(bridge, gdb_idx, value)
+            self.controller.write_register(bridge, reg, value)
         }
-    }
-
-    /// Actually update registers on the device.
-    fn do_write_register(
-        &self,
-        bridge: &Bridge,
-        regnum: u32,
-        value: u32,
-    ) -> Result<(), RiscvCpuError> {
-        let reg = match self.get_register(regnum) {
-            None => return Err(RiscvCpuError::InvalidRegister(regnum)),
-            Some(s) => s,
-        };
-
-        debug!("Setting register x{} -> {:08x}", regnum, value);
-        match reg.register_type {
-            RiscvRegisterType::General => {
-                // Handle PC separately
-                if regnum == 32 {
-                    self.do_write_register(bridge, 1, value)?;
-                    // JALR x1
-                    self.controller.write_instruction(bridge, 0x67 | (1 << 15))
-                // Use LUI instruction if necessary
-                } else if (value & 0xffff_f800) != 0 {
-                    let low = value & 0x0000_0fff;
-                    let high = if (low & 0x800) != 0 {
-                        (value & 0xffff_f000).wrapping_add(0x1000)
-                    } else {
-                        value & 0xffff_f000
-                    };
-
-                    // LUI regId, high
-                    self.controller
-                        .write_instruction(bridge, (reg.index << 7) | high | 0x37)?;
-
-                    // Also issue ADDI
-                    if low != 0 {
-                        // ADDI regId, regId, low
-                        self.controller.write_instruction(
-                            bridge,
-                            (reg.index << 7) | (reg.index << 15) | (low << 20) | 0x13,
-                        )?;
-                    }
-                    Ok(())
-                } else {
-                    // ORI regId, x0, value
-                    self.controller.write_instruction(
-                        bridge,
-                        (reg.index << 7) | (6 << 12) | (value << 20) | 0x13,
-                    )
-                }
-            }
-            RiscvRegisterType::CSR => {
-                // We clobber $x1 in this function, so read its previous value
-                // (if we haven't already).
-                // This will get restored when we do a reset.
-                if self.get_cached_reg(1).is_none() {
-                    self.set_cached_reg(1, self.do_read_register(bridge, 1)?);
-                }
-
-                // Perform a CSRRW which does a Read/Write.  If rd is $x0, then the read
-                // is ignored and side-effect free.  Set rs1 to $x1 to make the write
-                // not side-effect free.
-                //
-                // cccc cccc cccc ssss s fff ddddd ooooooo
-                // c: CSR number
-                // s: rs1 (source register)
-                // f: Function
-                // d: rd (destination register)
-                // o: opcode - 0x73
-                self.do_write_register(bridge, 1, value)?;
-                self.controller.write_instruction(
-                    bridge,
-                    0
-                    | ((reg.index & 0x1fff) << 20)
-                    | (1 << 15)	    // rs1: x1
-                    | (1 << 12)	    // CSRRW
-                    | (0 << 7)	    // rd: x0
-                    | (0x73 << 0), // SYSTEM
-                )
-            }
-        }
-    }
-
-    fn write_status(&self, bridge: &Bridge, value: VexRiscvFlags) -> Result<(), RiscvCpuError> {
-        self.controller.write_status(bridge, value)
-    }
-
-    fn read_result(&self, bridge: &Bridge) -> Result<u32, RiscvCpuError> {
-        self.controller.read_result(bridge)
     }
 
     pub fn get_controller(&self) -> RiscvCpuController {
         RiscvCpuController {
             cpu_state: self.cpu_state.clone(),
             debug_offset: self.debug_offset,
-            cached_values: Arc::new(Mutex::new(HashMap::new())),
+            cached_values: self.cached_values.clone(),
         }
+    }
+
+    fn get_cached_reg(&self, gdb_idx: u32) -> Option<u32> {
+        match self.cached_values.lock().unwrap().get(&gdb_idx) {
+            Some(x) => Some(*x),
+            None => None,
+        }
+    }
+
+    fn set_cached_reg(&self, gdb_idx: u32, value: u32) {
+        self.cached_values.lock().unwrap().insert(gdb_idx, value);
     }
 
     pub fn flush_cache(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
@@ -914,13 +747,16 @@ impl RiscvCpuController {
                 // If we were halted by a breakpoint, save the PC (because it will
                 // be unavailable later).
                 if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
+                    // The actual opcode doesn't get executed when halted by a break, but
+                    // the pc gets incremented.  Save the target pc so that we can execute it
+                    // when we step/resume.
+                    let pc = self.read_result(bridge)?;
                     self.cached_values
                         .lock()
                         .unwrap()
-                        .insert(32, self.read_result(bridge)?);
-                }
+                        .insert(32, pc);
 
-                // self.flush_cache(bridge)?;
+                }
                 // We're halted now
             }
         } else {
@@ -939,11 +775,209 @@ impl RiscvCpuController {
         }
     }
 
+    fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, RiscvCpuError> {
+        if sz == 4 {
+            return Ok(bridge.peek(addr)?);
+        }
+
+        // We clobber $x1 in this function, so read its previous value
+        // (if we haven't already).
+        // This will get restored when we do a reset.
+        if self.get_cached_reg(1).is_none() {
+            self.set_cached_reg(1, self.read_register(bridge, &RiscvRegister::x1())?);
+        }
+
+        self.write_register(bridge, &RiscvRegister::x1(), addr)?;
+        let inst = match sz {
+            // LW x1, 0(x1)
+            4 => (1 << 15) | (0x2 << 12) | (1 << 7) | 0x3,
+
+            // LHU x1, 0(x1)
+            2 => (1 << 15) | (0x5 << 12) | (1 << 7) | 0x3,
+
+            // LBU x1, 0(x1)
+            1 => (1 << 15) | (0x4 << 12) | (1 << 7) | 0x3,
+
+            x => panic!("Unrecognized memory size: {}", x),
+        };
+        self.write_instruction(bridge, inst)?;
+        Ok(self.read_result(bridge)?)
+    }
+
+    fn write_memory(
+        &self,
+        bridge: &Bridge,
+        addr: u32,
+        sz: u32,
+        value: u32,
+    ) -> Result<(), RiscvCpuError> {
+        if sz == 4 {
+            return Ok(bridge.poke(addr, value)?);
+        }
+
+        // We clobber $x1 and $x2 in this function, so read their previous
+        // values (if we haven't already).
+        // This will get restored when we do a reset.
+        for reg in &[RiscvRegister::x1(), RiscvRegister::x2()] {
+            if self.get_cached_reg(reg.gdb_index).is_none() {
+                self.set_cached_reg(reg.gdb_index, self.read_register(bridge, reg)?);
+            }
+        }
+
+        self.write_register(bridge, &RiscvRegister::x1(), value)?;
+        self.write_register(bridge, &RiscvRegister::x2(), addr)?;
+        let inst = match sz {
+            // SW x1,0(x2)
+            4 => (1 << 20) | (2 << 15) | (0x2 << 12) | 0x23,
+
+            // SH x1,0(x2)
+            2 => (1 << 20) | (2 << 15) | (0x1 << 12) | 0x23,
+
+            //SB x1,0(x2)
+            1 => (1 << 20) | (2 << 15) | (0x0 << 12) | 0x23,
+
+            x => panic!("Unrecognized memory size: {}", x),
+        };
+        self.write_instruction(bridge, inst)?;
+        Ok(())
+    }
+
+    /// Actually read the value from a register
+    /// 
+    /// Execute instructions on the CPU.  If reading a CSR, x1 will get clobbered.
+    /// This clobbered value will be saved in the register cache.
+    fn read_register(&self, bridge: &Bridge, reg: &RiscvRegister) -> Result<u32, RiscvCpuError> {
+        match reg.register_type {
+            RiscvRegisterType::General => {
+                if reg.index == 32 {
+                    self.write_instruction(bridge, 0x17) // AUIPC x0,0
+                } else {
+                    self.write_instruction(bridge, (reg.index << 15) | 0x13) // ADDI x0, x?, 0
+                }
+            }
+            RiscvRegisterType::CSR => {
+                // We clobber $x1 in this function, so read its previous value
+                // (if we haven't already).
+                // This will get restored when we resume.
+                if self.get_cached_reg(1).is_none() {
+                    self.set_cached_reg(1, self.read_register(bridge, &RiscvRegister::x1())?);
+                }
+
+                // Perform a CSRRW which does a Read/Write.  If rs1 is $x0, then the write
+                // is ignored and side-effect free.  Set rd to $x1 to make the read
+                // not side-effect free.
+                self.write_instruction(
+                    bridge,
+                    0
+                    | ((reg.index & 0x1fff) << 20)
+                    | (0 << 15)	    // rs1: x0
+                    | (2 << 12)	    // CSRRW
+                    | (1 << 7)	    // rd: x1
+                    | (0x73 << 0), // SYSTEM
+                )
+            }
+        }?;
+        let result = self.read_result(bridge)?;
+        debug!("Register x{} value: 0x{:08x}", reg.index, result);
+        Ok(result)
+    }
+
+    /// Write a value to a specified register
+    /// 
+    /// Poke instructions into the CPU to update a specified register.  This might
+    /// clobber register 1, and for CSRs might clobber register 2.  Clobbered values
+    /// will be saved to the register cache.
+    fn write_register(
+        &self,
+        bridge: &Bridge,
+        reg: &RiscvRegister,
+        value: u32,
+    ) -> Result<(), RiscvCpuError> {
+        debug!("Setting register {:?} -> {:08x}", reg, value);
+        match reg.register_type {
+            RiscvRegisterType::General => {
+                // Handle PC separately
+                if reg.index == 32 {
+                    self.write_register(bridge, &RiscvRegister::x1(), value)?;
+                    // JALR x1
+                    self.write_instruction(bridge, 0x67 | (1 << 15))
+                // Use LUI instruction if necessary
+                } else if (value & 0xffff_f800) != 0 {
+                    let low = value & 0x0000_0fff;
+                    let high = if (low & 0x800) != 0 {
+                        (value & 0xffff_f000).wrapping_add(0x1000)
+                    } else {
+                        value & 0xffff_f000
+                    };
+
+                    // LUI regId, high
+                    self.write_instruction(bridge, (reg.index << 7) | high | 0x37)?;
+
+                    // Also issue ADDI
+                    if low != 0 {
+                        // ADDI regId, regId, low
+                        self.write_instruction(
+                            bridge,
+                            (reg.index << 7) | (reg.index << 15) | (low << 20) | 0x13,
+                        )?;
+                    }
+                    Ok(())
+                } else {
+                    // ORI regId, x0, value
+                    self.write_instruction(
+                        bridge,
+                        (reg.index << 7) | (6 << 12) | (value << 20) | 0x13,
+                    )
+                }
+            }
+            RiscvRegisterType::CSR => {
+                // We clobber $x1 in this function, so read its previous value
+                // (if we haven't already).
+                // This will get restored when we do a reset.
+                if self.get_cached_reg(1).is_none() {
+                    self.set_cached_reg(1, self.read_register(bridge, &RiscvRegister::x1())?);
+                }
+
+                // Perform a CSRRW which does a Read/Write.  If rd is $x0, then the read
+                // is ignored and side-effect free.  Set rs1 to $x1 to make the write
+                // not side-effect free.
+                //
+                // cccc cccc cccc ssss s fff ddddd ooooooo
+                // c: CSR number
+                // s: rs1 (source register)
+                // f: Function
+                // d: rd (destination register)
+                // o: opcode - 0x73
+                self.write_register(bridge, &RiscvRegister::x1(), value)?;
+                self.write_instruction(
+                    bridge,
+                    0
+                    | ((reg.index & 0x1fff) << 20)
+                    | (1 << 15)	    // rs1: x1
+                    | (1 << 12)	    // CSRRW
+                    | (0 << 7)	    // rd: x0
+                    | (0x73 << 0), // SYSTEM
+                )
+            }
+        }
+    }
+
     fn flush_cache(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         for opcode in vec![4111, 19, 19, 19] {
             self.write_instruction(bridge, opcode)?;
         }
         Ok(())
+    }
+
+    fn get_cached_reg(&self, gdb_idx: u32) -> Option<u32> {
+        match self.cached_values.lock().unwrap().get(&gdb_idx) {
+            Some(x) => Some(*x),
+            None => None,
+        }
+    }
+
+    fn set_cached_reg(&self, gdb_idx: u32, value: u32) {
+        self.cached_values.lock().unwrap().insert(gdb_idx, value);
     }
 
     fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), RiscvCpuError> {
