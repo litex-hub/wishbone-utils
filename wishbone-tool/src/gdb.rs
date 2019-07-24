@@ -17,8 +17,12 @@ pub struct GdbController {
 }
 
 impl Write for GdbController {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> { self.connection.write(buf) }
-    fn flush(&mut self) -> io::Result<()> { self.connection.flush() }
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.connection.write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.connection.flush()
+    }
 }
 
 impl GdbController {
@@ -102,7 +106,7 @@ impl std::convert::From<std::num::ParseIntError> for GdbServerError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BreakPointType {
     BreakSoft,
     BreakHard,
@@ -124,7 +128,7 @@ impl BreakPointType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum GdbCommand {
     /// Server gave an unrecognized command
     Unknown(String),
@@ -176,7 +180,11 @@ pub enum GdbCommand {
     ReadMemory(u32 /* addr */, u32 /* length */),
 
     /// M#,#:#
-    WriteMemory(u32 /* addr */, u32 /* length */, u32 /* value */),
+    WriteMemory(
+        u32, /* addr */
+        u32, /* length */
+        u32, /* value */
+    ),
 
     /// vCont?
     VContQuery,
@@ -251,6 +259,7 @@ impl GdbServer {
 
     fn packet_to_command(&self, pkt: &[u8]) -> Result<GdbCommand, GdbServerError> {
         let pkt = String::from_utf8_lossy(pkt).to_string();
+        // debug!("Raw GDB packet: {}", pkt);
 
         if pkt == "qSupported" || pkt.starts_with("qSupported:") {
             Ok(GdbCommand::SupportedQueries(pkt))
@@ -384,7 +393,9 @@ impl GdbServer {
     }
 
     pub fn get_controller(&self) -> GdbController {
-        GdbController { connection: self.connection.try_clone().unwrap() }
+        GdbController {
+            connection: self.connection.try_clone().unwrap(),
+        }
     }
 
     pub fn get_command(&mut self) -> Result<GdbCommand, GdbServerError> {
@@ -445,7 +456,12 @@ impl GdbServer {
         }
     }
 
-    pub fn process(&mut self, cmd: GdbCommand, cpu: &RiscvCpu, bridge: &Bridge) -> Result<(), GdbServerError> {
+    pub fn process(
+        &mut self,
+        cmd: GdbCommand,
+        cpu: &RiscvCpu,
+        bridge: &Bridge,
+    ) -> Result<(), GdbServerError> {
         match cmd {
             // qXfer:memory-map:read+;
             GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,
@@ -484,7 +500,7 @@ impl GdbServer {
             GdbCommand::SetRegister(reg, val) => {
                 let response = match cpu.write_register(bridge, reg, val) {
                     Ok(()) => "OK",
-                    Err(_) => "E 01",
+                    Err(_) => "E01",
                 };
                 self.gdb_send(response.as_bytes())?
             }
@@ -516,8 +532,18 @@ impl GdbServer {
             GdbCommand::Step => cpu.step(&bridge)?,
             GdbCommand::MonitorCommand(cmd) => {
                 match cmd.as_str() {
-                    "reset" => cpu.reset(&bridge)?,
-                    _ => (),
+                    "reset" => {
+                        self.print_string("Resetting CPU...\n")?;
+                        cpu.reset(&bridge)?;
+                    },
+                    "about" => {
+                        self.print_string("VexRiscv GDB bridge\n")?;
+                    },
+                    _ => {
+                        self.print_string("Unrecognized monitor command.  Available commands:\n")?;
+                        self.print_string("    about           - Information about the bridge\n")?;
+                        self.print_string("    reset           - Reset the CPU\n")?;
+                    },
                 }
                 self.gdb_send(b"OK")?
             },
@@ -575,6 +601,18 @@ impl GdbServer {
         // );
         self.connection.write(&to_write)?;
         Ok(())
+    }
+
+    pub fn print_string(&mut self, msg: &str) -> io::Result<()> {
+        debug!("Printing string {} to GDB", msg);
+        let mut strs: Vec<String> = msg
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect();
+        strs.insert(0, "O".to_string());
+        let joined = strs.join("");
+        self.gdb_send(joined.as_bytes())
     }
 
     fn gdb_send_file(&mut self, mut data: Vec<u8>, offset: u32, len: u32) -> io::Result<()> {
