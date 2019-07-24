@@ -3,9 +3,10 @@ use super::gdb::GdbController;
 
 use log::debug;
 use std::cell::{Cell, RefCell};
-
+use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
+
 bitflags! {
     struct VexRiscvFlags: u32 {
         const RESET = 1 << 0;
@@ -171,7 +172,7 @@ struct RiscvBreakpoint {
 
 pub struct RiscvCpu {
     /// A list of all available registers on this CPU
-    registers: Vec<RiscvRegister>,
+    registers: HashMap<u32, RiscvRegister>,
 
     /// An XML representation of the register mapping
     target_xml: String,
@@ -243,8 +244,12 @@ impl RiscvCpu {
         })
     }
 
-    fn make_registers() -> Vec<RiscvRegister> {
-        let mut registers = vec![];
+    fn insert_register(target: &mut HashMap<u32, RiscvRegister>, reg: RiscvRegister) {
+        target.insert(reg.gdb_index, reg);
+    }
+
+    fn make_registers() -> HashMap<u32, RiscvRegister> {
+        let mut registers = HashMap::new();
 
         // Add in general purpose registers x0 to x31
         for reg_num in 0..32 {
@@ -252,7 +257,7 @@ impl RiscvCpu {
                 2 => RegisterContentsType::DataPtr,
                 _ => RegisterContentsType::Int,
             };
-            registers.push(RiscvRegister::general(
+            registers.insert(reg_num, RiscvRegister::general(
                 reg_num,
                 &format!("x{}", reg_num),
                 true,
@@ -261,7 +266,7 @@ impl RiscvCpu {
         }
 
         // Add the program counter
-        registers.push(RiscvRegister::general(
+        registers.insert(32, RiscvRegister::general(
             32,
             "pc",
             true,
@@ -269,33 +274,33 @@ impl RiscvCpu {
         ));
 
         // User trap setup
-        registers.push(RiscvRegister::csr(0x000, "ustatus", false));
-        registers.push(RiscvRegister::csr(0x004, "uie", false));
-        registers.push(RiscvRegister::csr(0x005, "utvec", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x000, "ustatus", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x004, "uie", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x005, "utvec", false));
 
         // User trap handling
-        registers.push(RiscvRegister::csr(0x040, "uscratch", false));
-        registers.push(RiscvRegister::csr(0x041, "uepc", false));
-        registers.push(RiscvRegister::csr(0x042, "ucause", false));
-        registers.push(RiscvRegister::csr(0x043, "utval", false));
-        registers.push(RiscvRegister::csr(0x044, "uip", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x040, "uscratch", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x041, "uepc", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x042, "ucause", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x043, "utval", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x044, "uip", false));
 
         // User counter/timers
-        registers.push(RiscvRegister::csr(0xc00, "cycle", false));
-        registers.push(RiscvRegister::csr(0xc01, "time", false));
-        registers.push(RiscvRegister::csr(0xc02, "instret", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xc00, "cycle", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xc01, "time", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xc02, "instret", false));
         for hpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(
+            Self::insert_register(&mut registers, RiscvRegister::csr(
                 0xc00 + hpmcounter_n,
                 &format!("hpmcounter{}", hpmcounter_n),
                 false,
             ));
         }
-        registers.push(RiscvRegister::csr(0xc80, "cycleh", false));
-        registers.push(RiscvRegister::csr(0xc81, "timeh", false));
-        registers.push(RiscvRegister::csr(0xc82, "instreth", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xc80, "cycleh", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xc81, "timeh", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xc82, "instreth", false));
         for hpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(
+            Self::insert_register(&mut registers, RiscvRegister::csr(
                 0xc80 + hpmcounter_n,
                 &format!("hpmcounter{}h", hpmcounter_n),
                 false,
@@ -303,52 +308,52 @@ impl RiscvCpu {
         }
 
         // Supervisor Trap Setup
-        registers.push(RiscvRegister::csr(0x100, "sstatus", false));
-        registers.push(RiscvRegister::csr(0x102, "sedeleg", false));
-        registers.push(RiscvRegister::csr(0x103, "sideleg", false));
-        registers.push(RiscvRegister::csr(0x104, "sie", false));
-        registers.push(RiscvRegister::csr(0x105, "stvec", false));
-        registers.push(RiscvRegister::csr(0x106, "scounteren", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x100, "sstatus", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x102, "sedeleg", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x103, "sideleg", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x104, "sie", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x105, "stvec", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x106, "scounteren", false));
 
         // Supervisor Trap Handling
-        registers.push(RiscvRegister::csr(0x140, "sscratch", false));
-        registers.push(RiscvRegister::csr(0x141, "sepc", false));
-        registers.push(RiscvRegister::csr(0x142, "scause", false));
-        registers.push(RiscvRegister::csr(0x143, "stval", false));
-        registers.push(RiscvRegister::csr(0x144, "sip", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x140, "sscratch", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x141, "sepc", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x142, "scause", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x143, "stval", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x144, "sip", false));
 
         // Supervisor protection and translation
-        registers.push(RiscvRegister::csr(0x180, "satp", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x180, "satp", false));
 
         // Machine information registers
-        registers.push(RiscvRegister::csr(0xf11, "mvendorid", true));
-        registers.push(RiscvRegister::csr(0xf12, "marchid", true));
-        registers.push(RiscvRegister::csr(0xf13, "mimpid", true));
-        registers.push(RiscvRegister::csr(0xf14, "mhartid", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xf11, "mvendorid", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xf12, "marchid", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xf13, "mimpid", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xf14, "mhartid", true));
 
         // Machine trap setup
-        registers.push(RiscvRegister::csr(0x300, "mstatus", true));
-        registers.push(RiscvRegister::csr(0x301, "misa", false));
-        registers.push(RiscvRegister::csr(0x302, "medeleg", false));
-        registers.push(RiscvRegister::csr(0x303, "mideleg", false));
-        registers.push(RiscvRegister::csr(0x304, "mie", true));
-        registers.push(RiscvRegister::csr(0x305, "mtvec", true));
-        registers.push(RiscvRegister::csr(0x306, "mcounteren", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x300, "mstatus", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x301, "misa", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x302, "medeleg", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x303, "mideleg", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x304, "mie", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x305, "mtvec", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x306, "mcounteren", false));
 
         // Machine trap handling
-        registers.push(RiscvRegister::csr(0x340, "mscratch", true));
-        registers.push(RiscvRegister::csr(0x341, "mepc", true));
-        registers.push(RiscvRegister::csr(0x342, "mcause", true));
-        registers.push(RiscvRegister::csr(0x343, "mtval", true));
-        registers.push(RiscvRegister::csr(0x344, "mip", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x340, "mscratch", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x341, "mepc", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x342, "mcause", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x343, "mtval", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x344, "mip", true));
 
         // Machine protection and translation
-        registers.push(RiscvRegister::csr(0x3a0, "mpmcfg0", false));
-        registers.push(RiscvRegister::csr(0x3a1, "mpmcfg1", false));
-        registers.push(RiscvRegister::csr(0x3a2, "mpmcfg2", false));
-        registers.push(RiscvRegister::csr(0x3a3, "mpmcfg3", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x3a0, "mpmcfg0", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x3a1, "mpmcfg1", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x3a2, "mpmcfg2", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x3a3, "mpmcfg3", false));
         for pmpaddr_n in 0..16 {
-            registers.push(RiscvRegister::csr(
+            Self::insert_register(&mut registers, RiscvRegister::csr(
                 0x3b0 + pmpaddr_n,
                 &format!("pmpaddr{}", pmpaddr_n),
                 false,
@@ -356,19 +361,19 @@ impl RiscvCpu {
         }
 
         // Machine counter/timers
-        registers.push(RiscvRegister::csr(0xb00, "mcycle", true));
-        registers.push(RiscvRegister::csr(0xb02, "minstret", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xb00, "mcycle", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xb02, "minstret", true));
         for mhpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(
+            Self::insert_register(&mut registers, RiscvRegister::csr(
                 0xb00 + mhpmcounter_n,
                 &format!("mhpmcounter{}", mhpmcounter_n),
                 false,
             ));
         }
-        registers.push(RiscvRegister::csr(0xb80, "mcycleh", true));
-        registers.push(RiscvRegister::csr(0xb82, "minstreth", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xb80, "mcycleh", true));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0xb82, "minstreth", true));
         for mhpmcounter_n in 3..32 {
-            registers.push(RiscvRegister::csr(
+            Self::insert_register(&mut registers, RiscvRegister::csr(
                 0xb80 + mhpmcounter_n,
                 &format!("mhpmcounter{}h", mhpmcounter_n),
                 false,
@@ -377,7 +382,7 @@ impl RiscvCpu {
 
         // Machine counter setup
         for mhpmevent_n in 3..32 {
-            registers.push(RiscvRegister::csr(
+            Self::insert_register(&mut registers, RiscvRegister::csr(
                 0x320 + mhpmevent_n,
                 &format!("mhpmevent{}", mhpmevent_n),
                 false,
@@ -385,50 +390,58 @@ impl RiscvCpu {
         }
 
         // Debug/trace registers
-        registers.push(RiscvRegister::csr(0x7a0, "tselect", false));
-        registers.push(RiscvRegister::csr(0x7a1, "tdata1", false));
-        registers.push(RiscvRegister::csr(0x7a2, "tdata2", false));
-        registers.push(RiscvRegister::csr(0x7a3, "tdata3", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x7a0, "tselect", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x7a1, "tdata1", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x7a2, "tdata2", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x7a3, "tdata3", false));
 
         // Debug mode registers
-        registers.push(RiscvRegister::csr(0x7b0, "dcsr", false));
-        registers.push(RiscvRegister::csr(0x7b1, "dpc", false));
-        registers.push(RiscvRegister::csr(0x7b2, "dscratch", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x7b0, "dcsr", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x7b1, "dpc", false));
+        Self::insert_register(&mut registers, RiscvRegister::csr(0x7b2, "dscratch", false));
 
         registers
     }
 
-    fn make_target_xml(registers: &Vec<RiscvRegister>) -> String {
+    fn make_target_xml(registers: &HashMap<u32, RiscvRegister>) -> String {
+        let mut reg_indexes: Vec<u32> = registers.keys().map(|x| *x).collect();
+        reg_indexes.sort();
         let mut target_xml = "<?xml version=\"1.0\"?>\n<!DOCTYPE target SYSTEM \"gdb-target.dtd\">\n<target version=\"1.0\">\n".to_string();
 
-        // Add in general-purpose registers
-        for ft in &[RiscvRegisterType::General, RiscvRegisterType::CSR] {
-            target_xml.push_str(&format!("<feature name=\"{}\">\n", ft.feature_name()));
-            for reg in registers {
-                if !reg.present || reg.register_type != *ft {
-                    continue;
+        let mut last_register_type = None;
+        for reg_index in reg_indexes {
+            let reg = registers.get(&reg_index).unwrap();
+            if Some(&reg.register_type) != last_register_type {
+                if last_register_type != None {
+                    target_xml.push_str("</feature>\n");
                 }
-                let reg_type = match reg.contents {
-                    RegisterContentsType::Int => "int",
-                    RegisterContentsType::CodePtr => "code_ptr",
-                    RegisterContentsType::DataPtr => "data_ptr",
-                };
-                target_xml.push_str(&format!(
-                    "<reg name=\"{}\" bitsize=\"32\" regnum=\"{}\" type=\"{}\" group=\"{}\"",
-                    reg.name,
-                    reg.gdb_index,
-                    reg_type,
-                    reg.register_type.group()
-                ));
-                if !reg.save_restore {
-                    target_xml.push_str(" save-restore=\"no\"");
-                }
-                target_xml.push_str("/>\n");
+                target_xml.push_str(&format!("<feature name=\"{}\">\n", reg.register_type.feature_name()));
+                last_register_type = Some(&reg.register_type);
             }
+            if !reg.present {
+                continue;
+            }
+            let reg_type = match reg.contents {
+                RegisterContentsType::Int => "int",
+                RegisterContentsType::CodePtr => "code_ptr",
+                RegisterContentsType::DataPtr => "data_ptr",
+            };
+            target_xml.push_str(&format!(
+                "<reg name=\"{}\" bitsize=\"32\" regnum=\"{}\" type=\"{}\" group=\"{}\"",
+                reg.name,
+                reg.gdb_index,
+                reg_type,
+                reg.register_type.group()
+            ));
+            if !reg.save_restore {
+                target_xml.push_str(" save-restore=\"no\"");
+            }
+            target_xml.push_str("/>\n");
+        }
+        if last_register_type != None {
             target_xml.push_str("</feature>\n");
         }
         target_xml.push_str("</target>\n");
-
         target_xml
     }
 
@@ -574,7 +587,7 @@ impl RiscvCpu {
                 )?;
             } else {
                 // If this breakpoint is unallocated, ensure that there is no
-                // garbage 
+                // garbage breakpoints leftover from a previous session.
                 bridge.poke(
                     self.debug_offset + 0x40 + (bpidx as u32 * 4),
                     0,
@@ -584,6 +597,8 @@ impl RiscvCpu {
         Ok(())
     }
 
+    /// Reset the target CPU, restore any breakpoints, and leave it in
+    /// the "halted" state.
     pub fn reset(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.update_breakpoints(bridge)?;
         self.flush_cache(bridge)?;
@@ -594,6 +609,7 @@ impl RiscvCpu {
         Ok(())
     }
 
+    /// Restore the context of the CPU and flush the cache.
     fn restore(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         if let Some(old_value) = self.x1_value.get().take() {
             debug!("Updating old value of x1 to {:08x}", old_value);
@@ -613,6 +629,7 @@ impl RiscvCpu {
         self.flush_cache(bridge)
     }
 
+    /// Restore the CPU state and continue execution.
     pub fn resume(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.restore(bridge)?;
 
@@ -625,19 +642,18 @@ impl RiscvCpu {
         Ok(())
     }
 
+    /// Step the CPU forward by one instruction.
     pub fn step(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.restore(bridge)?;
         self.write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
     }
 
-    /* --- */
+    /// Convert a GDB `regnum` into a `RiscvRegister`
+    /// 
+    /// Note that `regnum` is a GDB-based register number, and corresponds
+    /// to the `gdb_index` property.
     fn get_register(&self, regnum: u32) -> Option<&RiscvRegister> {
-        for reg in &self.registers {
-            if reg.gdb_index == regnum {
-                return Some(&reg);
-            }
-        }
-        None
+        self.registers.get(&regnum)
     }
 
     pub fn read_register(&self, bridge: &Bridge, regnum: u32) -> Result<u32, RiscvCpuError> {
