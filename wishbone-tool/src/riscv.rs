@@ -180,14 +180,7 @@ pub struct RiscvCpu {
     /// The memory offset of the debug register
     debug_offset: u32,
 
-    // /// We'll use $x1 as an accumulator sometimes, so save its value here.
-    // x1_value: Cell<Option<u32>>,
-
-    // /// $x2 sometimes gets used during debug.  Back up its value here
-    // x2_value: Cell<Option<u32>>,
-
-    // /// $pc needs to get refreshed when we hit a breakpoint
-    // pc_value: Arc<Mutex<Option<u32>>>,
+    /// Keep a copy of values that get clobbered during debugging
     cached_values: Arc<Mutex<HashMap<u32, u32>>>,
 
     /// All available breakpoints
@@ -203,9 +196,6 @@ pub struct RiscvCpuController {
 
     /// A copy of the CPU's state object
     cpu_state: Arc<Mutex<RiscvCpuState>>,
-
-    /// $pc needs to get refreshed when we hit a breakpoint
-    // pc_value: Arc<Mutex<Option<u32>>>,
 
     /// Cached values (mostly the program counter)
     cached_values: Arc<Mutex<HashMap<u32, u32>>>,
@@ -912,9 +902,10 @@ impl RiscvCpuController {
 
                 // If we were halted by a breakpoint, save the PC (because it will
                 // be unavailable later).
-                if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
-                    self.cached_values.lock().unwrap().insert(32, self.read_result(bridge)?);
-                }
+                // if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
+                //     self.cached_values.lock().unwrap().insert(32, self.read_result(bridge)?);
+                // }
+ 
                 // self.flush_cache(bridge)?;
                 // We're halted now
             }
@@ -935,12 +926,12 @@ impl RiscvCpuController {
         }
     }
 
-    // fn flush_cache(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-    //     for opcode in vec![4111, 19, 19, 19] {
-    //         self.write_instruction(bridge, opcode)?;
-    //     }
-    //     Ok(())
-    // }
+    fn flush_cache(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        for opcode in vec![4111, 19, 19, 19] {
+            self.write_instruction(bridge, opcode)?;
+        }
+        Ok(())
+    }
 
     fn write_instruction(&self, bridge: &Bridge, opcode: u32) -> Result<(), RiscvCpuError> {
         debug!(
