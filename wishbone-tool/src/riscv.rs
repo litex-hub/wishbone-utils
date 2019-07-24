@@ -603,6 +603,11 @@ impl RiscvCpu {
                     self.debug_offset + 0x40 + (bpidx as u32 * 4),
                     bp.address | 1,
                 )?;
+            } else {
+                bridge.poke(
+                    self.debug_offset + 0x40 + (bpidx as u32 * 4),
+                    0,
+                )?;
             }
         }
 
