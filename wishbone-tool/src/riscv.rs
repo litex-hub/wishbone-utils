@@ -691,6 +691,10 @@ impl RiscvCpu {
                 self.x2_value.set(Some(value));
                 return Ok(());
             }
+            if reg.index == 32 {
+                *self.pc_value.lock().unwrap() = Some(value);
+                return Ok(());
+            }
         }
         self.do_write_register(bridge, regnum, value)
     }
@@ -709,9 +713,13 @@ impl RiscvCpu {
         debug!("Setting register x{} -> {:08x}", regnum, value);
         match reg.register_type {
             RiscvRegisterType::General => {
-                // let value = swab(value);
+                // Handle PC separately
+                if regnum == 32 {
+                    self.do_write_register(bridge, 1, value)?;
+                    // JALR x1
+                    self.write_instruction(bridge, 0x67 | (1 << 15))
                 // Use LUI instruction if necessary
-                if (value & 0xffff_f800) != 0 {
+                } else if (value & 0xffff_f800) != 0 {
                     let low = value & 0x0000_0fff;
                     let high = if (low & 0x800) != 0 {
                         (value & 0xffff_f000).wrapping_add(0x1000)
