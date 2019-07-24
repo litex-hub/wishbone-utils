@@ -565,11 +565,31 @@ impl RiscvCpu {
         Ok(())
     }
 
+    fn update_breakpoints(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        for (bpidx, bp) in self.breakpoints.borrow().iter().enumerate() {
+            if bp.allocated && bp.enabled {
+                bridge.poke(
+                    self.debug_offset + 0x40 + (bpidx as u32 * 4),
+                    bp.address | 1,
+                )?;
+            } else {
+                // If this breakpoint is unallocated, ensure that there is no
+                // garbage 
+                bridge.poke(
+                    self.debug_offset + 0x40 + (bpidx as u32 * 4),
+                    0,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn reset(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        self.update_breakpoints(bridge)?;
+        self.flush_cache(bridge)?;
         self.write_status(bridge, VexRiscvFlags::HALT_SET | VexRiscvFlags::RESET_SET)?;
         self.write_status(bridge, VexRiscvFlags::RESET_CLEAR)?;
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Halted;
-        self.flush_cache(bridge)?;
         debug!("RESET: CPU is now halted and reset");
         Ok(())
     }
@@ -597,19 +617,7 @@ impl RiscvCpu {
         self.restore(bridge)?;
 
         // Rewrite breakpoints (is this necessary?)
-        for (bpidx, bp) in self.breakpoints.borrow().iter().enumerate() {
-            if bp.allocated && bp.enabled {
-                bridge.poke(
-                    self.debug_offset + 0x40 + (bpidx as u32 * 4),
-                    bp.address | 1,
-                )?;
-            } else {
-                bridge.poke(
-                    self.debug_offset + 0x40 + (bpidx as u32 * 4),
-                    0,
-                )?;
-            }
-        }
+        self.update_breakpoints(bridge)?;
 
         self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)?;
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
