@@ -376,7 +376,7 @@ impl GdbServer {
         } else if pkt == "qSymbol::" {
             Ok(GdbCommand::SymbolsReady)
         } else if pkt == "vMustReplyEmpty" {
-            Ok(Gdbcommand::MustReplyEmpty)
+            Ok(GdbCommand::MustReplyEmpty)
         } else {
             info!("Unrecognized GDB command: {}", pkt);
             Ok(GdbCommand::Unknown(pkt))
