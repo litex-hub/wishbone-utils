@@ -494,22 +494,6 @@ impl RiscvCpu {
         Ok(THREADS_XML.to_string().into_bytes())
     }
 
-    pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
-        self.controller.read_memory(bridge, addr, sz)
-    }
-
-    pub fn write_memory(
-        &self,
-        bridge: &Bridge,
-        addr: u32,
-        sz: u32,
-        value: u32,
-    ) -> Result<(), RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
-        self.controller.write_memory(bridge, addr, sz, value)
-    }
-
     pub fn add_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), RiscvCpuError> {
         let mut bp_index = None;
         let mut bps = self.breakpoints.borrow_mut();
@@ -693,6 +677,22 @@ impl RiscvCpu {
         } else {
             self.controller.write_register(bridge, reg, value)
         }
+    }
+
+    pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, RiscvCpuError> {
+        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        self.controller.read_memory(bridge, addr, sz)
+    }
+
+    pub fn write_memory(
+        &self,
+        bridge: &Bridge,
+        addr: u32,
+        sz: u32,
+        value: u32,
+    ) -> Result<(), RiscvCpuError> {
+        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        self.controller.write_memory(bridge, addr, sz, value)
     }
 
     pub fn get_controller(&self) -> RiscvCpuController {
