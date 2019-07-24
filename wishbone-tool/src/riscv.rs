@@ -776,6 +776,12 @@ impl RiscvCpuController {
         if sz == 4 {
             return Ok(bridge.peek(addr)?);
         }
+        else if sz == 2 {
+            return Ok((bridge.peek(addr & !0x3)? >> (8 * (addr & 2))) & 0xffff);
+        }
+        else if sz == 1 {
+            return Ok((bridge.peek(addr & !0x3)? >> (8 * (addr & 3))) & 0xff);
+        }
 
         // We clobber $x1 in this function, so read its previous value
         // (if we haven't already).
