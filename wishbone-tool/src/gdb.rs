@@ -508,10 +508,31 @@ impl GdbServer {
             GdbCommand::ReadMemory(addr, len) => {
                 debug!("Reading memory {:08x}", addr);
                 let mut values = vec![];
-                for offset in (0 .. len).step_by(4) {
-                    values.push(cpu.read_memory(bridge, addr + offset, 4)?);
+
+                let mut out_str = String::new();
+
+                if len == 1 {
+                    let val = cpu.read_memory(bridge, addr, 1)? as u8;
+                    out_str.push_str(&format!("{:02x}", val));
+                    self.gdb_send(out_str.as_bytes())?
                 }
-                self.gdb_send_u32(values)?
+                else if len == 2 {
+                    let val = cpu.read_memory(bridge, addr, 2)? as u16;
+                    let mut buf = [0; 2];
+                    BigEndian::write_u16(&mut buf, val);
+                    out_str.push_str(&format!("{:04x}", NativeEndian::read_u16(&buf)));
+                    self.gdb_send(out_str.as_bytes())?
+                }
+                else if len == 4 {
+                    values.push(cpu.read_memory(bridge, addr, 4)?);
+                    self.gdb_send_u32(values)?
+                }
+                else {
+                    for offset in (0 .. len).step_by(4) {
+                        values.push(cpu.read_memory(bridge, addr + offset, 4)?);
+                    }
+                    self.gdb_send_u32(values)?
+                }
             },
             GdbCommand::WriteMemory(addr, len, value) => {
                 debug!("Writing memory {:08x} -> {:08x}", addr, value);
