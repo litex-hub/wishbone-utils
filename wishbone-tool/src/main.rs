@@ -66,7 +66,7 @@ impl std::convert::From<riscv::RiscvCpuError> for ServerError {
 fn list_usb() -> Result<(), libusb::Error> {
     let usb_ctx = libusb::Context::new().unwrap();
     let devices = usb_ctx.devices().unwrap();
-    println!("Devices:");
+    println!("devices:");
     for device in devices.iter() {
         let device_desc = device.device_descriptor().unwrap();
         let mut line = format!(
@@ -107,23 +107,23 @@ fn gdb_server(cfg: Config, bridge: Bridge) -> Result<(), ServerError> {
         let connection = {
             let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)){
                 Ok(o) => o,
-                Err(e) => { error!("Couldn't bind to address: {:?}", e); return Err(ServerError::IoError(e));},
+                Err(e) => { error!("couldn't bind to address: {:?}", e); return Err(ServerError::IoError(e));},
             };
 
             // accept connections and process them serially
             info!(
-                "Accepting connections on {}:{}",
+                "accepting connections on {}:{}",
                 cfg.bind_addr, cfg.bind_port
             );
             let (connection, _sockaddr) = match listener.accept() {
                 Ok(o) => o,
-                Err(e) => {error!("Couldn't accept connection: {:?}", e); return Err(ServerError::IoError(e));},
+                Err(e) => {error!("couldn't accept connection: {:?}", e); return Err(ServerError::IoError(e));},
             };
             let peer_addr = match connection.peer_addr() {
                 Ok(o) => o,
-                Err(e) => {error!("Couldn't get remote address: {:?}", e); return Err(ServerError::IoError(e)); },
+                Err(e) => {error!("couldn't get remote address: {:?}", e); return Err(ServerError::IoError(e)); },
             };
-            info!("Connection from {}", peer_addr);
+            info!("connection from {}", peer_addr);
             connection
         };
 
@@ -131,23 +131,30 @@ fn gdb_server(cfg: Config, bridge: Bridge) -> Result<(), ServerError> {
         let cpu_controller = cpu.get_controller();
         let mut gdb_controller = gdb.get_controller();
         if let Err(e) = cpu.halt(&bridge) {
-            error!("Couldn't halt CPU: {:?}", e);
+            error!("couldn't halt CPU: {:?}", e);
             continue;
         }
 
         let poll_bridge = bridge.clone();
         thread::spawn(move || loop {
-            if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
-                error!("Error while polling bridge: {:?}", e);
-                return;
+            let mut had_error = false;
+            loop {
+                if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
+                    if ! had_error {
+                        error!("error while polling bridge: {:?}", e);
+                        had_error = true;
+                    }
+                } else {
+                    had_error = false;
+                }
+                thread::park_timeout(Duration::from_millis(200));
             }
-            thread::park_timeout(Duration::from_millis(200));
         });
 
         loop {
             let cmd = match gdb.get_command() {
                 Err(e) => {
-                    error!("Unable to read command from GDB client: {:?}", e);
+                    error!("unable to read command from GDB client: {:?}", e);
                     break;
                 }
                 Ok(o) => o
@@ -156,7 +163,7 @@ fn gdb_server(cfg: Config, bridge: Bridge) -> Result<(), ServerError> {
             if let Err(e) = gdb.process(cmd, &cpu, &bridge) {
                 match e {
                     gdb::GdbServerError::ConnectionClosed => (),
-                    e => error!("Error in GDB server: {:?}", e),
+                    e => error!("error in GDB server: {:?}", e),
                 }
                 break;
             }

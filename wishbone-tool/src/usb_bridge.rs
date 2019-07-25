@@ -5,11 +5,10 @@ use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
 use std::time::Duration;
 
-use log::error;
+use log::{debug, error, info};
 
 use super::bridge::BridgeError;
 use super::config::Config;
-// use log::debug;
 
 #[derive(Clone)]
 pub struct UsbBridge {
@@ -109,22 +108,28 @@ impl UsbBridge {
     ) {
         let mut pid = pid;
         let mut vid = vid;
+        let mut print_waiting_message = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
             let devices = usb_ctx.devices().unwrap();
             for device in devices.iter() {
                 let device_desc = device.device_descriptor().unwrap();
                 if Self::device_matches(&device_desc, &pid, &vid) {
-                    // println!(
-                    //     "Opening device {:03} on bus {:03}",
-                    //     device.bus_number(),
-                    //     device.address()
-                    // );
-                    let usb = device.open().expect("Unable to open USB device");
-                    {
-                        *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
-                        cvar.notify_one();
-                    }
+                    let usb = match device.open() {
+                        Ok(o) => {
+                            info!("opened USB device device {:03} on bus {:03}",
+                                device.address(),
+                                device.bus_number());
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
+                            cvar.notify_one();
+                            print_waiting_message = true;
+                            o
+                        },
+                        Err(e) => {
+                            error!("unable to open usb device: {:?}", e);
+                            continue;
+                        },
+                    };
                     let mut keep_going = true;
                     while keep_going {
                         let var = rx.recv();
@@ -132,7 +137,7 @@ impl UsbBridge {
                             Err(e) => panic!("error in connect thread: {}", e),
                             Ok(o) => match o {
                                 ConnectThreadRequests::Exit => {
-                                    // println!("usb_connect_thread requested exit");
+                                    debug!("usb_connect_thread requested exit");
                                     return;
                                 }
                                 ConnectThreadRequests::StartPolling(p, v) => {
@@ -156,15 +161,25 @@ impl UsbBridge {
                     }
                 }
             }
-            println!("No device available, pausing");
+
+            // Only print out the message the first time.
+            // This value gets re-set to `true` whenever there
+            // is a successful USB connection.
+            if print_waiting_message {
+                info!("waiting for target device");
+                print_waiting_message = false;
+            }
             thread::park_timeout(Duration::from_millis(500));
+
+            // Respond to any messages in the buffer with NotConnected.  As soon
+            // as the channel is empty, loop back to the start of this function.
             loop {
                 match rx.try_recv() {
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => panic!("main thread disconnected"),
                     Ok(m) => match m {
                         ConnectThreadRequests::Exit => {
-                            println!("main thread requested exit");
+                            debug!("main thread requested exit");
                             return;
                         }
                         ConnectThreadRequests::Peek(_addr) => {
@@ -286,10 +301,14 @@ impl UsbBridge {
 
 impl Drop for UsbBridge {
     fn drop(&mut self) {
-        let &(ref lock, ref _cvar) = &*self.main_rx;
-        let mut _mtx = lock.lock().unwrap();
-        self.main_tx
-            .send(ConnectThreadRequests::Exit)
-            .expect("Unable to send Exit request to thread");
+        // If this is the last reference to the bridge, tell the control thread
+        // to exit.
+        if Arc::strong_count(&self.main_rx) + Arc::weak_count(&self.main_rx) <= 1 {
+            let &(ref lock, ref _cvar) = &*self.main_rx;
+            let mut _mtx = lock.lock().unwrap();
+            self.main_tx
+                .send(ConnectThreadRequests::Exit)
+                .expect("Unable to send Exit request to thread");
+        }
     }
 }

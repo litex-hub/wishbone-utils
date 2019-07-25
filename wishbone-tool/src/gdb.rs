@@ -382,7 +382,7 @@ impl GdbServer {
         } else if pkt == "vMustReplyEmpty" {
             Ok(GdbCommand::MustReplyEmpty)
         } else {
-            info!("Unrecognized GDB command: {}", pkt);
+            info!("unrecognized GDB command: {}", pkt);
             Ok(GdbCommand::Unknown(pkt))
         }
     }
