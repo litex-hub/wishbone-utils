@@ -5,7 +5,9 @@ extern crate libusb;
 extern crate rand;
 
 extern crate flexi_logger;
+// extern crate pretty_env_logger;
 extern crate log;
+use log::{debug, error, info};
 
 mod bridge;
 mod config;
@@ -24,8 +26,7 @@ use riscv::RiscvCpu;
 
 use std::thread;
 use std::time::Duration;
-
-use log::{debug, error};
+use std::net::TcpListener;
 
 fn list_usb() -> Result<(), libusb::Error> {
     let usb_ctx = libusb::Context::new().unwrap();
@@ -66,7 +67,8 @@ fn list_usb() -> Result<(), libusb::Error> {
 }
 
 fn main() {
-    flexi_logger::Logger::with_str("debug").start().unwrap(); //env_logger::init();
+    flexi_logger::Logger::with_env_or_str("wishbone_tool=info").start().unwrap();
+    // pretty_env_logger::init();
     let matches = App::new("Wishbone USB Adapter")
         .version("1.0")
         .author("Sean Cross <sean@xobs.io>")
@@ -155,7 +157,20 @@ fn main() {
 
     match cfg.bridge_kind {
         BridgeKind::GDB => loop {
-            let mut gdb = gdb::GdbServer::new(&cfg).unwrap();
+            let connection = {
+                let listener = TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)).expect("Couldn't bind to address");
+
+                // accept connections and process them serially
+                info!(
+                    "Accepting connections on {}:{}",
+                    cfg.bind_addr, cfg.bind_port
+                );
+                let (connection, _sockaddr) = listener.accept().expect("Couldn't accept connection");
+                info!("Connection from {:?}", connection.peer_addr().expect("Couldn't get remote address"));
+                connection
+            };
+
+            let mut gdb = gdb::GdbServer::new(connection).unwrap();
             let cpu_controller = cpu.get_controller();
             let mut gdb_controller = gdb.get_controller();
             cpu.halt(&bridge).expect("Couldn't halt CPU");
@@ -163,8 +178,9 @@ fn main() {
             thread::spawn(move || loop {
                 if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
                     error!("Error while polling bridge: {:?}", e);
+                    return;
                 }
-                thread::park_timeout(Duration::from_millis(500));
+                thread::park_timeout(Duration::from_millis(200));
             });
             loop {
                 let cmd = match gdb.get_command() {
@@ -172,10 +188,7 @@ fn main() {
                         error!("Unable to read command from GDB client: {:?}", e);
                         break;
                     }
-                    Ok(o) => {
-                        debug!("<  GDB packet: {:?}", o);
-                        o
-                    }
+                    Ok(o) => o
                 };
 
                 if let Err(e) = gdb.process(cmd, &cpu, &bridge) {

@@ -1,11 +1,10 @@
 extern crate byteorder;
 use std::io;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 
 use super::bridge::{Bridge, BridgeError};
 use super::riscv::{RiscvCpu, RiscvCpuError};
-use super::Config;
 
 use log::{debug, error, info};
 
@@ -239,16 +238,7 @@ pub enum GdbCommand {
 }
 
 impl GdbServer {
-    pub fn new(cfg: &Config) -> Result<GdbServer, GdbServerError> {
-        let listener = TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port))?;
-
-        // accept connections and process them serially
-        info!(
-            "Accepting connections on {}:{}",
-            cfg.bind_addr, cfg.bind_port
-        );
-        let (connection, _sockaddr) = listener.accept()?;
-        info!("Connection from {:?}", connection.peer_addr()?);
+    pub fn new(connection: TcpStream) -> Result<GdbServer, GdbServerError> {
         Ok(GdbServer {
             connection,
             no_ack_mode: false,
@@ -399,6 +389,12 @@ impl GdbServer {
     }
 
     pub fn get_command(&mut self) -> Result<GdbCommand, GdbServerError> {
+        let cmd = self.do_get_command()?;
+        debug!("<  GDB packet: {:?}", cmd);
+        Ok(cmd)
+    }
+
+    fn do_get_command(&mut self) -> Result<GdbCommand, GdbServerError) {
         let mut buffer = [0; 16384];
         let mut byte = [0; 1];
         let mut remote_checksum = [0; 2];
