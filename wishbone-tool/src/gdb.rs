@@ -557,6 +557,7 @@ impl GdbServer {
             GdbCommand::VContContinueFromSignal(_) => cpu.resume(bridge)?,
             GdbCommand::VContStepFromSignal(_) => {
                 cpu.step(bridge)?;
+                self.last_signal = 5;
                 self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?;
             },
             GdbCommand::GetOffsets => self.gdb_send(b"Text=0;Data=0;Bss=0")?,
