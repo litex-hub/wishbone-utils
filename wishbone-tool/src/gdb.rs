@@ -394,7 +394,7 @@ impl GdbServer {
         Ok(cmd)
     }
 
-    fn do_get_command(&mut self) -> Result<GdbCommand, GdbServerError) {
+    fn do_get_command(&mut self) -> Result<GdbCommand, GdbServerError> {
         let mut buffer = [0; 16384];
         let mut byte = [0; 1];
         let mut remote_checksum = [0; 2];
