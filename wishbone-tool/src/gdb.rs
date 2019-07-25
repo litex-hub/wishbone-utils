@@ -233,6 +233,9 @@ pub enum GdbCommand {
         u32,    /* len */
     ),
 
+    /// qTStatus
+    TraceStatusQuery,
+
     /// qXfer:threads:read::0,1000
     ReadThreads(u32 /* offset */, u32 /* len */),
 }
@@ -261,6 +264,8 @@ impl GdbServer {
             Ok(GdbCommand::CheckIsAttached)
         } else if pkt == "qOffsets" {
             Ok(GdbCommand::GetOffsets)
+        } else if pkt == "qTStatus" {
+            Ok(GdbCommand::TraceStatusQuery)
         } else if pkt.starts_with("qXfer:features:read:") {
             let pkt = pkt.trim_start_matches("qXfer:features:read:");
             let fields: Vec<&str> = pkt.split(':').collect();
@@ -468,6 +473,7 @@ impl GdbServer {
                 cpu.add_breakpoint(bridge, address)?;
                 self.gdb_send(b"OK")?
             },
+            GdbCommand::TraceStatusQuery => self.gdb_send(b"")?,
             GdbCommand::RemoveBreakpoint(_bptype, address, _size) => {
                 cpu.remove_breakpoint(bridge, address)?;
                 self.gdb_send(b"OK")?
