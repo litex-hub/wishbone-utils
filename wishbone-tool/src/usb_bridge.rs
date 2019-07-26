@@ -303,7 +303,7 @@ impl Drop for UsbBridge {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.
-        if Arc::strong_count(&self.main_rx) + Arc::weak_count(&self.main_rx) <= 1 {
+        if Arc::strong_count(&self.mutex) + Arc::weak_count(&self.mutex) <= 1 {
             let &(ref lock, ref _cvar) = &*self.main_rx;
             let mut _mtx = lock.lock().unwrap();
             self.main_tx

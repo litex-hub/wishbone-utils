@@ -109,7 +109,10 @@ impl UartBridge {
             while keep_going {
                 let var = rx.recv();
                 match var {
-                    Err(e) => panic!("error in connect thread: {}", e),
+                    Err(_) => {
+                        error!("connection closed");
+                        return;
+                    },
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
                             debug!("usb_connect_thread requested exit");
@@ -256,7 +259,7 @@ impl Drop for UartBridge {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.
-        if Arc::strong_count(&self.main_rx) + Arc::weak_count(&self.main_rx) <= 1 {
+        if Arc::strong_count(&self.mutex) + Arc::weak_count(&self.mutex) <= 1 {
             let &(ref lock, ref _cvar) = &*self.main_rx;
             let mut _mtx = lock.lock().unwrap();
             self.main_tx
