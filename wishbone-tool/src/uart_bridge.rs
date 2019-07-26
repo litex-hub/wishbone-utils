@@ -200,13 +200,15 @@ impl UartBridge {
         addr: u32,
         value: u32,
     ) -> Result<(), BridgeError> {
-        serial.write(&[0x01])?;
+        // WRITE, 1 word
+        serial.write(&[0x01, 0x01])?;
         serial.write_u32::<BigEndian>(addr)?;
         Ok(serial.write_u32::<BigEndian>(value)?)
     }
 
     fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
-        serial.write(&[0x02])?;
+        // READ, 1 word
+        serial.write(&[0x02, 0x01])?;
         serial.write_u32::<BigEndian>(addr)?;
         Ok(serial.read_u32::<BigEndian>()?)
     }
