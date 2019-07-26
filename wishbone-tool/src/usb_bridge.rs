@@ -26,7 +26,7 @@ enum ConnectThreadRequests {
     Peek(u32 /* addr */),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 enum ConnectThreadResponses {
     OpenedDevice,
     PeekResult(Result<u32, BridgeError>),

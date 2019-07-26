@@ -14,10 +14,11 @@ mod config;
 mod gdb;
 mod riscv;
 mod usb_bridge;
+mod uart_bridge;
 mod utils;
 mod wishbone;
 
-use bridge::{Bridge, BridgeKind};
+use bridge::{Bridge, BridgeServerKind};
 use clap::{App, Arg};
 use config::Config;
 
@@ -259,6 +260,24 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("serial")
+                .short("u")
+                .long("serial")
+                .alias("uart")
+                .value_name("PORT")
+                .help("Serial port to use")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("baud")
+                .short("b")
+                .long("baud")
+                .value_name("RATE")
+                .default_value("115200")
+                .help("Baudrate to use in serial mode")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("address")
                 .index(1)
                 .required(false)
@@ -316,11 +335,11 @@ fn main() {
     let bridge = Bridge::new(&cfg).unwrap();
     bridge.connect().unwrap();
 
-    let retcode = match cfg.bridge_kind {
-        BridgeKind::GDB => gdb_server(cfg, bridge),
-        BridgeKind::Wishbone => wishbone_server(cfg, bridge),
-        BridgeKind::RandomTest => random_test(cfg, bridge),
-        BridgeKind::None => memory_access(cfg, bridge),
+    let retcode = match cfg.bridge_server_kind {
+        BridgeServerKind::GDB => gdb_server(cfg, bridge),
+        BridgeServerKind::Wishbone => wishbone_server(cfg, bridge),
+        BridgeServerKind::RandomTest => random_test(cfg, bridge),
+        BridgeServerKind::None => memory_access(cfg, bridge),
     };
     if let Err(e) = retcode {
         error!("Unsuccessful exit: {:?}", e);

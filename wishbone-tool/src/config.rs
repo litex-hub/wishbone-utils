@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use super::bridge::BridgeKind;
+use super::bridge::{BridgeKind, BridgeServerKind};
 use super::utils::{parse_u16, parse_u32};
 
 pub struct Config {
@@ -7,7 +7,10 @@ pub struct Config {
     pub usb_vid: Option<u16>,
     pub memory_address: Option<u32>,
     pub memory_value: Option<u32>,
+    pub bridge_server_kind: BridgeServerKind,
     pub bridge_kind: BridgeKind,
+    pub serial_port: Option<String>,
+    pub serial_baud: Option<usize>,
     pub bind_addr: String,
     pub bind_port: u32,
     pub random_loops: Option<u32>,
@@ -19,7 +22,7 @@ pub enum ConfigError {
     NumberParseError(std::num::ParseIntError),
 
     /// Specified a bridge kind that we didn't recognize
-    UnknownBridgeKind(String),
+    UnknownBridgeServerKind(String),
 }
 
 impl std::convert::From<std::num::ParseIntError> for ConfigError {
@@ -30,6 +33,8 @@ impl std::convert::From<std::num::ParseIntError> for ConfigError {
 
 impl Config {
     pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
+        let mut bridge_kind = BridgeKind::UsbBridge;
+
         let usb_vid = if let Some(vid) = matches.value_of("vid") {
             Some(parse_u16(vid)?)
         } else {
@@ -38,6 +43,19 @@ impl Config {
 
         let usb_pid = if let Some(pid) = matches.value_of("pid") {
             Some(parse_u16(pid)?)
+        } else {
+            None
+        };
+
+        let serial_port = if let Some(port) = matches.value_of("serial") {
+            bridge_kind = BridgeKind::UartBridge;
+            Some(port.to_owned())
+        } else {
+            None
+        };
+
+        let serial_baud = if let Some(baud) = matches.value_of("baud") {
+            Some(parse_u32(baud)? as usize)
         } else {
             None
         };
@@ -66,7 +84,7 @@ impl Config {
             "127.0.0.1".to_owned()
         };
 
-        let bridge_kind = BridgeKind::from_string(&matches.value_of("bridge-kind"))?;
+        let bridge_server_kind = BridgeServerKind::from_string(&matches.value_of("bridge-kind"))?;
 
         let random_loops = if let Some(random_loops) = matches.value_of("random-loops") {
             Some(parse_u32(random_loops)?)
@@ -77,8 +95,11 @@ impl Config {
         Ok(Config {
             usb_pid,
             usb_vid,
+            serial_port,
+            serial_baud,
             memory_address,
             memory_value,
+            bridge_server_kind,
             bridge_kind,
             bind_port,
             bind_addr,
