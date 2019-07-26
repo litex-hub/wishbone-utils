@@ -1,11 +1,12 @@
 #[macro_use]
 extern crate bitflags;
+
+#[macro_use]
 extern crate clap;
 extern crate libusb;
 extern crate rand;
 
 extern crate flexi_logger;
-// extern crate pretty_env_logger;
 extern crate log;
 use log::error;
 
@@ -14,16 +15,17 @@ mod config;
 mod gdb;
 mod riscv;
 mod server;
-mod usb_bridge;
 mod uart_bridge;
-mod utils;
+mod usb_bridge;
 mod wishbone;
 
 use bridge::Bridge;
-use server::ServerKind;
+
 use clap::{App, Arg};
 use config::Config;
+use server::ServerKind;
 
+use std::process;
 use std::time::Duration;
 
 fn list_usb() -> Result<(), libusb::Error> {
@@ -65,16 +67,19 @@ fn list_usb() -> Result<(), libusb::Error> {
 }
 
 fn main() {
-    flexi_logger::Logger::with_env_or_str("wishbone_tool=info").start().unwrap();
-    // pretty_env_logger::init();
-    let matches = App::new("Wishbone USB Adapter")
-        .version("1.0")
+    flexi_logger::Logger::with_env_or_str("wishbone_tool=info")
+        .start()
+        .unwrap();
+    let matches = App::new("Wishbone Tool")
+        .version(crate_version!())
         .author("Sean Cross <sean@xobs.io>")
-        .about("Bridge Wishbone over USB")
+        .about("Work with Wishbone devices over various bridges")
         .arg(
             Arg::with_name("list")
                 .short("l")
                 .long("list")
+                .help("List USB devices in the system")
+                .display_order(3)
                 .takes_value(false),
         )
         .arg(
@@ -84,6 +89,7 @@ fn main() {
                 .value_name("USB_PID")
                 .help("USB PID to match")
                 .default_value("0x5bf0")
+                .display_order(3)
                 .takes_value(true),
         )
         .arg(
@@ -92,6 +98,7 @@ fn main() {
                 .long("vid")
                 .value_name("USB_VID")
                 .help("USB VID to match")
+                .display_order(3)
                 .takes_value(true),
         )
         .arg(
@@ -101,7 +108,8 @@ fn main() {
                 .alias("uart")
                 .value_name("PORT")
                 .help("Serial port to use")
-                .takes_value(true)
+                .display_order(4)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("baud")
@@ -110,18 +118,23 @@ fn main() {
                 .value_name("RATE")
                 .default_value("115200")
                 .help("Baudrate to use in serial mode")
-                .takes_value(true)
+                .display_order(5)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("address")
                 .index(1)
-                .required(false)
+                .required_unless("server-kind")
+                .conflicts_with("server-kind")
+                .display_order(6)
                 .help("address to read/write"),
         )
         .arg(
             Arg::with_name("value")
+                .value_name("value")
                 .index(2)
                 .required(false)
+                .display_order(6)
                 .help("value to write"),
         )
         .arg(
@@ -131,6 +144,7 @@ fn main() {
                 .value_name("IP_ADDRESS")
                 .help("IP address to bind to")
                 .default_value("0.0.0.0")
+                .display_order(2)
                 .takes_value(true),
         )
         .arg(
@@ -140,20 +154,33 @@ fn main() {
                 .value_name("PORT_NUMBER")
                 .help("port number to listen on")
                 .default_value("1234")
+                .display_order(2)
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("bridge-kind")
+            Arg::with_name("server-kind")
                 .short("s")
-                .long("server-kind")
+                .long("server")
+                .alias("server-kind")
                 .takes_value(true)
+                .required_unless("address")
+                .conflicts_with("address")
                 .help("which server to run (if any)")
+                .display_order(1)
                 .possible_values(&["gdb", "wishbone", "random-test"]),
         )
         .arg(
             Arg::with_name("random-loops")
                 .long("random-loops")
                 .help("number of loops to run when doing a random-test")
+                .display_order(7)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("random-address")
+                .long("random-address")
+                .help("address to write to when doing a random-test")
+                .display_order(7)
                 .takes_value(true),
         )
         .get_matches();
@@ -165,7 +192,21 @@ fn main() {
         return;
     }
 
-    let cfg = Config::parse(matches).unwrap();
+    let cfg = match Config::parse(matches) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            match e {
+                config::ConfigError::NumberParseError(num, e) => {
+                    error!("unable to parse the number \"{}\": {}", num, e)
+                }
+                config::ConfigError::NoOperationSpecified => panic!("no operation was specified"),
+                config::ConfigError::UnknownServerKind(s) => {
+                    error!("unknown server '{}', see --help", s)
+                }
+            }
+            process::exit(1);
+        }
+    };
 
     let bridge = Bridge::new(&cfg).unwrap();
     bridge.connect().unwrap();
@@ -177,6 +218,7 @@ fn main() {
         ServerKind::None => server::memory_access(cfg, bridge),
     };
     if let Err(e) = retcode {
-        error!("Unsuccessful exit: {:?}", e);
+        error!("server error: {:?}", e);
+        process::exit(1);
     }
 }

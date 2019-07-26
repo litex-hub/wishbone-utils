@@ -1,7 +1,50 @@
 use clap::ArgMatches;
 use super::bridge::BridgeKind;
 use super::server::ServerKind;
-use super::utils::{parse_u16, parse_u32};
+
+#[derive(Debug)]
+pub enum ConfigError {
+    /// Couldn't parse string as number
+    NumberParseError(String, std::num::ParseIntError),
+
+    /// Specified a bridge kind that we didn't recognize
+    UnknownServerKind(String),
+
+    /// No operation was specified
+    NoOperationSpecified,
+}
+
+pub fn get_base(value: &str) -> (&str, u32) {
+    if value.starts_with("0x") {
+        (value.trim_start_matches("0x"), 16)
+    } else if value.starts_with("0X") {
+        (value.trim_start_matches("0X"), 16)
+    } else if value.starts_with("0b") {
+        (value.trim_start_matches("0b"), 2)
+    } else if value.starts_with("0B") {
+        (value.trim_start_matches("0B"), 2)
+    } else if value.starts_with("0") && value != "0" {
+        (value.trim_start_matches("0"), 8)
+    } else {
+        (value, 10)
+    }
+}
+
+pub fn parse_u16(value: &str) -> Result<u16, ConfigError> {
+    let (value, base) = get_base(value);
+    match u16::from_str_radix(value, base) {
+        Ok(o) => Ok(o),
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e))
+    }
+}
+
+pub fn parse_u32(value: &str) -> Result<u32, ConfigError> {
+    let (value, base) = get_base(value);
+    match u32::from_str_radix(value, base) {
+        Ok(o) => Ok(o),
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e))
+    }
+}
 
 pub struct Config {
     pub usb_pid: Option<u16>,
@@ -15,21 +58,7 @@ pub struct Config {
     pub bind_addr: String,
     pub bind_port: u32,
     pub random_loops: Option<u32>,
-}
-
-#[derive(Debug)]
-pub enum ConfigError {
-    /// Couldn't parse string as number
-    NumberParseError(std::num::ParseIntError),
-
-    /// Specified a bridge kind that we didn't recognize
-    UnknownServerKind(String),
-}
-
-impl std::convert::From<std::num::ParseIntError> for ConfigError {
-    fn from(e: std::num::ParseIntError) -> Self {
-        ConfigError::NumberParseError(e)
-    }
+    pub random_address: Option<u32>,
 }
 
 impl Config {
@@ -85,7 +114,7 @@ impl Config {
             "127.0.0.1".to_owned()
         };
 
-        let server_kind = ServerKind::from_string(&matches.value_of("bridge-kind"))?;
+        let server_kind = ServerKind::from_string(&matches.value_of("server-kind"))?;
 
         let random_loops = if let Some(random_loops) = matches.value_of("random-loops") {
             Some(parse_u32(random_loops)?)
@@ -93,18 +122,30 @@ impl Config {
             None
         };
 
-        Ok(Config {
-            usb_pid,
-            usb_vid,
-            serial_port,
-            serial_baud,
-            memory_address,
-            memory_value,
-            server_kind,
-            bridge_kind,
-            bind_port,
-            bind_addr,
-            random_loops,
-        })
+        let random_address = if let Some(random_address) = matches.value_of("random-address") {
+            Some(parse_u32(random_address)?)
+        } else {
+            None
+        };
+
+        if memory_address.is_none() && server_kind == ServerKind::None {
+            Err(ConfigError::NoOperationSpecified)
+        }
+        else {
+            Ok(Config {
+                usb_pid,
+                usb_vid,
+                serial_port,
+                serial_baud,
+                memory_address,
+                memory_value,
+                server_kind,
+                bridge_kind,
+                bind_port,
+                bind_addr,
+                random_loops,
+                random_address,
+            })
+        }
     }
 }

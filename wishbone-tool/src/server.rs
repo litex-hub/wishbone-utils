@@ -15,7 +15,11 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
+#[derive(PartialEq)]
 pub enum ServerKind {
+    /// No server
+    None,
+
     /// Wishbone bridge
     Wishbone,
 
@@ -24,9 +28,6 @@ pub enum ServerKind {
 
     /// Send random data back and forth
     RandomTest,
-
-    /// No server
-    None,
 }
 
 #[derive(Debug)]
@@ -36,6 +37,11 @@ pub enum ServerError {
     GdbError(gdb::GdbServerError),
     BridgeError(bridge::BridgeError),
     RiscvCpuError(riscv::RiscvCpuError),
+    RandomValueError(
+        u32, /* counter */
+        u32, /* expected */
+        u32, /* observed */
+    ),
 }
 
 impl std::convert::From<io::Error> for ServerError {
@@ -82,9 +88,12 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
     let cpu = riscv::RiscvCpu::new()?;
     loop {
         let connection = {
-            let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)){
+            let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)) {
                 Ok(o) => o,
-                Err(e) => { error!("couldn't bind to address: {:?}", e); return Err(ServerError::IoError(e));},
+                Err(e) => {
+                    error!("couldn't bind to address: {:?}", e);
+                    return Err(ServerError::IoError(e));
+                }
             };
 
             // accept connections and process them serially
@@ -94,11 +103,17 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
             );
             let (connection, _sockaddr) = match listener.accept() {
                 Ok(o) => o,
-                Err(e) => {error!("couldn't accept connection: {:?}", e); return Err(ServerError::IoError(e));},
+                Err(e) => {
+                    error!("couldn't accept connection: {:?}", e);
+                    return Err(ServerError::IoError(e));
+                }
             };
             let peer_addr = match connection.peer_addr() {
                 Ok(o) => o,
-                Err(e) => {error!("couldn't get remote address: {:?}", e); return Err(ServerError::IoError(e)); },
+                Err(e) => {
+                    error!("couldn't get remote address: {:?}", e);
+                    return Err(ServerError::IoError(e));
+                }
             };
             info!("connection from {}", peer_addr);
             connection
@@ -117,7 +132,7 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
             let mut had_error = false;
             loop {
                 if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
-                    if ! had_error {
+                    if !had_error {
                         error!("error while polling bridge: {:?}", e);
                         had_error = true;
                     }
@@ -134,7 +149,7 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
                     error!("unable to read command from GDB client: {:?}", e);
                     break;
                 }
-                Ok(o) => o
+                Ok(o) => o,
             };
 
             if let Err(e) = gdb.process(cmd, &cpu, &bridge) {
@@ -166,24 +181,29 @@ pub fn wishbone_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
 
 pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut loop_counter: u32 = 0;
+    let random_addr = match cfg.random_address {
+        Some(s) => s,
+        None => 0x10000000 + 8192,
+    };
+    info!("writing random values to 0x{:08x}", random_addr);
     loop {
-        let random_addr = 0x10000000 + 8192;
         let val = random::<u32>();
-        bridge.poke(random_addr, val).unwrap();
-        let cmp = bridge.peek(random_addr).unwrap();
+        bridge.poke(random_addr, val)?;
+        let cmp = bridge.peek(random_addr)?;
         if cmp != val {
-            panic!(
-                "Loop {}: Expected {:08x}, got {:08x}",
+            error!(
+                "loop {}: expected {:08x}, got {:08x}",
                 loop_counter, val, cmp
             );
+            return Err(ServerError::RandomValueError(loop_counter, val, cmp));
         }
         if (loop_counter % 1000) == 0 {
-            println!("loop: {} ({:08x})", loop_counter, val);
+            info!("loop: {} ({:08x})", loop_counter, val);
         }
         loop_counter = loop_counter.wrapping_add(1);
         if let Some(max_loops) = cfg.random_loops {
             if loop_counter > max_loops {
-                println!("No errors encountered");
+                info!("no errors encountered");
                 return Ok(());
             }
         }
@@ -200,7 +220,9 @@ pub fn memory_access(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerEr
         }
     } else {
         println!("No operation and no address specified!");
-        println!("Try specifying an address such as \"0x10000000\".  See --help for more information");
+        println!(
+            "Try specifying an address such as \"0x10000000\".  See --help for more information"
+        );
     }
     Ok(())
 }
