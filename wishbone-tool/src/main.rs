@@ -13,12 +13,14 @@ mod bridge;
 mod config;
 mod gdb;
 mod riscv;
+mod server;
 mod usb_bridge;
 mod uart_bridge;
 mod utils;
 mod wishbone;
 
-use bridge::{Bridge, BridgeServerKind};
+use bridge::Bridge;
+use server::ServerKind;
 use clap::{App, Arg};
 use config::Config;
 
@@ -335,11 +337,11 @@ fn main() {
     let bridge = Bridge::new(&cfg).unwrap();
     bridge.connect().unwrap();
 
-    let retcode = match cfg.bridge_server_kind {
-        BridgeServerKind::GDB => gdb_server(cfg, bridge),
-        BridgeServerKind::Wishbone => wishbone_server(cfg, bridge),
-        BridgeServerKind::RandomTest => random_test(cfg, bridge),
-        BridgeServerKind::None => memory_access(cfg, bridge),
+    let retcode = match cfg.server_kind {
+        ServerKind::GDB => gdb_server(cfg, bridge),
+        ServerKind::Wishbone => wishbone_server(cfg, bridge),
+        ServerKind::RandomTest => random_test(cfg, bridge),
+        ServerKind::None => memory_access(cfg, bridge),
     };
     if let Err(e) = retcode {
         error!("Unsuccessful exit: {:?}", e);

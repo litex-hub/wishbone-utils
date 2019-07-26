@@ -1,5 +1,6 @@
 use clap::ArgMatches;
-use super::bridge::{BridgeKind, BridgeServerKind};
+use super::bridge::BridgeKind;
+use super::server::ServerKind;
 use super::utils::{parse_u16, parse_u32};
 
 pub struct Config {
@@ -7,7 +8,7 @@ pub struct Config {
     pub usb_vid: Option<u16>,
     pub memory_address: Option<u32>,
     pub memory_value: Option<u32>,
-    pub bridge_server_kind: BridgeServerKind,
+    pub server_kind: ServerKind,
     pub bridge_kind: BridgeKind,
     pub serial_port: Option<String>,
     pub serial_baud: Option<usize>,
@@ -22,7 +23,7 @@ pub enum ConfigError {
     NumberParseError(std::num::ParseIntError),
 
     /// Specified a bridge kind that we didn't recognize
-    UnknownBridgeServerKind(String),
+    UnknownServerKind(String),
 }
 
 impl std::convert::From<std::num::ParseIntError> for ConfigError {
@@ -84,7 +85,7 @@ impl Config {
             "127.0.0.1".to_owned()
         };
 
-        let bridge_server_kind = BridgeServerKind::from_string(&matches.value_of("bridge-kind"))?;
+        let server_kind = ServerKind::from_string(&matches.value_of("bridge-kind"))?;
 
         let random_loops = if let Some(random_loops) = matches.value_of("random-loops") {
             Some(parse_u32(random_loops)?)
@@ -99,7 +100,7 @@ impl Config {
             serial_baud,
             memory_address,
             memory_value,
-            bridge_server_kind,
+            server_kind,
             bridge_kind,
             bind_port,
             bind_addr,

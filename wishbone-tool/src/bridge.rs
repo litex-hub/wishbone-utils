@@ -1,22 +1,8 @@
-use super::config::{Config, ConfigError};
+use super::config::Config;
 use super::usb_bridge::UsbBridge;
 use super::uart_bridge::UartBridge;
 use std::sync::{Arc, Mutex};
 use std::io;
-
-pub enum BridgeServerKind {
-    /// Wishbone bridge
-    Wishbone,
-
-    /// GDB server
-    GDB,
-
-    /// Send random data back and forth
-    RandomTest,
-
-    /// No server
-    None,
-}
 
 pub enum BridgeKind {
     UsbBridge,
@@ -56,20 +42,6 @@ impl std::convert::From<libusb::Error> for BridgeError {
 impl std::convert::From<io::Error> for BridgeError {
     fn from(e: io::Error) -> BridgeError {
         BridgeError::IoError(e)
-    }
-}
-
-impl BridgeServerKind {
-    pub fn from_string(item: &Option<&str>) -> Result<BridgeServerKind, ConfigError> {
-        match item {
-            None => Ok(BridgeServerKind::None),
-            Some(k) => match *k {
-                "gdb" => Ok(BridgeServerKind::GDB),
-                "wishbone" => Ok(BridgeServerKind::Wishbone),
-                "random-test" => Ok(BridgeServerKind::RandomTest),
-                unknown => Err(ConfigError::UnknownBridgeServerKind(unknown.to_owned())),
-            },
-        }
     }
 }
 
