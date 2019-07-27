@@ -85,7 +85,7 @@ impl ServerKind {
 }
 
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
-    let cpu = riscv::RiscvCpu::new()?;
+    let cpu = riscv::RiscvCpu::new(&bridge)?;
     loop {
         let connection = {
             let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)) {

@@ -79,6 +79,10 @@ fn main() {
                 .short("l")
                 .long("list")
                 .help("List USB devices in the system")
+                .required_unless("address")
+                .conflicts_with("address")
+                .required_unless("server-kind")
+                .conflicts_with("server-kind")
                 .display_order(3)
                 .takes_value(false),
         )
@@ -126,6 +130,8 @@ fn main() {
                 .index(1)
                 .required_unless("server-kind")
                 .conflicts_with("server-kind")
+                .required_unless("list")
+                .conflicts_with("list")
                 .display_order(6)
                 .help("address to read/write"),
         )
@@ -165,6 +171,8 @@ fn main() {
                 .takes_value(true)
                 .required_unless("address")
                 .conflicts_with("address")
+                .required_unless("list")
+                .conflicts_with("list")
                 .help("which server to run (if any)")
                 .display_order(1)
                 .possible_values(&["gdb", "wishbone", "random-test"]),

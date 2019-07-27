@@ -470,8 +470,18 @@ impl GdbServer {
             GdbCommand::SetCurrentThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::ContinueThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::AddBreakpoint(_bptype, address, _size) => {
-                cpu.add_breakpoint(bridge, address)?;
-                self.gdb_send(b"OK")?
+                let response = match cpu.add_breakpoint(bridge, address) {
+                    Ok(_) => "OK",
+                    Err(RiscvCpuError::BreakpointExhausted) => {
+                        error!("No available breakpoint found");
+                        "E0E"
+                    },
+                    Err(e) => {
+                        error!("An error occurred while trying to add the breakpoint: {:?}", e);
+                        "EOE"
+                    },
+                };
+                self.gdb_send(response.as_bytes())?;
             },
             GdbCommand::TraceStatusQuery => self.gdb_send(b"")?,
             GdbCommand::RemoveBreakpoint(_bptype, address, _size) => {
