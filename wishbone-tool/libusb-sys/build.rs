@@ -108,7 +108,9 @@ pub fn link(name: &str, bundled: bool) {
             let dir = var("CARGO_MANIFEST_DIR").unwrap();
             println!("cargo:rustc-link-search=native={}/{}", dir, target[0]);
         }
-    }
+    } else {
+		println!("cargo:rustc-link-lib=dylib={}", name);
+	}
 }
 
 pub fn link_framework(name: &str) {
