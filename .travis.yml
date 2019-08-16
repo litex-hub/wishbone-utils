@@ -59,6 +59,7 @@ matrix:
     #   os: osx
     - env: TARGET=x86_64-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.6
       os: osx
+      osx_image: xcode8
 
     # # *BSD
     # # - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
