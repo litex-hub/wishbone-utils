@@ -57,7 +57,7 @@ matrix:
     # # OSX
     # - env: TARGET=i686-apple-darwin
     #   os: osx
-    - env: TARGET=x86_64-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.6
+    - env: TARGET=x86_64-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.7
       os: osx
       osx_image: xcode8
 
