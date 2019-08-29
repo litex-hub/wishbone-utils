@@ -128,7 +128,6 @@ fn main() {
                 .short("g")
                 .long("spi-pins")
                 .value_delimiter("PINS")
-                .default_value("2,3,4,18")
                 .help("GPIO pins to use for MISO,MOSI,CLK,CS_N")
                 .display_order(6)
                 .takes_value(true),
