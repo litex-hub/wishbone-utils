@@ -1,6 +1,7 @@
 use clap::ArgMatches;
-use super::bridge::BridgeKind;
-use super::server::ServerKind;
+use crate::bridge::BridgeKind;
+use crate::server::ServerKind;
+use crate::bridge::spi::SpiPins;
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -9,6 +10,9 @@ pub enum ConfigError {
 
     /// Specified a bridge kind that we didn't recognize
     UnknownServerKind(String),
+
+    /// Specified SPI pinspec was invalid
+    SpiParseError(String),
 
     /// No operation was specified
     NoOperationSpecified,
@@ -55,6 +59,7 @@ pub struct Config {
     pub bridge_kind: BridgeKind,
     pub serial_port: Option<String>,
     pub serial_baud: Option<usize>,
+    pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
     pub bind_port: u32,
     pub random_loops: Option<u32>,
@@ -114,6 +119,13 @@ impl Config {
             "127.0.0.1".to_owned()
         };
 
+        let spi_pins = if let Some(pins) = matches.value_of("spi-pins") {
+            bridge_kind = BridgeKind::SpiBridge;
+            Some(SpiPins::from_string(pins)?)
+        } else {
+            None
+        };
+
         let server_kind = ServerKind::from_string(&matches.value_of("server-kind"))?;
 
         let random_loops = if let Some(random_loops) = matches.value_of("random-loops") {
@@ -137,6 +149,7 @@ impl Config {
                 usb_vid,
                 serial_port,
                 serial_baud,
+                spi_pins,
                 memory_address,
                 memory_value,
                 server_kind,

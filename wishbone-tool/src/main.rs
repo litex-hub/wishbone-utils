@@ -124,13 +124,23 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("spi-pins")
+                .short("g")
+                .long("spi-pins")
+                .value_delimiter("PINS")
+                .default_value("2,3,4,18")
+                .help("GPIO pins to use for MISO,MOSI,CLK,CS_N")
+                .display_order(6)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("address")
                 .index(1)
                 .required_unless("server-kind")
                 .conflicts_with("server-kind")
                 .required_unless("list")
                 .conflicts_with("list")
-                .display_order(6)
+                .display_order(7)
                 .help("address to read/write"),
         )
         .arg(
@@ -138,7 +148,7 @@ fn main() {
                 .value_name("value")
                 .index(2)
                 .required(false)
-                .display_order(6)
+                .display_order(8)
                 .help("value to write"),
         )
         .arg(
@@ -179,14 +189,14 @@ fn main() {
             Arg::with_name("random-loops")
                 .long("random-loops")
                 .help("number of loops to run when doing a random-test")
-                .display_order(7)
+                .display_order(9)
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("random-address")
                 .long("random-address")
                 .help("address to write to when doing a random-test")
-                .display_order(7)
+                .display_order(10)
                 .takes_value(true),
         )
         .get_matches();
@@ -208,6 +218,9 @@ fn main() {
                 config::ConfigError::NoOperationSpecified => panic!("no operation was specified"),
                 config::ConfigError::UnknownServerKind(s) => {
                     error!("unknown server '{}', see --help", s)
+                }
+                config::ConfigError::SpiParseError(s) => {
+                    error!("couldn't parse spi pins: {}", s)
                 }
             }
             process::exit(1);

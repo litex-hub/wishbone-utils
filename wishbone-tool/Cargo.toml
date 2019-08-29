@@ -20,3 +20,7 @@ log = "0"
 flexi_logger = { version = "0", features = ["colors"] }
 
 serial = "0.4"
+
+# Enable GPIO access for SpiBone on Raspberry Pi
+[target.'cfg(unix)'.dependencies]
+rppal = "0.11"

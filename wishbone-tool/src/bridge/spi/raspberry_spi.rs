@@ -1,5 +1,4 @@
 extern crate byteorder;
-extern crate serial;
 
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Condvar};
@@ -11,7 +10,7 @@ use log::{debug, error, info};
 use serial::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::BridgeError;
+use crate::bridge::BridgeError;
 use crate::config::Config;
 
 #[derive(Clone)]

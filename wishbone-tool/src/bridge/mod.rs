@@ -6,6 +6,7 @@ use crate::config::Config;
 use usb::UsbBridge;
 use uart::UartBridge;
 use spi::SpiBridge;
+
 use std::sync::{Arc, Mutex};
 use std::io;
 
