@@ -149,7 +149,7 @@ fn main() {
                 .long("bind-addr")
                 .value_name("IP_ADDRESS")
                 .help("IP address to bind to")
-                .default_value("0.0.0.0")
+                .default_value("127.0.0.1")
                 .display_order(2)
                 .takes_value(true),
         )
