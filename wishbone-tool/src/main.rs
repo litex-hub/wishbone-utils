@@ -15,8 +15,6 @@ mod config;
 mod gdb;
 mod riscv;
 mod server;
-mod uart_bridge;
-mod usb_bridge;
 mod wishbone;
 
 use bridge::Bridge;

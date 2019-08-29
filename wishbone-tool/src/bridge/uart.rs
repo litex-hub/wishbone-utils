@@ -11,8 +11,8 @@ use log::{debug, error, info};
 use serial::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::bridge::BridgeError;
-use super::config::Config;
+use super::BridgeError;
+use crate::config::Config;
 
 #[derive(Clone)]
 pub struct UartBridge {

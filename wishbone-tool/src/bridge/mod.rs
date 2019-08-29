@@ -1,18 +1,25 @@
-use super::config::Config;
-use super::usb_bridge::UsbBridge;
-use super::uart_bridge::UartBridge;
+pub mod uart;
+pub mod usb;
+pub mod spi;
+
+use crate::config::Config;
+use usb::UsbBridge;
+use uart::UartBridge;
+use spi::SpiBridge;
 use std::sync::{Arc, Mutex};
 use std::io;
 
 pub enum BridgeKind {
     UsbBridge,
     UartBridge,
+    SpiBridge,
 }
 
 #[derive(Clone)]
 pub enum Bridge {
     UsbBridge(UsbBridge),
     UartBridge(UartBridge),
+    SpiBridge(SpiBridge),
 }
 
 #[derive(Debug)]
@@ -49,7 +56,8 @@ impl Bridge {
     pub fn new(cfg: &Config) -> Result<Bridge, BridgeError> {
         match cfg.bridge_kind {
             BridgeKind::UartBridge => Ok(Bridge::UartBridge(UartBridge::new(cfg)?)),
-            BridgeKind::UsbBridge => Ok(Bridge::UsbBridge(UsbBridge::new(cfg)?))
+            BridgeKind::UsbBridge => Ok(Bridge::UsbBridge(UsbBridge::new(cfg)?)),
+            BridgeKind::SpiBridge => Ok(Bridge::SpiBridge(SpiBridge::new(cfg)?)),
         }
     }
 
@@ -57,6 +65,7 @@ impl Bridge {
         match self {
             Bridge::UsbBridge(b) => b.connect(),
             Bridge::UartBridge(b) => b.connect(),
+            Bridge::SpiBridge(b) => b.connect(),
         }
     }
 
@@ -64,6 +73,7 @@ impl Bridge {
         match self {
             Bridge::UsbBridge(b) => b.mutex(),
             Bridge::UartBridge(b) => b.mutex(),
+            Bridge::SpiBridge(b) => b.mutex(),
         }
     }
 
@@ -71,6 +81,7 @@ impl Bridge {
         let result = match self {
             Bridge::UsbBridge(b) => b.peek(addr),
             Bridge::UartBridge(b) => b.peek(addr),
+            Bridge::SpiBridge(b) => b.peek(addr),
         };
         result
     }
@@ -79,6 +90,7 @@ impl Bridge {
         let result = match self {
             Bridge::UsbBridge(b) => b.poke(addr, value),
             Bridge::UartBridge(b) => b.poke(addr, value),
+            Bridge::SpiBridge(b) => b.poke(addr, value),
         };
         result
     }
