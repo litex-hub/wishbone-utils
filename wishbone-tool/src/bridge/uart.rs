@@ -104,7 +104,7 @@ impl UartBridge {
             if let Err(e) = port.set_timeout(Duration::from_millis(1000)) {
                 error!("unable to set port duration timeout: {}", e);
             }
-        
+
             let mut keep_going = true;
             while keep_going {
                 let var = rx.recv();
@@ -115,7 +115,7 @@ impl UartBridge {
                     },
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
-                            debug!("usb_connect_thread requested exit");
+                            debug!("serial_connect_thread requested exit");
                             return;
                         }
                         ConnectThreadRequests::StartPolling(p, v) => {

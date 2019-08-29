@@ -1,4 +1,5 @@
 extern crate byteorder;
+extern crate rppal;
 
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Condvar};
@@ -7,18 +8,26 @@ use std::time::Duration;
 
 use log::{debug, error, info};
 
-use serial::prelude::*;
+use rppal::gpio::{Gpio, IoPin, Mode};
+use rppal::gpio::Level::{Low, High};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::bridge::BridgeError;
 use crate::config::Config;
 
+struct SpiPins {
+    mosi: IoPin,
+    miso: Option<IoPin>,
+    clk: IoPin,
+    cs: Option<IoPin>,
+}
+
 #[derive(Clone)]
 pub struct SpiBridge {
-    mosi: u32,
-    miso: u32,
-    clk: u32,
-    cs: u32,
+    mosi: u8,
+    miso: Option<u8>,
+    clk: u8,
+    cs: Option<u8>,
     baudrate: usize,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
@@ -26,7 +35,7 @@ pub struct SpiBridge {
 }
 
 enum ConnectThreadRequests {
-    StartPolling(String /* path */, usize /* baudrate */),
+    UpdateConfig(u8 /* mosi */, Option<u8> /* miso */, u8 /* clk */, Option<u8> /* cs */),
     Exit,
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
@@ -44,23 +53,39 @@ impl SpiBridge {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let path = match &cfg.serial_port {
+        let pins = match &cfg.spi_pins {
             Some(s) => s.clone(),
             None => panic!("no serial port path was found"),
         };
-        let baudrate = cfg.serial_baud.expect("no serial port baudrate was found");
+        let baudrate = 0;
+
+        // Try to open them first, just to make sure we can.
+        {
+            let gpio = Gpio::new().expect("unable to get gpio ports");
+            let _mosi = gpio.get(pins.mosi).expect("unable to get spi mosi pin");
+            if let Some(miso) = pins.miso {
+                let _miso = Some(gpio.get(miso).expect("unable to get spi miso pin"));
+            }
+            let _clk = gpio.get(pins.clk).expect("unable to get spi clk pin");
+            if let Some(cs) = pins.cs {
+                let _cs = Some(gpio.get(cs).expect("unable to get spi cs pin"));
+            }
+        }
 
         let thr_cv = cv.clone();
-        let thr_path = path.clone();
+        let thr_mosi = pins.mosi.clone();
+        let thr_miso = pins.miso.clone();
+        let thr_clk = pins.clk.clone();
+        let thr_cs = pins.cs.clone();
         thread::spawn(move || {
-            Self::serial_connect_thread(thr_cv, thread_rx, thr_path, baudrate)
+            Self::spi_connect_thread(thr_cv, thread_rx, thr_mosi, thr_miso, thr_clk, thr_cs)
         });
 
         Ok(SpiBridge {
-            mosi: 0,
-            miso: 0,
-            clk: 0,
-            cs: 0,
+            mosi: pins.mosi,
+            miso: pins.miso,
+            clk: pins.clk,
+            cs: pins.cs,
             baudrate,
             main_tx,
             main_rx: cv,
@@ -68,48 +93,37 @@ impl SpiBridge {
         })
     }
 
-    fn serial_connect_thread(
+    fn spi_connect_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        path: String,
-        baud: usize
+        mosi: u8,
+        miso: Option<u8>,
+        clk: u8,
+        cs: Option<u8>
     ) {
-        let mut path = path;
-        let mut baud = baud;
-        let mut print_waiting_message = true;
+        let mut miso = miso;
+        let mut mosi = mosi;
+        let mut clk = clk;
+        let mut cs = cs;
         let &(ref response, ref cvar) = &*tx;
         loop {
-            let mut port = match serial::open(&path) {
-                Ok(port) => {
-                    info!("opened serial device {}", path);
-                    *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
-                    cvar.notify_one();
-                    print_waiting_message = true;
-                    port
-                },
-                Err(e) => {
-                    if print_waiting_message {
-                        print_waiting_message = false;
-                        error!("unable to open serial device, will wait for it to appear again: {}", e);
-                    }
-                    thread::park_timeout(Duration::from_millis(500));
-                    continue;
-                }
+            let gpio = Gpio::new().expect("unable to get gpio ports");
+            let mosi_pin = gpio.get(mosi).expect("unable to get spi mosi pin").into_io(Mode::Output);
+            let miso_pin = if let Some(miso) = miso {
+                Some(gpio.get(miso).expect("unable to get spi miso pin").into_io(Mode::Input))
+            } else {
+                None
             };
-            if let Err(e) = port.reconfigure(&|settings| {
-                    settings.set_baud_rate(serial::BaudRate::from_speed(baud))?;
-                    settings.set_char_size(serial::Bits8);
-                    settings.set_parity(serial::ParityNone);
-                    settings.set_stop_bits(serial::Stop1);
-                    settings.set_flow_control(serial::FlowNone);
-                    Ok(())
-            }) {
-                error!("unable to reconfigure serial port {} -- connection may not work", e);
-            }
-            if let Err(e) = port.set_timeout(Duration::from_millis(1000)) {
-                error!("unable to set port duration timeout: {}", e);
-            }
-        
+            let clk_pin = gpio.get(clk).expect("unable to get spi clk pin").into_io(Mode::Output);
+            let cs_pin = if let Some(cs) = cs {
+                Some(gpio.get(cs).expect("unable to get spi cs pin").into_io(Mode::Output))
+            } else {
+                None
+            };
+            let mut pins = SpiPins { mosi: mosi_pin, miso: miso_pin, clk: clk_pin, cs: cs_pin };
+            *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
+            cvar.notify_one();
+
             let mut keep_going = true;
             while keep_going {
                 let var = rx.recv();
@@ -120,21 +134,24 @@ impl SpiBridge {
                     },
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
-                            debug!("usb_connect_thread requested exit");
+                            debug!("spi_connect_thread requested exit");
                             return;
                         }
-                        ConnectThreadRequests::StartPolling(p, v) => {
-                            path = p.clone();
-                            baud = v;
+                        ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
+                            mosi = i;
+                            miso = o;
+                            clk = k;
+                            cs = s;
+                            keep_going = false;
                         }
                         ConnectThreadRequests::Peek(addr) => {
-                            let result = Self::do_peek(&mut port, addr);
+                            let result = Self::do_peek(&mut pins, addr);
                             keep_going = result.is_ok();
                             *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(result));
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::Poke(addr, val) => {
-                            let result = Self::do_poke(&mut port, addr, val);
+                            let result = Self::do_poke(&mut pins, addr, val);
                             keep_going = result.is_ok();
                             *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(result));
                             cvar.notify_one();
@@ -168,9 +185,11 @@ impl SpiBridge {
                             )));
                             cvar.notify_one();
                         },
-                        ConnectThreadRequests::StartPolling(p, v) => {
-                            path = p.clone();
-                            baud = v;
+                        ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
+                            mosi = i;
+                            miso = o;
+                            clk = k;
+                            cs = s;
                         }
                     },
                 }
@@ -184,10 +203,7 @@ impl SpiBridge {
 
     pub fn connect(&self) -> Result<(), BridgeError> {
         self.main_tx
-            .send(ConnectThreadRequests::StartPolling(
-                "".to_string(),
-                self.baudrate,
-            ))
+            .send(ConnectThreadRequests::UpdateConfig(self.mosi, self.miso, self.clk, self.cs))
             .unwrap();
         loop {
             let &(ref lock, ref cvar) = &*self.main_rx;
@@ -203,22 +219,45 @@ impl SpiBridge {
         }
     }
 
-    fn do_poke<T: SerialPort>(
-        serial: &mut T,
+    fn do_tick(pins: &mut SpiPins) {
+        pins.clk.write(Low);
+        thread::park_timeout(Duration::from_nanos(83));
+        pins.clk.write(High);
+        thread::park_timeout(Duration::from_nanos(83));
+    }
+
+    fn do_poke(
+        pins: &mut SpiPins,
         addr: u32,
         value: u32,
     ) -> Result<(), BridgeError> {
-        // WRITE, 1 word
-        serial.write(&[0x01, 0x01])?;
-        serial.write_u32::<BigEndian>(addr)?;
-        Ok(serial.write_u32::<BigEndian>(value)?)
+        if let Some(cs) = &mut pins.cs {
+            cs.write(Low);
+        }
+        Self::do_tick(pins);
+        // // WRITE, 1 word
+        // serial.write(&[0x01, 0x01])?;
+        // serial.write_u32::<BigEndian>(addr)?;
+        // Ok(serial.write_u32::<BigEndian>(value)?)
+        if let Some(cs) = &mut pins.cs {
+            cs.write(High);
+        }
+        Ok(())
     }
 
-    fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
-        // READ, 1 word
-        serial.write(&[0x02, 0x01])?;
-        serial.write_u32::<BigEndian>(addr)?;
-        Ok(serial.read_u32::<BigEndian>()?)
+    fn do_peek(pins: &mut SpiPins, addr: u32) -> Result<u32, BridgeError> {
+        if let Some(cs) = &mut pins.cs {
+            cs.write(Low);
+        }
+        Self::do_tick(pins);
+        // // READ, 1 word
+        // serial.write(&[0x02, 0x01])?;
+        // serial.write_u32::<BigEndian>(addr)?;
+        // Ok(serial.read_u32::<BigEndian>()?)
+        if let Some(cs) = &mut pins.cs {
+            cs.write(High);
+        }
+        Ok(0)
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {

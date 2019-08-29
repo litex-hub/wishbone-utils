@@ -3,10 +3,10 @@ use crate::config::ConfigError::SpiParseError;
 use crate::config::parse_u32;
 
 pub struct SpiPins {
-    miso: u32,
-    mosi: u32,
-    clk: u32,
-    cs: u32,
+    mosi: u8,
+    miso: Option<u8>,
+    clk: u8,
+    cs: Option<u8>,
 }
 
 impl SpiPins {
@@ -15,12 +15,12 @@ impl SpiPins {
         if chars.len() != 4 {
             return Err(SpiParseError(format!("{} is not a valid pin spec -- must be MOSI,MISO,CLK,CS (e.g. \"2,3,4,18\")", spec)))
         }
-        let miso = parse_u32(chars[0])?;
-        let mosi = parse_u32(chars[1])?;
-        let clk = parse_u32(chars[2])?;
-        let cs = parse_u32(chars[3])?;
+        let mosi = parse_u32(chars[1])? as u8;
+        let miso = Some(parse_u32(chars[0])? as u8);
+        let clk = parse_u32(chars[2])? as u8;
+        let cs = Some(parse_u32(chars[3])? as u8);
 
-        Ok(SpiPins { miso, mosi, clk, cs})
+        Ok(SpiPins { mosi, miso, clk, cs})
     }
 }
 
