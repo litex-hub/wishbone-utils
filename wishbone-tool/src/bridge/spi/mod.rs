@@ -24,27 +24,12 @@ impl SpiPins {
     }
 }
 
-#[cfg(any(target_os = "android",
-          target_os = "dragonfly",
-          target_os = "freebsd",
-          target_os = "ios",
-          target_os = "linux",
-          target_os = "macos",
-          target_os = "netbsd",
-          target_os = "openbsd"))]
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 pub mod raspberry_spi;
-
-#[cfg(target_os = "windows")]
-pub mod dummy_spi;
-
-#[cfg(any(target_os = "android",
-          target_os = "dragonfly",
-          target_os = "freebsd",
-          target_os = "ios",
-          target_os = "linux",
-          target_os = "macos",
-          target_os = "netbsd",
-          target_os = "openbsd"))]
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 pub use raspberry_spi::SpiBridge;
-#[cfg(target_os = "windows")]
+
+#[cfg(not(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64"))))]
+pub mod dummy_spi;
+#[cfg(not(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64"))))]
 pub use dummy_spi::SpiBridge;
