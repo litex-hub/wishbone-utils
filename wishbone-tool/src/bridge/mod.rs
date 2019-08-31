@@ -39,6 +39,9 @@ pub enum BridgeError {
 
     /// We got something weird back from the bridge
     WrongResponse,
+
+    /// We got nothing back from the bridge
+    Timeout,
 }
 
 impl std::convert::From<libusb::Error> for BridgeError {

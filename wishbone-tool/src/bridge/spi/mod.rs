@@ -12,13 +12,27 @@ pub struct SpiPins {
 impl SpiPins {
     pub fn from_string(spec: &str) -> Result<Self, ConfigError> {
         let chars: Vec<&str> = spec.split(",").collect();
-        if chars.len() != 4 {
-            return Err(SpiParseError(format!("{} is not a valid pin spec -- must be MOSI,MISO,CLK,CS (e.g. \"2,3,4,18\")", spec)))
-        }
-        let mosi = parse_u32(chars[1])? as u8;
-        let miso = Some(parse_u32(chars[0])? as u8);
-        let clk = parse_u32(chars[2])? as u8;
-        let cs = Some(parse_u32(chars[3])? as u8);
+
+        let (mosi, miso, clk, cs) = match chars.len() {
+            2 => return Err(SpiParseError("two-wire SPI is not yet implemented".to_string())),
+            3 => {
+                (
+                    parse_u32(chars[0])? as u8,
+                    None,
+                    parse_u32(chars[1])? as u8,
+                    Some(parse_u32(chars[2])? as u8)
+                )
+            },
+            4 => {
+                (
+                    parse_u32(chars[0])? as u8,
+                    Some(parse_u32(chars[1])? as u8),
+                    parse_u32(chars[2])? as u8,
+                    Some(parse_u32(chars[3])? as u8)
+                )
+            }
+            _ => return Err(SpiParseError(format!("{} is not a valid pin spec -- must be MOSI,MISO,CLK,CS (e.g. \"2,3,4,18\")", spec)))
+        };
 
         Ok(SpiPins { mosi, miso, clk, cs})
     }

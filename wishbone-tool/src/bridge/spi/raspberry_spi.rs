@@ -1,16 +1,17 @@
-extern crate byteorder;
 extern crate rppal;
+extern crate spin_sleep;
 
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
 use std::time::Duration;
+use std::fmt;
 
 use log::{debug, error, info};
 
-use rppal::gpio::{Gpio, IoPin, Mode};
-use rppal::gpio::Level::{Low, High};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use rppal::gpio::{Gpio, IoPin};
+use rppal::gpio::Mode::{Input, Output};
+// use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::bridge::BridgeError;
 use crate::config::Config;
@@ -20,14 +21,22 @@ struct SpiPins {
     miso: Option<IoPin>,
     clk: IoPin,
     cs: Option<IoPin>,
+    mosi_is_input: bool,
+    delay: Duration,
+}
+
+impl fmt::Display for SpiPins {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let mosi = format!("MOSI:{}", self.mosi.pin());
+        let miso = if let Some(ref p) = self.miso { format!("MISO:{}", p.pin()) } else { "none".to_owned() };
+        let clk = format!("CLK:{}", self.clk.pin());
+        let cs = if let Some(ref p) = self.cs { format!("CS:{}", p.pin()) } else { "none".to_owned() };
+        fmt.write_str(&format!("{} {} {} {}", mosi, miso, clk, cs))
+    }
 }
 
 #[derive(Clone)]
 pub struct SpiBridge {
-    mosi: u8,
-    miso: Option<u8>,
-    clk: u8,
-    cs: Option<u8>,
     baudrate: usize,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
@@ -35,7 +44,7 @@ pub struct SpiBridge {
 }
 
 enum ConnectThreadRequests {
-    UpdateConfig(u8 /* mosi */, Option<u8> /* miso */, u8 /* clk */, Option<u8> /* cs */),
+    // UpdateConfig(u8 /* mosi */, Option<u8> /* miso */, u8 /* clk */, Option<u8> /* cs */),
     Exit,
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
@@ -82,10 +91,6 @@ impl SpiBridge {
         });
 
         Ok(SpiBridge {
-            mosi: pins.mosi,
-            miso: pins.miso,
-            clk: pins.clk,
-            cs: pins.cs,
             baudrate,
             main_tx,
             main_rx: cv,
@@ -101,26 +106,31 @@ impl SpiBridge {
         clk: u8,
         cs: Option<u8>
     ) {
-        let mut miso = miso;
-        let mut mosi = mosi;
-        let mut clk = clk;
-        let mut cs = cs;
+        // let mut miso = miso;
+        // let mut mosi = mosi;
+        // let mut clk = clk;
+        // let mut cs = cs;
         let &(ref response, ref cvar) = &*tx;
         loop {
             let gpio = Gpio::new().expect("unable to get gpio ports");
-            let mosi_pin = gpio.get(mosi).expect("unable to get spi mosi pin").into_io(Mode::Output);
+            let mut mosi_pin = gpio.get(mosi).expect("unable to get spi mosi pin").into_io(Output);
+            mosi_pin.set_high();
             let miso_pin = if let Some(miso) = miso {
-                Some(gpio.get(miso).expect("unable to get spi miso pin").into_io(Mode::Input))
+                Some(gpio.get(miso).expect("unable to get spi miso pin").into_io(Input))
             } else {
                 None
             };
-            let clk_pin = gpio.get(clk).expect("unable to get spi clk pin").into_io(Mode::Output);
+            let mut clk_pin = gpio.get(clk).expect("unable to get spi clk pin").into_io(Output);
+            clk_pin.set_high();
             let cs_pin = if let Some(cs) = cs {
-                Some(gpio.get(cs).expect("unable to get spi cs pin").into_io(Mode::Output))
+                let mut pin = gpio.get(cs).expect("unable to get spi cs pin").into_io(Output);
+                pin.set_high();
+                Some(pin)
             } else {
                 None
             };
-            let mut pins = SpiPins { mosi: mosi_pin, miso: miso_pin, clk: clk_pin, cs: cs_pin };
+            let mut pins = SpiPins { mosi: mosi_pin, miso: miso_pin, clk: clk_pin, cs: cs_pin, mosi_is_input: false, delay: Duration::from_nanos(333) };
+            info!("opened spi device with pins {}", pins);
             *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
             cvar.notify_one();
 
@@ -137,13 +147,13 @@ impl SpiBridge {
                             debug!("spi_connect_thread requested exit");
                             return;
                         }
-                        ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
-                            mosi = i;
-                            miso = o;
-                            clk = k;
-                            cs = s;
-                            keep_going = false;
-                        }
+                        // ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
+                        //     mosi = i;
+                        //     miso = o;
+                        //     clk = k;
+                        //     cs = s;
+                        //     keep_going = false;
+                        // }
                         ConnectThreadRequests::Peek(addr) => {
                             let result = Self::do_peek(&mut pins, addr);
                             keep_going = result.is_ok();
@@ -160,7 +170,7 @@ impl SpiBridge {
                 }
             }
 
-            thread::park_timeout(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(500));
 
             // Respond to any messages in the buffer with NotConnected.  As soon
             // as the channel is empty, loop back to the start of this function.
@@ -185,12 +195,12 @@ impl SpiBridge {
                             )));
                             cvar.notify_one();
                         },
-                        ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
-                            mosi = i;
-                            miso = o;
-                            clk = k;
-                            cs = s;
-                        }
+                        // ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
+                        //     mosi = i;
+                        //     miso = o;
+                        //     clk = k;
+                        //     cs = s;
+                        // }
                     },
                 }
             }
@@ -202,9 +212,9 @@ impl SpiBridge {
     }
 
     pub fn connect(&self) -> Result<(), BridgeError> {
-        self.main_tx
-            .send(ConnectThreadRequests::UpdateConfig(self.mosi, self.miso, self.clk, self.cs))
-            .unwrap();
+        // self.main_tx
+        //     .send(ConnectThreadRequests::UpdateConfig(self.mosi, self.miso, self.clk, self.cs))
+        //     .unwrap();
         loop {
             let &(ref lock, ref cvar) = &*self.main_rx;
             let mut _mtx = lock.lock().unwrap();
@@ -219,11 +229,84 @@ impl SpiBridge {
         }
     }
 
-    fn do_tick(pins: &mut SpiPins) {
-        pins.clk.write(Low);
-        thread::park_timeout(Duration::from_nanos(83));
-        pins.clk.write(High);
-        thread::park_timeout(Duration::from_nanos(83));
+    /// Get the appropriate input pin.  If MOSI is the input, ensure that
+    /// it is set as an Input.
+    fn get_input(pins: &mut SpiPins) -> (&mut IoPin, &mut IoPin, &Duration) {
+        // If there's a MISO pin, use that.
+        // Otherwise, turn MOSI into an output if necessary.
+        if let Some(ref mut pin) = pins.miso {
+            (pin, &mut pins.clk, &pins.delay)
+        } else {
+            if ! pins.mosi_is_input {
+                pins.mosi.set_mode(Input);
+                pins.mosi_is_input = true;
+            }
+            (&mut pins.mosi, &mut pins.clk, &pins.delay)
+        }
+    }
+
+    /// Get the appropriate output pin.  If MOSI is the output, ensure that
+    /// it is set as an Output.
+    fn get_output(pins: &mut SpiPins) -> (&mut IoPin, &mut IoPin, &Duration) {
+        // If we're running with less than four wires, change the
+        // MOSI pin to an output if necessary
+        if pins.miso.is_none() && pins.mosi_is_input {
+            pins.mosi.set_mode(Output);
+            pins.mosi_is_input = false;
+        }
+        (&mut pins.mosi, &mut pins.clk, &pins.delay)
+    }
+
+    fn do_start(pins: &mut SpiPins) {
+        pins.clk.set_low();
+        if pins.miso.is_none() && pins.mosi_is_input {
+            pins.mosi.set_mode(Output);
+        }
+        pins.mosi.set_low();
+        if let Some(cs) = &mut pins.cs {
+            cs.set_low();
+        }
+    }
+
+    fn do_finish(pins: &mut SpiPins) {
+        if let Some(cs) = &mut pins.cs {
+            cs.set_high();
+        }
+        pins.clk.set_low();
+    }
+
+    fn do_write_byte(pins: &mut SpiPins, b: u8) {
+        let (pin, clk, delay) = Self::get_output(pins);
+        for i in &[7, 6, 5, 4, 3, 2, 1, 0] {
+            clk.set_low();
+            spin_sleep::sleep(*delay);
+            if (b & ((1 << i) as u8)) == 0 {
+                pin.set_low();
+            } else {
+                pin.set_high();
+            }
+            clk.set_high();
+            spin_sleep::sleep(*delay);
+        }
+    }
+
+    fn do_read_byte(pins: &mut SpiPins) -> u8 {
+        let mut val = 0;
+
+        // If running with less than four wires, use the
+        // mosi pin in INPUT mode.
+        let (pin, clk, delay) = Self::get_input(pins);
+        
+        for i in &[7, 6, 5, 4, 3, 2, 1, 0] {
+            clk.set_low();
+            spin_sleep::sleep(*delay);
+            clk.set_high();
+            spin_sleep::sleep(*delay);
+            if pin.is_high() {
+                val = val | ((1 << i) as u8);
+            }
+        }
+        val
     }
 
     fn do_poke(
@@ -231,33 +314,89 @@ impl SpiBridge {
         addr: u32,
         value: u32,
     ) -> Result<(), BridgeError> {
-        if let Some(cs) = &mut pins.cs {
-            cs.write(Low);
+        debug!("poke: writing 0x{:08x} to 0x{:08x}", value, addr);
+        let write_cmd = 0;
+
+        Self::do_start(pins);
+
+        // Send the "Write" command
+        Self::do_write_byte(pins, write_cmd);
+
+        // Send the "Address"
+        for shift in &[24, 16, 8, 0] {
+            Self::do_write_byte(pins, (addr >> shift) as u8);
         }
-        Self::do_tick(pins);
-        // // WRITE, 1 word
-        // serial.write(&[0x01, 0x01])?;
-        // serial.write_u32::<BigEndian>(addr)?;
-        // Ok(serial.write_u32::<BigEndian>(value)?)
-        if let Some(cs) = &mut pins.cs {
-            cs.write(High);
+
+        // Send the "Value"
+        for shift in &[24, 16, 8, 0] {
+            Self::do_write_byte(pins, (value >> shift) as u8);
         }
+
+        // Wait for the response indicating the write has completed.
+        let mut timeout_counter = 0;
+        loop {
+            let val = Self::do_read_byte(pins);
+            if val == write_cmd {
+                break;
+            }
+            if val != 0xff {
+                error!("write: val was not {} or 0xff: {:02x}", write_cmd, val);
+                return Err(BridgeError::WrongResponse);
+            }
+            if timeout_counter > 20 {
+                Self::do_finish(pins);
+                return Err(BridgeError::Timeout);
+            }
+            timeout_counter = timeout_counter + 1;
+        }
+
+        Self::do_finish(pins);
         Ok(())
     }
 
     fn do_peek(pins: &mut SpiPins, addr: u32) -> Result<u32, BridgeError> {
-        if let Some(cs) = &mut pins.cs {
-            cs.write(Low);
+        let read_cmd = 1;
+        Self::do_start(pins);
+
+        // Send the "Read" command
+        Self::do_write_byte(pins, read_cmd);
+
+        // Send the "Address"
+        for shift in &[24, 16, 8, 0] {
+            Self::do_write_byte(pins, (addr >> shift) as u8);
         }
-        Self::do_tick(pins);
-        // // READ, 1 word
-        // serial.write(&[0x02, 0x01])?;
-        // serial.write_u32::<BigEndian>(addr)?;
-        // Ok(serial.read_u32::<BigEndian>()?)
-        if let Some(cs) = &mut pins.cs {
-            cs.write(High);
+
+        // Wait for the response indicating the write has completed.
+        let mut timeout_counter = 0;
+        loop {
+            let val = Self::do_read_byte(pins);
+            // warn!("read: val was 0x{:02x}", val);
+            if val == read_cmd {
+                break;
+            }
+            if val != 0xff {
+                error!("read: val was not {} or 0xff: {:02x}", read_cmd, val);
+                return Err(BridgeError::WrongResponse);
+            }
+            if timeout_counter > 20 {
+                Self::do_finish(pins);
+                // info!("peek: value ???? at addr 0x{:08x}", addr);
+                return Err(BridgeError::Timeout);
+            }
+            timeout_counter = timeout_counter + 1;
         }
-        Ok(0)
+
+        // Send the "Value"
+        let mut value: u32 = 0;
+        for shift in &[24, 16, 8, 0] {
+            let b = Self::do_read_byte(pins);
+            value = value | ((b as u32) << shift);
+            // warn!("byte {}: 0x{:02x} (value: 0x{:08x}", shift, b, value);
+        }
+
+        Self::do_finish(pins);
+        debug!("peek: value 0x{:08x} at addr 0x{:08x}", value, addr);
+        Ok(value)
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
