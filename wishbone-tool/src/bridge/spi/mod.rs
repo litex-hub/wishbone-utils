@@ -14,13 +14,20 @@ impl SpiPins {
         let chars: Vec<&str> = spec.split(",").collect();
 
         let (mosi, miso, clk, cs) = match chars.len() {
-            2 => return Err(SpiParseError("two-wire SPI is not yet implemented".to_string())),
+            2 => {
+                (
+                    parse_u32(chars[0])? as u8,
+                    None,
+                    parse_u32(chars[1])? as u8,
+                    None,
+                )
+            }
             3 => {
                 (
                     parse_u32(chars[0])? as u8,
                     None,
                     parse_u32(chars[1])? as u8,
-                    Some(parse_u32(chars[2])? as u8)
+                    Some(parse_u32(chars[2])? as u8),
                 )
             },
             4 => {
@@ -28,7 +35,7 @@ impl SpiPins {
                     parse_u32(chars[0])? as u8,
                     Some(parse_u32(chars[1])? as u8),
                     parse_u32(chars[2])? as u8,
-                    Some(parse_u32(chars[3])? as u8)
+                    Some(parse_u32(chars[3])? as u8),
                 )
             }
             _ => return Err(SpiParseError(format!("{} is not a valid pin spec -- must be MOSI,MISO,CLK,CS (e.g. \"2,3,4,18\")", spec)))

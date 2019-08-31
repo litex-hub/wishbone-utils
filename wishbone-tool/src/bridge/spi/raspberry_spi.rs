@@ -265,6 +265,8 @@ impl SpiBridge {
         pins.mosi.set_low();
         if let Some(cs) = &mut pins.cs {
             cs.set_low();
+        } else {
+            Self::do_write_byte(pins, 0xab);
         }
     }
 
