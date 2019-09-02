@@ -121,7 +121,7 @@ impl SpiBridge {
                 None
             };
             let mut clk_pin = gpio.get(clk).expect("unable to get spi clk pin").into_io(Output);
-            clk_pin.set_high();
+            clk_pin.set_low();
             let cs_pin = if let Some(cs) = cs {
                 let mut pin = gpio.get(cs).expect("unable to get spi cs pin").into_io(Output);
                 pin.set_high();
@@ -274,6 +274,10 @@ impl SpiBridge {
         if let Some(cs) = &mut pins.cs {
             cs.set_high();
         }
+        if pins.miso.is_none() && pins.mosi_is_input {
+            pins.mosi.set_mode(Output);
+        }
+        pins.mosi.set_low();
         pins.clk.set_low();
     }
 
