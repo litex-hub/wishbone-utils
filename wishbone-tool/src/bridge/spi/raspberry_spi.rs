@@ -16,7 +16,7 @@ use rppal::gpio::Mode::{Input, Output};
 use crate::bridge::BridgeError;
 use crate::config::Config;
 
-const TIMEOUT_COUNT: u32 = 200;
+const TIMEOUT_COUNT: u32 = 20000;
 
 struct SpiPins {
     mosi: IoPin,
@@ -43,7 +43,6 @@ pub struct SpiBridge {
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
-    internal_mutex: Arc<Mutex<()>>,
 }
 
 enum ConnectThreadRequests {
@@ -98,7 +97,6 @@ impl SpiBridge {
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
-            internal_mutex: Arc::new(Mutex::new(())),
         })
     }
 
@@ -176,7 +174,7 @@ impl SpiBridge {
                 }
             }
 
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(50));
 
             // Respond to any messages in the buffer with NotConnected.  As soon
             // as the channel is empty, loop back to the start of this function.
@@ -412,7 +410,6 @@ impl SpiBridge {
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
-        let _int_mtx = self.internal_mutex.lock().unwrap();
         let &(ref lock, ref cvar) = &*self.main_rx;
         let mut _mtx = lock.lock().unwrap();
         self.main_tx
@@ -432,7 +429,6 @@ impl SpiBridge {
     }
 
     pub fn peek(&self, addr: u32) -> Result<u32, BridgeError> {
-        let _int_mtx = self.internal_mutex.lock().unwrap();
         let &(ref lock, ref cvar) = &*self.main_rx;
         let mut _mtx = lock.lock().unwrap();
         self.main_tx
