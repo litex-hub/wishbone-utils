@@ -563,7 +563,7 @@ impl GdbServer {
                     },
                     Err(e) => {
                         error!("An error occurred while trying to add the breakpoint: {:?}", e);
-                        "EOE"
+                        "E0E"
                     },
                 };
                 self.gdb_send(response.as_bytes())?;
