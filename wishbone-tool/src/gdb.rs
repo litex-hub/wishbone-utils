@@ -670,9 +670,13 @@ impl GdbServer {
                     "about" => {
                         self.print_string("VexRiscv GDB bridge\n")?;
                     },
+                    "explain" => {
+                        self.print_string(&cpu.explain(&bridge)?)?;
+                    }
                     _ => {
                         self.print_string("Unrecognized monitor command.  Available commands:\n")?;
                         self.print_string("    about           - Information about the bridge\n")?;
+                        self.print_string("    explain         - Explain what the CPU is doing\n")?;
                         self.print_string("    reset           - Reset the CPU\n")?;
                     },
                 }

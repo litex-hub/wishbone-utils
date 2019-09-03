@@ -7,6 +7,9 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
 
+pub mod exception;
+use exception::RiscvException;
+
 bitflags! {
     struct VexRiscvFlags: u32 {
         const RESET = 1 << 0;
@@ -43,6 +46,9 @@ pub enum RiscvCpuError {
     /// The given register could not be decoded
     InvalidRegister(u32),
 
+    /// The register name was not valid
+    RegisterNotFound(String),
+
     /// Ran out of breakpoionts
     BreakpointExhausted,
 
@@ -67,6 +73,7 @@ impl std::convert::From<io::Error> for RiscvCpuError {
         RiscvCpuError::IoError(e)
     }
 }
+
 
 const MEMORY_MAP_XML: &str = r#"<?xml version="1.0"?>
 <!DOCTYPE memory-map
@@ -556,6 +563,41 @@ impl RiscvCpu {
         Ok(MEMORY_MAP_XML.to_string().into_bytes())
     }
 
+    /// Print information about why the CPU got into its current state
+    pub fn explain(&self, bridge: &Bridge) -> Result<String, RiscvCpuError> {
+        let mstatus_reg = match self.get_register_by_name("mstatus") {
+            None => return Err(RiscvCpuError::RegisterNotFound("mstatus".to_owned())),
+            Some(s) => s,
+        };
+        let mcause_reg = match self.get_register_by_name("mcause") {
+            None => return Err(RiscvCpuError::RegisterNotFound("mcause".to_owned())),
+            Some(s) => s,
+        };
+        let mepc_reg = match self.get_register_by_name("mepc") {
+            None => return Err(RiscvCpuError::RegisterNotFound("mepc".to_owned())),
+            Some(s) => s,
+        };
+        let mtval_reg = match self.get_register_by_name("mtval") {
+            None => return Err(RiscvCpuError::RegisterNotFound("mtval".to_owned())),
+            Some(s) => s,
+        };
+
+        let mstatus = self.read_register(bridge, mstatus_reg.gdb_index)?;
+        let mcause = self.read_register(bridge, mcause_reg.gdb_index)?;
+        let mepc = self.read_register(bridge, mepc_reg.gdb_index)?;
+        let mtval = self.read_register(bridge, mtval_reg.gdb_index)?;
+
+        let exception = RiscvException::from_regs(mcause, mepc, mtval);
+        
+        // We assume interrupts are enabled, and if they're disabled it's
+        // because we're currently handling one.
+        if mstatus & (1 << 3) != 0 {
+            Ok(format!("Last trap was: {}\n", exception))
+        } else {
+            Ok(format!("Current trap is: {}\n", exception))
+        }
+    }
+
     pub fn add_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), RiscvCpuError> {
         let mut bp_index = None;
         let mut bps = self.breakpoints.borrow_mut();
@@ -731,6 +773,16 @@ impl RiscvCpu {
     /// to the `gdb_index` property.
     fn get_register(&self, regnum: u32) -> Option<&RiscvRegister> {
         self.registers.get(&regnum)
+    }
+
+    /// Convert a RISC-V register name into a `RiscvRegister`
+    fn get_register_by_name(&self, regname: &str) -> Option<&RiscvRegister> {
+        for (_, reg) in &self.registers {
+            if reg.name == regname {
+                return Some(reg);
+            }
+        }
+        None
     }
 
     pub fn read_register(&self, bridge: &Bridge, gdb_idx: u32) -> Result<u32, RiscvCpuError> {
