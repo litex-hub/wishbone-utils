@@ -654,9 +654,12 @@ impl RiscvCpu {
     }
 
     pub fn halt(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        let _bridge_mutex = bridge.mutex().lock().unwrap();
         let mut current_status = self.cpu_state.lock().unwrap();
         *current_status = RiscvCpuState::Halted;
-        self.controller.perform_halt(bridge)
+        self.controller.perform_halt(bridge)?;
+        debug!("HALT: CPU is now halted");
+        Ok(())
     }
 
     fn update_breakpoints(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
@@ -683,9 +686,12 @@ impl RiscvCpu {
     /// Reset the target CPU, restore any breakpoints, and leave it in
     /// the "halted" state.
     pub fn reset(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+        let _bridge_mutex = bridge.mutex().lock().unwrap();
         // Since we're resetting the CPU, invalidate all cached registers
         self.cached_values.lock().unwrap().drain();
         self.flush_cache(bridge)?;
+        *self.mmu_enabled.lock().unwrap() = false;
+        *self.last_exception.lock().unwrap() = None;
 
         self.controller
             .write_status(bridge, VexRiscvFlags::HALT_SET)?;
@@ -701,6 +707,7 @@ impl RiscvCpu {
 
     /// Restore the CPU state and continue execution.
     pub fn resume(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
+        let _bridge_mutex = bridge.mutex().lock().unwrap();
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
         // Rewrite breakpoints (is this necessary?)
         self.update_breakpoints(bridge)?;
@@ -716,6 +723,7 @@ impl RiscvCpu {
 
     /// Step the CPU forward by one instruction.
     pub fn step(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
+        let _bridge_mutex = bridge.mutex().lock().unwrap();
         self.controller.perform_resume(bridge, true)?;
 
         if let Some(exception) = self.last_exception.lock().unwrap().take() {
@@ -838,20 +846,26 @@ impl RiscvCpuController {
         let mut current_status = self.cpu_state.lock().unwrap();
         if !is_running(flags) {
             if *current_status == RiscvCpuState::Running {
-                self.perform_halt(bridge)?;
-                debug!("POLL: CPU is now halted");
-                gdb_controller.gdb_send(b"T05 swbreak:;")?;
+                *current_status = RiscvCpuState::Halted;
+                // gdb_controller.gdb_send(b"T05swbreak:;")?;
 
                 // If we were halted by a breakpoint, save the PC (because it will
                 // be unavailable later).
-                if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
+                let halt_code = if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
                     // The actual opcode doesn't get executed when halted by a break, but
                     // the pc gets incremented.  Save the target pc so that we can execute it
                     // when we step/resume.
                     let pc = self.read_result(bridge)?;
                     self.cached_values.lock().unwrap().insert(RiscvRegister::pc(), pc);
+                    5
                 }
-                // We're halted now
+                else {
+                    2
+                };
+
+                self.perform_halt(bridge)?;
+                debug!("POLL: CPU is now halted");
+                gdb_controller.gdb_send(format!("S{:02x}", halt_code).as_bytes())?;
             }
         } else {
             if *current_status == RiscvCpuState::Halted {
@@ -891,7 +905,6 @@ impl RiscvCpuController {
                 *self.mmu_enabled.lock().unwrap() = false;
             }
         }
-        debug!("HALT: CPU is now halted");
         Ok(())
     }
 
