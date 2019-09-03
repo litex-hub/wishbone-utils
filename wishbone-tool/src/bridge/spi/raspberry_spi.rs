@@ -106,6 +106,8 @@ impl SpiBridge {
         clk: u8,
         cs: Option<u8>
     ) {
+        use ConnectThreadRequests::*;
+        use ConnectThreadResponses::*;
         // let mut miso = miso;
         // let mut mosi = mosi;
         // let mut clk = clk;
@@ -131,7 +133,7 @@ impl SpiBridge {
             };
             let mut pins = SpiPins { mosi: mosi_pin, miso: miso_pin, clk: clk_pin, cs: cs_pin, mosi_is_input: false, delay: Duration::from_nanos(333) };
             info!("opened spi device with pins {}", pins);
-            *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
+            *response.lock().unwrap() = Some(OpenedDevice);
             cvar.notify_one();
 
             let mut keep_going = true;
@@ -143,7 +145,7 @@ impl SpiBridge {
                         return;
                     },
                     Ok(o) => match o {
-                        ConnectThreadRequests::Exit => {
+                        Exit => {
                             debug!("spi_connect_thread requested exit");
                             return;
                         }
@@ -154,16 +156,16 @@ impl SpiBridge {
                         //     cs = s;
                         //     keep_going = false;
                         // }
-                        ConnectThreadRequests::Peek(addr) => {
+                        Peek(addr) => {
                             let result = Self::do_peek(&mut pins, addr);
                             keep_going = result.is_ok();
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(result));
+                            *response.lock().unwrap() = Some(PeekResult(result));
                             cvar.notify_one();
                         }
-                        ConnectThreadRequests::Poke(addr, val) => {
+                        Poke(addr, val) => {
                             let result = Self::do_poke(&mut pins, addr, val);
                             keep_going = result.is_ok();
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(result));
+                            *response.lock().unwrap() = Some(PokeResult(result));
                             cvar.notify_one();
                         }
                     },
@@ -179,18 +181,18 @@ impl SpiBridge {
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => panic!("main thread disconnected"),
                     Ok(m) => match m {
-                        ConnectThreadRequests::Exit => {
+                        Exit => {
                             debug!("main thread requested exit");
                             return;
                         }
-                        ConnectThreadRequests::Peek(_addr) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(Err(
+                        Peek(_addr) => {
+                            *response.lock().unwrap() = Some(PeekResult(Err(
                                 BridgeError::NotConnected,
                             )));
                             cvar.notify_one();
                         },
-                        ConnectThreadRequests::Poke(_addr, _val) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(Err(
+                        Poke(_addr, _val) => {
+                            *response.lock().unwrap() = Some(PokeResult(Err(
                                 BridgeError::NotConnected,
                             )));
                             cvar.notify_one();
