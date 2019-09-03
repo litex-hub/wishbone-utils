@@ -704,7 +704,6 @@ impl RiscvCpu {
     /// Step the CPU forward by one instruction.
     pub fn step(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
         self.restore(bridge)?;
-        self.flush_cache(bridge)?;
 
         self.controller
             .write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
