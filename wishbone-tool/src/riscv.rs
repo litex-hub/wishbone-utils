@@ -68,6 +68,18 @@ impl std::convert::From<io::Error> for RiscvCpuError {
     }
 }
 
+const MEMORY_MAP_XML: &str = r#"<?xml version="1.0"?>
+<!DOCTYPE memory-map
+          PUBLIC "+//IDN gnu.org//DTD GDB Memory Map V1.0//EN"
+                 "http://sourceware.org/gdb/gdb-memory-map.dtd">
+<memory-map>
+    <memory type="rom" start="0" length="0x2000"/>
+    <memory type="ram" start="0x10000000" length="0x20000"/>
+    <memory type="flash" start="0x20000000" length="0x200000">
+        <property name="blocksize">0x1000</property>
+    </memory>
+</memory-map>"#;
+
 const THREADS_XML: &str = r#"<?xml version="1.0"?>
 <threads>
 </threads>"#;
@@ -538,6 +550,10 @@ impl RiscvCpu {
 
     pub fn get_threads(&self) -> Result<Vec<u8>, RiscvCpuError> {
         Ok(THREADS_XML.to_string().into_bytes())
+    }
+
+    pub fn get_memory_map(&self) -> Result<Vec<u8>, RiscvCpuError> {
+        Ok(MEMORY_MAP_XML.to_string().into_bytes())
     }
 
     pub fn add_breakpoint(&self, bridge: &Bridge, addr: u32) -> Result<(), RiscvCpuError> {
