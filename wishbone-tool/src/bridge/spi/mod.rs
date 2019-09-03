@@ -3,9 +3,13 @@ use crate::config::ConfigError::SpiParseError;
 use crate::config::parse_u32;
 
 pub struct SpiPins {
+    #[allow(dead_code)]
     mosi: u8,
+    #[allow(dead_code)]
     miso: Option<u8>,
+    #[allow(dead_code)]
     clk: u8,
+    #[allow(dead_code)]
     cs: Option<u8>,
 }
 

@@ -41,6 +41,7 @@ pub enum BridgeError {
     WrongResponse,
 
     /// We got nothing back from the bridge
+    #[allow(dead_code)]
     Timeout,
 }
 
