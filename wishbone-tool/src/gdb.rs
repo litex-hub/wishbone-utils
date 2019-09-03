@@ -261,6 +261,9 @@ pub enum GdbCommand {
     /// qOffsets
     GetOffsets,
 
+    /// qXfer:memory-map:read::
+    ReadMemoryMap(u32 /* offset */, u32 /* len */),
+
     /// qXfer:features:read:target.xml:0,1000
     ReadFeature(
         String, /* filename */
@@ -301,6 +304,12 @@ impl GdbServer {
             Ok(GdbCommand::GetOffsets)
         } else if pkt == "qTStatus" {
             Ok(GdbCommand::TraceStatusQuery)
+        } else if pkt.starts_with("qXfer:memory-map:read::") {
+            let pkt = pkt.trim_start_matches("qXfer:memory-map:read::");
+            let offsets: Vec<&str> = pkt.split(',').collect();
+            let offset = parse_u32(offsets[0])?;
+            let len = parse_u32(offsets[1])?;
+            Ok(GdbCommand::ReadMemoryMap(offset, len))
         } else if pkt.starts_with("qXfer:features:read:") {
             let pkt = pkt.trim_start_matches("qXfer:features:read:");
             let fields: Vec<&str> = pkt.split(':').collect();
@@ -539,8 +548,7 @@ impl GdbServer {
         bridge: &Bridge,
     ) -> Result<(), GdbServerError> {
         match cmd {
-            // qXfer:memory-map:read+;
-            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,
+            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;qXfer:memory-map:read+;QStartNoAckMode+;vContSupported+")?,
             GdbCommand::StartNoAckMode => { self.no_ack_mode = true; self.gdb_send(b"OK")?},
             GdbCommand::SetCurrentThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::ContinueThread(_) => self.gdb_send(b"OK")?,
@@ -673,6 +681,7 @@ impl GdbServer {
             GdbCommand::ReadFeature(filename, offset, len) => {
                 self.gdb_send_file(cpu.get_feature(&filename)?, offset, len)?
             },
+            GdbCommand::ReadMemoryMap(offset, len) =>self.gdb_send_file(cpu.get_memory_map()?, offset, len)?,
             GdbCommand::ReadThreads(offset, len) => self.gdb_send_file(cpu.get_threads()?, offset, len)?,
             GdbCommand::Interrupt => {
                 self.last_signal = 2;
