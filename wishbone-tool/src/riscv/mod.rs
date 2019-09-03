@@ -305,6 +305,11 @@ impl RiscvCpu {
         // Determine if this CPU has an MMU.
         // Read the "satp" register and write the opposite value back in.
         // If the value changes, then we know this register exists.
+        let was_running =
+            (controller.read_status(bridge)? & VexRiscvFlags::HALT) != VexRiscvFlags::HALT;
+        if was_running {
+            controller.perform_halt(bridge)?;
+        }
         let satp_register = RiscvRegister::satp();
         let old_satp = controller.read_register(bridge, &satp_register)?;
         controller.write_register(bridge, &satp_register, !old_satp)?;
@@ -314,6 +319,9 @@ impl RiscvCpu {
             controller.has_mmu = true;
             Self::insert_register(&mut gdb_register_map, satp_register);
             *mmu_enabled.lock().unwrap() = (old_satp & 0x80000000) == 0x80000000;
+        }
+        if was_running {
+            controller.perform_resume(bridge, false)?;
         }
 
         let target_xml = Self::make_target_xml(&gdb_register_map);
@@ -352,16 +360,6 @@ impl RiscvCpu {
             mmu_enabled,
             last_exception,
         };
-
-        let was_running =
-            (cpu.controller.read_status(bridge)? & VexRiscvFlags::HALT) != VexRiscvFlags::HALT;
-        if was_running {
-            cpu.halt(bridge)?;
-        }
-
-        if was_running {
-            cpu.resume(bridge)?;
-        }
 
         Ok(cpu)
     }
@@ -703,15 +701,10 @@ impl RiscvCpu {
 
     /// Restore the CPU state and continue execution.
     pub fn resume(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
-        self.controller.perform_resume(bridge)?;
-
+        *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
         // Rewrite breakpoints (is this necessary?)
         self.update_breakpoints(bridge)?;
-
-        self.controller
-            .write_status(bridge, VexRiscvFlags::HALT_CLEAR)?;
-        *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
-        debug!("RESUME: CPU is now running");
+        self.controller.perform_resume(bridge, false)?;
 
         if let Some(exception) = self.last_exception.lock().unwrap().take() {
             Ok(Some(format!("{}", exception)))
@@ -723,10 +716,7 @@ impl RiscvCpu {
 
     /// Step the CPU forward by one instruction.
     pub fn step(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
-        self.controller.perform_resume(bridge)?;
-
-        self.controller
-            .write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)?;
+        self.controller.perform_resume(bridge, true)?;
 
         if let Some(exception) = self.last_exception.lock().unwrap().take() {
             Ok(Some(format!("{}", exception)))
@@ -905,7 +895,7 @@ impl RiscvCpuController {
         Ok(())
     }
 
-    fn perform_resume(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+    fn perform_resume(&self, bridge: &Bridge, step_only: bool) -> Result<(), RiscvCpuError> {
         let coll: HashMap<RiscvRegister, u32> = {
             let mut cached_registers = self.cached_values.lock().unwrap();
             let drain = cached_registers.drain();
@@ -933,7 +923,15 @@ impl RiscvCpuController {
             }
         }
 
-        self.flush_cache(bridge)
+        self.flush_cache(bridge)?;
+
+        if step_only {
+            self.write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)?;
+        } else {
+            self.write_status(bridge, VexRiscvFlags::HALT_CLEAR)?;
+            debug!("RESUME: CPU is now running");
+        }
+        Ok(())
     }
 
     pub fn interrupts_enabled(&self, bridge: &Bridge) -> Result<bool, RiscvCpuError> {
