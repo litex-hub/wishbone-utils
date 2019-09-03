@@ -777,14 +777,14 @@ impl GdbServer {
             if end > data.len() {
                 end = data.len();
             }
-            let mut trimmed_features: Vec<u8> = data.drain(offset..end).collect();
-            if trimmed_features.len() >= len {
+            let mut trimmed_data: Vec<u8> = data.drain(offset..end).collect();
+            if trimmed_data.len() >= len {
                 // XXX should this be <= or < ?
-                trimmed_features.insert(0, 'm' as u8);
+                trimmed_data.insert(0, 'm' as u8);
             } else {
-                trimmed_features.insert(0, 'l' as u8);
+                trimmed_data.insert(0, 'l' as u8);
             }
-            self.gdb_send(&trimmed_features)?;
+            self.gdb_send(&trimmed_data)?;
         }
         Ok(())
     }
