@@ -11,6 +11,8 @@ use log::{debug, error, info};
 use crate::gdb::byteorder::ByteOrder;
 use byteorder::{BigEndian, NativeEndian};
 
+const SUPPORTED_QUERIES: &[u8] = b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;qXfer:memory-map:read+;QStartNoAckMode+;vContSupported+";
+
 pub struct GdbController {
     connection: TcpStream,
 }
@@ -548,7 +550,7 @@ impl GdbServer {
         bridge: &Bridge,
     ) -> Result<(), GdbServerError> {
         match cmd {
-            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;qXfer:memory-map:read+;QStartNoAckMode+;vContSupported+")?,
+            GdbCommand::SupportedQueries(_) => self.gdb_send(SUPPORTED_QUERIES)?,
             GdbCommand::StartNoAckMode => { self.no_ack_mode = true; self.gdb_send(b"OK")?},
             GdbCommand::SetCurrentThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::ContinueThread(_) => self.gdb_send(b"OK")?,
