@@ -46,9 +46,6 @@ pub enum RiscvCpuError {
     /// The given register could not be decoded
     InvalidRegister(u32),
 
-    /// The register name was not valid
-    RegisterNotFound(String),
-
     /// Ran out of breakpoionts
     BreakpointExhausted,
 
@@ -200,6 +197,26 @@ impl RiscvRegister {
     pub fn satp() -> RiscvRegister {
         RiscvRegister::csr(0x180, "satp", true)
     }
+
+    pub fn mstatus() -> RiscvRegister {
+        RiscvRegister::csr(0x300, "mstatus", true)
+    }
+
+    pub fn mtvec() -> RiscvRegister {
+        RiscvRegister::csr(0x305, "mtvec", true)
+    }
+
+    pub fn mepc() -> RiscvRegister {
+        RiscvRegister::csr(0x341, "mepc", true)
+    }
+
+    pub fn mcause() -> RiscvRegister {
+        RiscvRegister::csr(0x342, "mcause", true)
+    }
+
+    pub fn mtval() -> RiscvRegister {
+        RiscvRegister::csr(0x343, "mtval", true)
+    }
 }
 
 struct RiscvBreakpoint {
@@ -216,7 +233,7 @@ struct RiscvBreakpoint {
 
 pub struct RiscvCpu {
     /// A list of all available registers on this CPU
-    registers: HashMap<u32, RiscvRegister>,
+    gdb_register_map: HashMap<u32, RiscvRegister>,
 
     /// An XML representation of the register mapping
     target_xml: String,
@@ -241,6 +258,9 @@ pub struct RiscvCpu {
 
     /// "true" if the MMU is currently enabled
     mmu_enabled: Arc<Mutex<bool>>,
+
+    /// The last exception, if any
+    last_exception: Arc<Mutex<Option<RiscvException>>>,
 }
 
 pub struct RiscvCpuController {
@@ -258,15 +278,19 @@ pub struct RiscvCpuController {
 
     /// "true" if the MMU is currently enabled
     mmu_enabled: Arc<Mutex<bool>>,
+
+    /// The last exception, if any
+    last_exception: Arc<Mutex<Option<RiscvException>>>,
 }
 
 impl RiscvCpu {
     pub fn new(bridge: &Bridge) -> Result<RiscvCpu, RiscvCpuError> {
-        let mut registers = Self::make_registers();
+        let mut gdb_register_map = Self::make_registers();
 
         let cpu_state = Arc::new(Mutex::new(RiscvCpuState::Unknown));
         let debug_offset = 0xf00f0000;
         let cached_values = Arc::new(Mutex::new(HashMap::new()));
+        let last_exception = Arc::new(Mutex::new(None));
 
         let mmu_enabled = Arc::new(Mutex::new(false));
         let mut controller = RiscvCpuController {
@@ -275,6 +299,7 @@ impl RiscvCpu {
             debug_offset,
             has_mmu: false,
             mmu_enabled: mmu_enabled.clone(),
+            last_exception: last_exception.clone(),
         };
 
         // Determine if this CPU has an MMU.
@@ -287,15 +312,15 @@ impl RiscvCpu {
         if new_satp != old_satp {
             controller.write_register(bridge, &satp_register, old_satp)?;
             controller.has_mmu = true;
-            Self::insert_register(&mut registers, satp_register);
+            Self::insert_register(&mut gdb_register_map, satp_register);
             *mmu_enabled.lock().unwrap() = (old_satp & 0x80000000) == 0x80000000;
         }
 
-        let target_xml = Self::make_target_xml(&registers);
+        let target_xml = Self::make_target_xml(&gdb_register_map);
 
         let has_mmu = controller.has_mmu;
         let cpu = RiscvCpu {
-            registers,
+            gdb_register_map,
             target_xml,
             debug_offset,
             cached_values,
@@ -325,6 +350,7 @@ impl RiscvCpu {
             cpu_state,
             has_mmu,
             mmu_enabled,
+            last_exception,
         };
 
         let was_running =
@@ -429,12 +455,12 @@ impl RiscvCpu {
         Self::insert_register(&mut registers, RiscvRegister::csr(0xf14, "mhartid", true));
 
         // Machine trap setup
-        Self::insert_register(&mut registers, RiscvRegister::csr(0x300, "mstatus", true));
+        Self::insert_register(&mut registers, RiscvRegister::mstatus());
         Self::insert_register(&mut registers, RiscvRegister::csr(0x301, "misa", false));
         Self::insert_register(&mut registers, RiscvRegister::csr(0x302, "medeleg", false));
         Self::insert_register(&mut registers, RiscvRegister::csr(0x303, "mideleg", false));
         Self::insert_register(&mut registers, RiscvRegister::csr(0x304, "mie", true));
-        Self::insert_register(&mut registers, RiscvRegister::csr(0x305, "mtvec", true));
+        Self::insert_register(&mut registers, RiscvRegister::mtvec());
         Self::insert_register(
             &mut registers,
             RiscvRegister::csr(0x306, "mcounteren", false),
@@ -442,9 +468,9 @@ impl RiscvCpu {
 
         // Machine trap handling
         Self::insert_register(&mut registers, RiscvRegister::csr(0x340, "mscratch", true));
-        Self::insert_register(&mut registers, RiscvRegister::csr(0x341, "mepc", true));
-        Self::insert_register(&mut registers, RiscvRegister::csr(0x342, "mcause", true));
-        Self::insert_register(&mut registers, RiscvRegister::csr(0x343, "mtval", true));
+        Self::insert_register(&mut registers, RiscvRegister::mepc());
+        Self::insert_register(&mut registers, RiscvRegister::mcause());
+        Self::insert_register(&mut registers, RiscvRegister::mtval());
         Self::insert_register(&mut registers, RiscvRegister::csr(0x344, "mip", true));
 
         // Machine protection and translation
@@ -575,33 +601,11 @@ impl RiscvCpu {
 
     /// Print information about why the CPU got into its current state
     pub fn explain(&self, bridge: &Bridge) -> Result<String, RiscvCpuError> {
-        let mstatus_reg = match self.get_register_by_name("mstatus") {
-            None => return Err(RiscvCpuError::RegisterNotFound("mstatus".to_owned())),
-            Some(s) => s,
-        };
-        let mcause_reg = match self.get_register_by_name("mcause") {
-            None => return Err(RiscvCpuError::RegisterNotFound("mcause".to_owned())),
-            Some(s) => s,
-        };
-        let mepc_reg = match self.get_register_by_name("mepc") {
-            None => return Err(RiscvCpuError::RegisterNotFound("mepc".to_owned())),
-            Some(s) => s,
-        };
-        let mtval_reg = match self.get_register_by_name("mtval") {
-            None => return Err(RiscvCpuError::RegisterNotFound("mtval".to_owned())),
-            Some(s) => s,
-        };
+        let exception = self.controller.get_current_trap(bridge)?;
 
-        let mstatus = self.read_register(bridge, mstatus_reg.gdb_index)?;
-        let mcause = self.read_register(bridge, mcause_reg.gdb_index)?;
-        let mepc = self.read_register(bridge, mepc_reg.gdb_index)?;
-        let mtval = self.read_register(bridge, mtval_reg.gdb_index)?;
-
-        let exception = RiscvException::from_regs(mcause, mepc, mtval);
-        
         // We assume interrupts are enabled, and if they're disabled it's
         // because we're currently handling one.
-        if mstatus & (1 << 3) != 0 {
+        if self.controller.interrupts_enabled(bridge)? {
             Ok(format!("Last trap was: {}\n", exception))
         } else {
             Ok(format!("Current trap is: {}\n", exception))
@@ -698,7 +702,7 @@ impl RiscvCpu {
     }
 
     /// Restore the CPU state and continue execution.
-    pub fn resume(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+    pub fn resume(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
         self.controller.perform_resume(bridge)?;
 
         // Rewrite breakpoints (is this necessary?)
@@ -708,38 +712,43 @@ impl RiscvCpu {
             .write_status(bridge, VexRiscvFlags::HALT_CLEAR)?;
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
         debug!("RESUME: CPU is now running");
-        Ok(())
+
+        if let Some(exception) = self.last_exception.lock().unwrap().take() {
+            Ok(Some(format!("{}", exception)))
+        }
+        else {
+            Ok(None)
+        }
     }
 
     /// Step the CPU forward by one instruction.
-    pub fn step(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
+    pub fn step(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
         self.controller.perform_resume(bridge)?;
 
         self.controller
-            .write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)
+            .write_status(bridge, VexRiscvFlags::HALT_CLEAR | VexRiscvFlags::STEP)?;
+
+        if let Some(exception) = self.last_exception.lock().unwrap().take() {
+            Ok(Some(format!("{}", exception)))
+        }
+        else {
+            Ok(None)
+        }
     }
 
     /// Convert a GDB `regnum` into a `RiscvRegister`
     ///
     /// Note that `regnum` is a GDB-based register number, and corresponds
     /// to the `gdb_index` property.
-    fn get_register(&self, regnum: u32) -> Option<&RiscvRegister> {
-        self.registers.get(&regnum)
-    }
-
-    /// Convert a RISC-V register name into a `RiscvRegister`
-    fn get_register_by_name(&self, regname: &str) -> Option<&RiscvRegister> {
-        for (_, reg) in &self.registers {
-            if reg.name == regname {
-                return Some(reg);
-            }
+    fn gdb_to_register(&self, regnum: u32) -> Result<&RiscvRegister, RiscvCpuError> {
+        match self.gdb_register_map.get(&regnum) {
+            Some(s) => Ok(s),
+            None => Err(RiscvCpuError::InvalidRegister(regnum)),
         }
-        None
     }
 
     pub fn read_register(&self, bridge: &Bridge, gdb_idx: u32) -> Result<u32, RiscvCpuError> {
-
-        let reg = match self.get_register(gdb_idx) { Some(s) => s, None => return Err(RiscvCpuError::InvalidRegister(gdb_idx)) };
+        let reg = self.gdb_to_register(gdb_idx)?;
 
         // Give the cached value, if we have it.
         if let Some(val) = self.get_cached_reg(reg) {
@@ -762,10 +771,7 @@ impl RiscvCpu {
         value: u32,
     ) -> Result<(), RiscvCpuError> {
         let _bridge_mutex = bridge.mutex().lock().unwrap();
-        let reg = match self.get_register(gdb_idx) {
-            None => return Err(RiscvCpuError::InvalidRegister(gdb_idx)),
-            Some(s) => s,
-        };
+        let reg = self.gdb_to_register(gdb_idx)?;
         if reg.register_type == RiscvRegisterType::General {
             self.set_cached_reg(reg, value);
             Ok(())
@@ -805,6 +811,7 @@ impl RiscvCpu {
             cached_values: self.cached_values.clone(),
             has_mmu: self.has_mmu,
             mmu_enabled: self.mmu_enabled.clone(),
+            last_exception: self.last_exception.clone(),
         }
     }
 
@@ -869,6 +876,12 @@ impl RiscvCpuController {
         self.write_status(bridge, VexRiscvFlags::HALT_SET)?;
         self.flush_cache(bridge)?;
 
+        let mut last_exception = self.last_exception.lock().unwrap();
+        let exception = Some(self.get_current_trap(bridge)?);
+        if ! self.interrupts_enabled(bridge)? && exception != *last_exception {
+            *last_exception = exception;
+        }
+
         // VexRiscv can't leave the MMU running when in debug mode.  This is
         // due to how it manipulates the D$.
         // IF the MMU is present and enabled when we enter debug mode,
@@ -921,6 +934,31 @@ impl RiscvCpuController {
         }
 
         self.flush_cache(bridge)
+    }
+
+    pub fn interrupts_enabled(&self, bridge: &Bridge) -> Result<bool, RiscvCpuError> {
+        let mstatus_reg = RiscvRegister::mstatus();
+        let mstatus = self.read_register(bridge, &mstatus_reg)?;
+
+        if mstatus & (1 << 3) != 0 {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Return the current CPU trap, which could be an interrupt or an
+    /// exception.
+    pub fn get_current_trap(&self, bridge: &Bridge) -> Result<RiscvException, RiscvCpuError> {
+        let mcause_reg = RiscvRegister::mcause();
+        let mepc_reg = RiscvRegister::mepc();
+        let mtval_reg = RiscvRegister::mtval();
+
+        let mcause = self.read_register(bridge, &mcause_reg)?;
+        let mepc = self.read_register(bridge, &mepc_reg)?;
+        let mtval = self.read_register(bridge, &mtval_reg)?;
+
+        Ok(RiscvException::from_regs(mcause, mepc, mtval))
     }
 
     fn read_status(&self, bridge: &Bridge) -> Result<VexRiscvFlags, RiscvCpuError> {

@@ -651,16 +651,30 @@ impl GdbServer {
                 self.gdb_send("OK".as_bytes())?
             },
             GdbCommand::VContQuery => self.gdb_send(b"vCont;c;C;s;S")?,
-            GdbCommand::VContContinue => cpu.resume(bridge)?,
-            GdbCommand::VContContinueFromSignal(_) => cpu.resume(bridge)?,
+            GdbCommand::VContContinue =>
+                if let Some(s) = cpu.resume(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                },
+            GdbCommand::VContContinueFromSignal(_) => 
+                if let Some(s) = cpu.resume(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                },
             GdbCommand::VContStepFromSignal(_) => {
-                cpu.step(bridge)?;
+                if let Some(s) = cpu.step(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?;
+                }
                 self.last_signal = 5;
                 self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?;
             },
             GdbCommand::GetOffsets => self.gdb_send(b"Text=0;Data=0;Bss=0")?,
-            GdbCommand::Continue => cpu.resume(&bridge)?,
-            GdbCommand::Step => cpu.step(&bridge)?,
+            GdbCommand::Continue => 
+                if let Some(s) = cpu.resume(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                },
+            GdbCommand::Step =>
+                if let Some(s) = cpu.step(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                },
             GdbCommand::MonitorCommand(cmd) => {
                 match cmd.as_str() {
                     "reset" => {

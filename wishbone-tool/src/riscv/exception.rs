@@ -1,5 +1,6 @@
 use std::fmt;
 
+#[derive(PartialEq)]
 pub enum RiscvException {
     /// 1 0
     UserSoftwareInterrupt(u32 /* mepc */),
