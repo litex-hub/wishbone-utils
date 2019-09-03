@@ -16,6 +16,8 @@ use rppal::gpio::Mode::{Input, Output};
 use crate::bridge::BridgeError;
 use crate::config::Config;
 
+const TIMEOUT_COUNT: u32 = 200;
+
 struct SpiPins {
     mosi: IoPin,
     miso: Option<IoPin>,
@@ -41,6 +43,7 @@ pub struct SpiBridge {
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
+    internal_mutex: Arc<Mutex<()>>,
 }
 
 enum ConnectThreadRequests {
@@ -95,6 +98,7 @@ impl SpiBridge {
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
+            internal_mutex: Arc::new(Mutex::new(())),
         })
     }
 
@@ -351,7 +355,7 @@ impl SpiBridge {
                 error!("write: val was not {} or 0xff: {:02x}", write_cmd, val);
                 return Err(BridgeError::WrongResponse);
             }
-            if timeout_counter > 20 {
+            if timeout_counter > TIMEOUT_COUNT {
                 Self::do_finish(pins);
                 return Err(BridgeError::Timeout);
             }
@@ -386,7 +390,7 @@ impl SpiBridge {
                 error!("read: val was not {} or 0xff: {:02x}", read_cmd, val);
                 return Err(BridgeError::WrongResponse);
             }
-            if timeout_counter > 20 {
+            if timeout_counter > TIMEOUT_COUNT {
                 Self::do_finish(pins);
                 // info!("peek: value ???? at addr 0x{:08x}", addr);
                 return Err(BridgeError::Timeout);
@@ -408,6 +412,7 @@ impl SpiBridge {
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
+        let _int_mtx = self.internal_mutex.lock().unwrap();
         let &(ref lock, ref cvar) = &*self.main_rx;
         let mut _mtx = lock.lock().unwrap();
         self.main_tx
@@ -427,6 +432,7 @@ impl SpiBridge {
     }
 
     pub fn peek(&self, addr: u32) -> Result<u32, BridgeError> {
+        let _int_mtx = self.internal_mutex.lock().unwrap();
         let &(ref lock, ref cvar) = &*self.main_rx;
         let mut _mtx = lock.lock().unwrap();
         self.main_tx
