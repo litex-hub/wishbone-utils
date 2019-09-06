@@ -54,7 +54,7 @@ enum ConnectThreadRequests {
 
 #[derive(Debug)]
 enum ConnectThreadResponses {
-    OpenedDevice,
+    // OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
     PokeResult(Result<(), BridgeError>),
 }
@@ -134,9 +134,9 @@ impl SpiBridge {
                 None
             };
             let mut pins = SpiPins { mosi: mosi_pin, miso: miso_pin, clk: clk_pin, cs: cs_pin, mosi_is_input: false, delay: Duration::from_nanos(333) };
-            info!("opened spi device with pins {}", pins);
-            *response.lock().unwrap() = Some(OpenedDevice);
-            cvar.notify_one();
+            info!("re-initialized spi device with pins {}", pins);
+            // *response.lock().unwrap() = Some(OpenedDevice);
+            // cvar.notify_one();
 
             let mut keep_going = true;
             while keep_going {
@@ -219,18 +219,19 @@ impl SpiBridge {
         // self.main_tx
         //     .send(ConnectThreadRequests::UpdateConfig(self.mosi, self.miso, self.clk, self.cs))
         //     .unwrap();
-        loop {
-            let &(ref lock, ref cvar) = &*self.main_rx;
-            let mut _mtx = lock.lock().unwrap();
-            *_mtx = None;
-            while _mtx.is_none() {
-                _mtx = cvar.wait(_mtx).unwrap();
-            }
-            match *_mtx {
-                Some(ConnectThreadResponses::OpenedDevice) => return Ok(()),
-                _ => (),
-            }
-        }
+        // loop {
+        //     let &(ref lock, ref cvar) = &*self.main_rx;
+        //     let mut _mtx = lock.lock().unwrap();
+        //     *_mtx = None;
+        //     while _mtx.is_none() {
+        //         _mtx = cvar.wait(_mtx).unwrap();
+        //     }
+        //     match *_mtx {
+        //         Some(ConnectThreadResponses::OpenedDevice) => return Ok(()),
+        //         _ => (),
+        //     }
+        // }
+        Ok(())
     }
 
     /// Get the appropriate input pin.  If MOSI is the input, ensure that
