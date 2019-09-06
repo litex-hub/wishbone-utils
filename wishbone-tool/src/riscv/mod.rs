@@ -78,6 +78,7 @@ const MEMORY_MAP_XML: &str = r#"<?xml version="1.0"?>
 <memory-map>
     <memory type="rom" start="0" length="0x2000"/>
     <memory type="ram" start="0x10000000" length="0x20000"/>
+    <memory type="ram" start="0xe0000000" length="0x10000000"/>
     <memory type="flash" start="0x20000000" length="0x200000">
         <property name="blocksize">0x1000</property>
     </memory>
