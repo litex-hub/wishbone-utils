@@ -715,11 +715,11 @@ impl RiscvCpu {
         self.controller.perform_resume(bridge, false)?;
 
         if let Some(exception) = self.last_exception.lock().unwrap().take() {
-            Ok(Some(format!("{}", exception)))
+            if exception != RiscvException::NoException {
+                return Ok(Some(format!("{}", exception)));
+            }
         }
-        else {
-            Ok(None)
-        }
+        Ok(None)
     }
 
     /// Step the CPU forward by one instruction.
@@ -728,11 +728,11 @@ impl RiscvCpu {
         self.controller.perform_resume(bridge, true)?;
 
         if let Some(exception) = self.last_exception.lock().unwrap().take() {
-            Ok(Some(format!("{}", exception)))
+            if exception != RiscvException::NoException {
+                return Ok(Some(format!("{}", exception)));
+            }
         }
-        else {
-            Ok(None)
-        }
+        Ok(None)
     }
 
     /// Convert a GDB `regnum` into a `RiscvRegister`
