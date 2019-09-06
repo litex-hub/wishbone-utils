@@ -2,6 +2,9 @@ use std::fmt;
 
 #[derive(PartialEq)]
 pub enum RiscvException {
+    /// When things are all 0
+    NoException,
+
     /// 1 0
     UserSoftwareInterrupt(u32 /* mepc */),
 
@@ -90,6 +93,7 @@ impl fmt::Display for RiscvException {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use RiscvException::*;
         match *self {
+            NoException => write!(f, "No trap"),
             UserSoftwareInterrupt(epc) => write!(f, "User swi from 0x{:08x}", epc),
             SupervisorSoftwareInterrupt(epc) => write!(f, "Supervisor swi from 0x{:08x}", epc),
             // --reserved--
@@ -129,6 +133,10 @@ impl fmt::Display for RiscvException {
 impl RiscvException {
     pub fn from_regs(mcause: u32, mepc: u32, mtval: u32) -> RiscvException {
         use RiscvException::*;
+
+        if mepc == 0 && mtval == 0 {
+            return NoException;
+        }
 
         match mcause {
             0x80000000 => UserSoftwareInterrupt(mepc),
