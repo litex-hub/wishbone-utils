@@ -1,7 +1,7 @@
 use super::bridge::{Bridge, BridgeError};
 use super::gdb::GdbController;
 
-use log::debug;
+use log::{debug, info};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
@@ -851,26 +851,27 @@ impl RiscvCpuController {
 
                 // If we were halted by a breakpoint, save the PC (because it will
                 // be unavailable later).
-                let halt_code = if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
+                let halt_msg = if flags & VexRiscvFlags::HALTED_BY_BREAK == VexRiscvFlags::HALTED_BY_BREAK {
                     // The actual opcode doesn't get executed when halted by a break, but
                     // the pc gets incremented.  Save the target pc so that we can execute it
                     // when we step/resume.
                     let pc = self.read_result(bridge)?;
                     self.cached_values.lock().unwrap().insert(RiscvRegister::pc(), pc);
-                    5
+                    "05swbreak:;"
                 }
                 else {
-                    2
+                    "02"
                 };
 
                 self.perform_halt(bridge)?;
                 debug!("POLL: CPU is now halted");
-                gdb_controller.gdb_send(format!("S{:02x}", halt_code).as_bytes())?;
+                gdb_controller.gdb_send(format!("T{}", halt_msg).as_bytes())?;
             }
         } else {
             if *current_status == RiscvCpuState::Halted {
-                *current_status = RiscvCpuState::Running;
-                debug!("POLL: CPU is now running");
+                info!("POLL: CPU started running on its own!  Halting it and flushing the caches.");
+                self.cached_values.lock().unwrap().drain();
+                self.perform_halt(bridge)?;
             }
         }
         Ok(())
