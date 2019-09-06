@@ -46,7 +46,6 @@ pub struct SpiBridge {
 }
 
 enum ConnectThreadRequests {
-    // UpdateConfig(u8 /* mosi */, Option<u8> /* miso */, u8 /* clk */, Option<u8> /* cs */),
     Exit,
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
@@ -54,7 +53,6 @@ enum ConnectThreadRequests {
 
 #[derive(Debug)]
 enum ConnectThreadResponses {
-    // OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
     PokeResult(Result<(), BridgeError>),
 }
@@ -110,10 +108,6 @@ impl SpiBridge {
     ) {
         use ConnectThreadRequests::*;
         use ConnectThreadResponses::*;
-        // let mut miso = miso;
-        // let mut mosi = mosi;
-        // let mut clk = clk;
-        // let mut cs = cs;
         let &(ref response, ref cvar) = &*tx;
         loop {
             let gpio = Gpio::new().expect("unable to get gpio ports");
@@ -135,8 +129,6 @@ impl SpiBridge {
             };
             let mut pins = SpiPins { mosi: mosi_pin, miso: miso_pin, clk: clk_pin, cs: cs_pin, mosi_is_input: false, delay: Duration::from_nanos(333) };
             info!("re-initialized spi device with pins {}", pins);
-            // *response.lock().unwrap() = Some(OpenedDevice);
-            // cvar.notify_one();
 
             let mut keep_going = true;
             while keep_going {
@@ -151,13 +143,6 @@ impl SpiBridge {
                             debug!("spi_connect_thread requested exit");
                             return;
                         }
-                        // ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
-                        //     mosi = i;
-                        //     miso = o;
-                        //     clk = k;
-                        //     cs = s;
-                        //     keep_going = false;
-                        // }
                         Peek(addr) => {
                             let result = Self::do_peek(&mut pins, addr);
                             keep_going = result.is_ok();
@@ -199,12 +184,6 @@ impl SpiBridge {
                             )));
                             cvar.notify_one();
                         },
-                        // ConnectThreadRequests::UpdateConfig(i, o, k, s) => {
-                        //     mosi = i;
-                        //     miso = o;
-                        //     clk = k;
-                        //     cs = s;
-                        // }
                     },
                 }
             }
@@ -216,21 +195,6 @@ impl SpiBridge {
     }
 
     pub fn connect(&self) -> Result<(), BridgeError> {
-        // self.main_tx
-        //     .send(ConnectThreadRequests::UpdateConfig(self.mosi, self.miso, self.clk, self.cs))
-        //     .unwrap();
-        // loop {
-        //     let &(ref lock, ref cvar) = &*self.main_rx;
-        //     let mut _mtx = lock.lock().unwrap();
-        //     *_mtx = None;
-        //     while _mtx.is_none() {
-        //         _mtx = cvar.wait(_mtx).unwrap();
-        //     }
-        //     match *_mtx {
-        //         Some(ConnectThreadResponses::OpenedDevice) => return Ok(()),
-        //         _ => (),
-        //     }
-        // }
         Ok(())
     }
 
