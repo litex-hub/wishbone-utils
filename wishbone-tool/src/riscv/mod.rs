@@ -858,7 +858,7 @@ impl RiscvCpuController {
                     // when we step/resume.
                     let pc = self.read_result(bridge)?;
                     self.cached_values.lock().unwrap().insert(RiscvRegister::pc(), pc);
-                    "05swbreak:;"
+                    "05"
                 }
                 else {
                     "02"
