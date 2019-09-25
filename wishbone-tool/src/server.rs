@@ -84,8 +84,55 @@ impl ServerKind {
     }
 }
 
+/// Poll the Messible at the address specified.
+/// Return `true` if there is still data to be read
+/// after returning.
+fn poll_messible(
+    messible_address: &Option<u32>,
+    bridge: &bridge::Bridge,
+    gdb_controller: &mut gdb::GdbController,
+) -> bool {
+    let addr = match messible_address {
+        None => return false,
+        Some(s) => s,
+    };
+
+    let mut data: Vec<u8> = vec![];
+    let max_bytes = 64;
+    while data.len() < max_bytes {
+        let status = match bridge.peek(addr + 8) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+
+        if status & 2 == 0 {
+            break;
+        }
+
+        let b = match bridge.peek(addr + 4) {
+            Ok(b) => b as u8,
+            Err(_) => return false,
+        };
+
+        data.push(b);
+    }
+
+    let s = match std::str::from_utf8(&data) {
+        Ok(o) => o,
+        Err(_) => "[invalid string]",
+    };
+    gdb_controller.print_string(s).ok();
+
+    // Re-examine the Messible and determine if we still have data
+    match bridge.peek(addr + 8) {
+        Ok(b) => (b & 2) != 0,
+        Err(_) => false,
+    }
+}
+
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let cpu = riscv::RiscvCpu::new(&bridge)?;
+    let messible_address = cfg.messible_address;
     loop {
         let connection = {
             let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)) {
@@ -131,15 +178,26 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
         thread::spawn(move || loop {
             let mut had_error = false;
             loop {
-                if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
-                    if !had_error {
-                        error!("error while polling bridge: {:?}", e);
-                        had_error = true;
+                let mut do_pause = true;
+                match cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
+                    Err(e) => {
+                        if !had_error {
+                            error!("error while polling bridge: {:?}", e);
+                            had_error = true;
+                        }
                     }
-                } else {
-                    had_error = false;
+                    Ok(running) => {
+                        had_error = false;
+                        // If there's a messible available, poll it.
+                        if running {
+                            do_pause = ! poll_messible(&messible_address, &poll_bridge, &mut gdb_controller);
+                        }
+                    }
                 }
-                thread::park_timeout(Duration::from_millis(200));
+
+                if do_pause {
+                    thread::park_timeout(Duration::from_millis(200));
+                }
             }
         });
 

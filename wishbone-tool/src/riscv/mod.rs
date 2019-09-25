@@ -837,15 +837,19 @@ fn is_running(flags: VexRiscvFlags) -> bool {
 }
 
 impl RiscvCpuController {
+    /// Poll the CPU and determine if it's running or not.  If it
+    /// transitions between states, handle this transition as appropriate.
     pub fn poll(
         &self,
         bridge: &Bridge,
         gdb_controller: &mut GdbController,
-    ) -> Result<(), RiscvCpuError> {
+    ) -> Result<bool, RiscvCpuError> {
         let _bridge_mutex = bridge.mutex().lock().unwrap();
         let flags = self.read_status(bridge)?;
         let mut current_status = self.cpu_state.lock().unwrap();
+
         if !is_running(flags) {
+            // If the status was running, transition to the `halted` state.
             if *current_status == RiscvCpuState::Running {
                 *current_status = RiscvCpuState::Halted;
                 // gdb_controller.gdb_send(b"T05swbreak:;")?;
@@ -869,13 +873,14 @@ impl RiscvCpuController {
                 gdb_controller.gdb_send(format!("T{}", halt_msg).as_bytes())?;
             }
         } else {
+            // If we're currently running but we shouldn't be, flush caches and stop.
             if *current_status == RiscvCpuState::Halted {
                 info!("POLL: CPU started running on its own!  Halting it and flushing the caches.");
                 self.cached_values.lock().unwrap().drain();
                 self.perform_halt(bridge)?;
             }
         }
-        Ok(())
+        Ok(*current_status == RiscvCpuState::Running)
     }
 
     fn perform_halt(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
