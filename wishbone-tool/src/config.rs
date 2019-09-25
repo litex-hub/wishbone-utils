@@ -1,7 +1,7 @@
-use clap::ArgMatches;
+use crate::bridge::spi::SpiPins;
 use crate::bridge::BridgeKind;
 use crate::server::ServerKind;
-use crate::bridge::spi::SpiPins;
+use clap::ArgMatches;
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -38,7 +38,7 @@ pub fn parse_u16(value: &str) -> Result<u16, ConfigError> {
     let (value, base) = get_base(value);
     match u16::from_str_radix(value, base) {
         Ok(o) => Ok(o),
-        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e))
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e)),
     }
 }
 
@@ -46,7 +46,7 @@ pub fn parse_u32(value: &str) -> Result<u32, ConfigError> {
     let (value, base) = get_base(value);
     match u32::from_str_radix(value, base) {
         Ok(o) => Ok(o),
-        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e))
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e)),
     }
 }
 
@@ -64,6 +64,7 @@ pub struct Config {
     pub bind_port: u32,
     pub random_loops: Option<u32>,
     pub random_address: Option<u32>,
+    pub messible_address: Option<u32>,
 }
 
 impl Config {
@@ -140,10 +141,16 @@ impl Config {
             None
         };
 
+        let messible_address = if let Some(messible_address) = matches.value_of("messible-address")
+        {
+            Some(parse_u32(messible_address)?)
+        } else {
+            None
+        };
+
         if memory_address.is_none() && server_kind == ServerKind::None {
             Err(ConfigError::NoOperationSpecified)
-        }
-        else {
+        } else {
             Ok(Config {
                 usb_pid,
                 usb_vid,
@@ -158,6 +165,7 @@ impl Config {
                 bind_addr,
                 random_loops,
                 random_address,
+                messible_address,
             })
         }
     }
