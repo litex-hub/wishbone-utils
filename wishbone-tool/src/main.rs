@@ -192,6 +192,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("messible-address")
+                .long("messible-address")
+                .help("address to use to get messible messages from")
+                .display_order(9)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("random-address")
                 .long("random-address")
                 .help("address to write to when doing a random-test")
@@ -218,9 +225,7 @@ fn main() {
                 config::ConfigError::UnknownServerKind(s) => {
                     error!("unknown server '{}', see --help", s)
                 }
-                config::ConfigError::SpiParseError(s) => {
-                    error!("couldn't parse spi pins: {}", s)
-                }
+                config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
             }
             process::exit(1);
         }
