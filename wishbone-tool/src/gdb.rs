@@ -49,6 +49,19 @@ impl GdbController {
         self.connection.write(&to_write)?;
         Ok(())
     }
+
+
+    pub fn print_string(&mut self, msg: &str) -> io::Result<()> {
+        debug!("Printing string {} to GDB", msg);
+        let mut strs: Vec<String> = msg
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect();
+        strs.insert(0, "O".to_string());
+        let joined = strs.join("");
+        self.gdb_send(joined.as_bytes())
+    }
 }
 
 pub struct GdbServer {
