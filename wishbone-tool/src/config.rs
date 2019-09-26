@@ -104,7 +104,7 @@ impl Config {
         let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"));
 
         let memory_address = if let Some(addr) = matches.value_of("address") {
-            if let Some(addr) = register_mapping.get(addr) {
+            if let Some(addr) = register_mapping.get(&addr.to_lowercase()) {
                 Some(*addr)
             } else {
                 Some(parse_u32(addr)?)
@@ -212,11 +212,11 @@ impl Config {
                 // If this is the case, create indexed offsets for those registers.
                 match num_regs {
                     1 => {
-                        map.insert(reg_name.to_string(), base_addr);
+                        map.insert(reg_name.to_string().to_lowercase(), base_addr);
                     },
                     n => {
                         for offset in 0..n {
-                            map.insert(format!("{}{}", reg_name.to_string(), n - offset - 1), base_addr+(offset*4));
+                            map.insert(format!("{}{}", reg_name.to_string().to_lowercase(), n - offset - 1), base_addr+(offset*4));
                         }
                     }
                 }
