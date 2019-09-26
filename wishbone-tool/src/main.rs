@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate bitflags;
-
 #[macro_use]
 extern crate clap;
+extern crate csv;
 extern crate libusb;
 extern crate rand;
 
@@ -195,6 +195,13 @@ fn main() {
             Arg::with_name("messible-address")
                 .long("messible-address")
                 .help("address to use to get messible messages from")
+                .display_order(9)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("csr-csv")
+                .long("csr-csv")
+                .help("csr.csv file containing register mappings")
                 .display_order(9)
                 .takes_value(true),
         )

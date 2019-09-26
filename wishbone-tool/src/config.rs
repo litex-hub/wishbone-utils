@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+use std::fs::File;
+
 use crate::bridge::spi::SpiPins;
 use crate::bridge::BridgeKind;
 use crate::server::ServerKind;
 use clap::ArgMatches;
+use csv;
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -65,6 +69,7 @@ pub struct Config {
     pub random_loops: Option<u32>,
     pub random_address: Option<u32>,
     pub messible_address: Option<u32>,
+    pub register_mapping: HashMap<String, u32>,
 }
 
 impl Config {
@@ -96,8 +101,14 @@ impl Config {
             None
         };
 
+        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"));
+
         let memory_address = if let Some(addr) = matches.value_of("address") {
-            Some(parse_u32(addr)?)
+            if let Some(addr) = register_mapping.get(addr) {
+                Some(*addr)
+            } else {
+                Some(parse_u32(addr)?)
+            }
         } else {
             None
         };
@@ -166,7 +177,51 @@ impl Config {
                 random_loops,
                 random_address,
                 messible_address,
+                register_mapping,
             })
         }
+    }
+
+    fn parse_csr_csv(filename: Option<&str>) -> HashMap<String, u32> {
+        let mut map = HashMap::new();
+        let file = match filename {
+            None => return map,
+            Some(s) => match File::open(s) {
+                Ok(o) => o,
+                Err(e) => panic!("Unable to open csr-csv file: {}", e),
+            }
+        };
+        let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(file);
+        for result in rdr.records() {
+            if let Ok(r) = result {
+                if &r[0] != "csr_register" {
+                    continue;
+                }
+                let reg_name = &r[1];
+                let base_addr = match parse_u32(&r[2]) {
+                    Ok(o) => o,
+                    Err(e) => panic!("Couldn't parse csr-csv base address: {:?}", e),
+                };
+                let num_regs = match parse_u32(&r[3]) {
+                    Ok(o) => o,
+                    Err(e) => panic!("Couldn't parse csr-csv number of registers: {:?}", e),
+                };
+
+                // If there's only one register, add it to the map.
+                // However, CSRs can span multiple registers, and do so in reverse.
+                // If this is the case, create indexed offsets for those registers.
+                match num_regs {
+                    1 => {
+                        map.insert(reg_name.to_string(), base_addr);
+                    },
+                    n => {
+                        for offset in 0..n {
+                            map.insert(format!("{}{}", reg_name.to_string(), n - offset - 1), base_addr+(offset*4));
+                        }
+                    }
+                }
+            }
+        }
+        map
     }
 }
