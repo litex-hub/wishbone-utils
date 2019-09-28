@@ -238,14 +238,16 @@ fn main() {
         }
     };
 
-    let bridge = Bridge::new(&cfg).unwrap();
-    bridge.connect().unwrap();
+    let retcode = {
+        let bridge = Bridge::new(&cfg).unwrap();
+        bridge.connect().unwrap();
 
-    let retcode = match cfg.server_kind {
-        ServerKind::GDB => server::gdb_server(cfg, bridge),
-        ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
-        ServerKind::RandomTest => server::random_test(cfg, bridge),
-        ServerKind::None => server::memory_access(cfg, bridge),
+        match cfg.server_kind {
+            ServerKind::GDB => server::gdb_server(cfg, bridge),
+            ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
+            ServerKind::RandomTest => server::random_test(cfg, bridge),
+            ServerKind::None => server::memory_access(cfg, bridge),
+        }
     };
     if let Err(e) = retcode {
         error!("server error: {:?}", e);
