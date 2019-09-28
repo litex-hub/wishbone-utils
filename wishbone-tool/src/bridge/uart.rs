@@ -224,15 +224,23 @@ impl UartBridge {
     ) -> Result<(), BridgeError> {
         // WRITE, 1 word
         serial.write(&[0x01, 0x01])?;
-        serial.write_u32::<BigEndian>(addr)?;
+
+        // LiteX ignores the bottom two Wishbone bits, so shift it by
+        // two when writing the address.
+        serial.write_u32::<BigEndian>(addr >> 2)?;
         Ok(serial.write_u32::<BigEndian>(value)?)
     }
 
     fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
         // READ, 1 word
         serial.write(&[0x02, 0x01])?;
-        serial.write_u32::<BigEndian>(addr)?;
-        Ok(serial.read_u32::<BigEndian>()?)
+
+        // LiteX ignores the bottom two Wishbone bits, so shift it by
+        // two when writing the address.
+        serial.write_u32::<BigEndian>(addr >> 2)?;
+
+        let val = serial.read_u32::<BigEndian>()?;
+        Ok(val)
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
