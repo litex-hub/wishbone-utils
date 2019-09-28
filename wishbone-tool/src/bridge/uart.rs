@@ -14,13 +14,26 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use super::BridgeError;
 use crate::config::Config;
 
-#[derive(Clone)]
 pub struct UartBridge {
     path: String,
     baudrate: usize,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
+    poll_thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Clone for UartBridge {
+    fn clone(&self) -> Self {
+        UartBridge {
+            path: self.path.clone(),
+            baudrate: self.baudrate.clone(),
+            main_tx: self.main_tx.clone(),
+            main_rx: self.main_rx.clone(),
+            mutex: self.mutex.clone(),
+            poll_thread: None,
+        }
+    }
 }
 
 enum ConnectThreadRequests {
@@ -32,6 +45,7 @@ enum ConnectThreadRequests {
 
 #[derive(Debug)]
 enum ConnectThreadResponses {
+    Exiting,
     OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
     PokeResult(Result<(), BridgeError>),
@@ -50,9 +64,9 @@ impl UartBridge {
 
         let thr_cv = cv.clone();
         let thr_path = path.clone();
-        thread::spawn(move || {
+        let poll_thread = Some(thread::spawn(move || {
             Self::serial_connect_thread(thr_cv, thread_rx, thr_path, baudrate)
-        });
+        }));
 
         Ok(UartBridge {
             path,
@@ -60,6 +74,7 @@ impl UartBridge {
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
+            poll_thread,
         })
     }
 
@@ -116,6 +131,8 @@ impl UartBridge {
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
                             debug!("serial_connect_thread requested exit");
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
+                            cvar.notify_one();
                             return;
                         }
                         ConnectThreadRequests::StartPolling(p, v) => {
@@ -148,6 +165,8 @@ impl UartBridge {
                     Err(TryRecvError::Disconnected) => panic!("main thread disconnected"),
                     Ok(m) => match m {
                         ConnectThreadRequests::Exit => {
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
+                            cvar.notify_one();
                             debug!("main thread requested exit");
                             return;
                         }
@@ -259,12 +278,29 @@ impl Drop for UartBridge {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.
-        if Arc::strong_count(&self.mutex) + Arc::weak_count(&self.mutex) <= 1 {
-            let &(ref lock, ref _cvar) = &*self.main_rx;
-            let mut _mtx = lock.lock().unwrap();
+        let sc = Arc::strong_count(&self.mutex);
+        let wc = Arc::weak_count(&self.mutex);
+        debug!("strong count: {}  weak count: {}", sc, wc);
+        if (sc + wc) <= 1 {
+            let &(ref lock, ref cvar) = &*self.main_rx;
+            let mut mtx = lock.lock().unwrap();
             self.main_tx
                 .send(ConnectThreadRequests::Exit)
                 .expect("Unable to send Exit request to thread");
+
+            *mtx = None;
+            while mtx.is_none() {
+                mtx = cvar.wait(mtx).unwrap();
+            }
+            match mtx.take() {
+                Some(ConnectThreadResponses::Exiting) => (),
+                e => {
+                    error!("unexpected bridge exit response: {:?}", e);
+                }
+            }
+            if let Some(pt) = self.poll_thread.take() {
+                pt.join().expect("Unable to join polling thread");
+            }
         }
     }
 }
