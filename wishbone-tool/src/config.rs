@@ -70,6 +70,7 @@ pub struct Config {
     pub random_address: Option<u32>,
     pub messible_address: Option<u32>,
     pub register_mapping: HashMap<String, u32>,
+    pub debug_offset: u32,
 }
 
 impl Config {
@@ -159,6 +160,13 @@ impl Config {
             None
         };
 
+        let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset")
+        {
+            parse_u32(debug_offset)?
+        } else {
+            0xf00f0000
+        };
+
         if memory_address.is_none() && server_kind == ServerKind::None {
             Err(ConfigError::NoOperationSpecified)
         } else {
@@ -178,6 +186,7 @@ impl Config {
                 random_address,
                 messible_address,
                 register_mapping,
+                debug_offset,
             })
         }
     }
