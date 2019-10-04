@@ -57,6 +57,9 @@ pub enum RiscvCpuError {
 
     /// Generic IO error
     IoError(io::Error),
+
+    /// CPU didn't complete write
+    InstructionTimeout,
 }
 
 impl std::convert::From<BridgeError> for RiscvCpuError {
@@ -1202,12 +1205,12 @@ impl RiscvCpuController {
         //     swab(opcode)
         // );
         bridge.poke(self.debug_offset + 4, opcode)?;
-        loop {
+        for _ in 0..100 {
             if (self.read_status(bridge)? & VexRiscvFlags::PIP_BUSY) != VexRiscvFlags::PIP_BUSY {
-                break;
+                return Ok(());
             }
         }
-        Ok(())
+        Err(RiscvCpuError::InstructionTimeout)
     }
 
     fn read_result(&self, bridge: &Bridge) -> Result<u32, RiscvCpuError> {
