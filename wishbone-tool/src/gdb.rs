@@ -724,7 +724,8 @@ impl GdbServer {
                 self.gdb_send_file(cpu.get_feature(&filename)?, offset, len)?
             }
             GdbCommand::ReadMemoryMap(offset, len) => {
-                self.gdb_send_file(cpu.get_memory_map()?, offset, len)?
+                // self.gdb_send_file(cpu.get_memory_map()?, offset, len)?
+                self.gdb_send(b"")?
             }
             GdbCommand::ReadThreads(offset, len) => {
                 self.gdb_send_file(cpu.get_threads()?, offset, len)?
