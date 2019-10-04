@@ -212,6 +212,11 @@ fn main() {
                 .display_order(10)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("debug-offset")
+                .long("debug-offset")
+                .takes_value(true),
+        )
         .get_matches();
 
     if matches.is_present("list") {
