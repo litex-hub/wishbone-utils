@@ -131,7 +131,7 @@ fn poll_messible(
 }
 
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
-    let cpu = riscv::RiscvCpu::new(&bridge)?;
+    let cpu = riscv::RiscvCpu::new(&bridge, cfg.debug_offset)?;
     let messible_address = cfg.messible_address;
     loop {
         let connection = {

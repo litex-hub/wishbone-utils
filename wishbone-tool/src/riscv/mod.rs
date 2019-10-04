@@ -288,11 +288,11 @@ pub struct RiscvCpuController {
 }
 
 impl RiscvCpu {
-    pub fn new(bridge: &Bridge) -> Result<RiscvCpu, RiscvCpuError> {
+    pub fn new(bridge: &Bridge, offset: u32) -> Result<RiscvCpu, RiscvCpuError> {
         let mut gdb_register_map = Self::make_registers();
 
         let cpu_state = Arc::new(Mutex::new(RiscvCpuState::Unknown));
-        let debug_offset = 0xf00f0000;
+        let debug_offset = offset;
         let cached_values = Arc::new(Mutex::new(HashMap::new()));
         let last_exception = Arc::new(Mutex::new(None));
 
