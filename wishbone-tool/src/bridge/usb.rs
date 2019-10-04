@@ -10,13 +10,13 @@ use log::{debug, error, info};
 use super::BridgeError;
 use crate::config::Config;
 
-#[derive(Clone)]
 pub struct UsbBridge {
     usb_pid: Option<u16>,
     usb_vid: Option<u16>,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
+    poll_thread: Option<thread::JoinHandle<()>>,
 }
 
 enum ConnectThreadRequests {
@@ -31,6 +31,20 @@ enum ConnectThreadResponses {
     OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
     PokeResult(Result<(), BridgeError>),
+    Exiting,
+}
+
+impl Clone for UsbBridge {
+    fn clone(&self) -> Self {
+        UsbBridge {
+            usb_pid: self.usb_pid.clone(),
+            usb_vid: self.usb_vid.clone(),
+            main_tx: self.main_tx.clone(),
+            main_rx: self.main_rx.clone(),
+            mutex: self.mutex.clone(),
+            poll_thread: None,
+        }
+    }
 }
 
 impl UsbBridge {
@@ -42,9 +56,9 @@ impl UsbBridge {
         let thr_pid = cfg.usb_pid.clone();
         let thr_vid = cfg.usb_vid.clone();
         let thr_cv = cv.clone();
-        thread::spawn(move || {
+        let poll_thread = Some(thread::spawn(move || {
             Self::usb_connect_thread(usb_ctx, thr_cv, thread_rx, thr_pid, thr_vid, 0x43)
-        });
+        }));
 
         Ok(UsbBridge {
             usb_pid: cfg.usb_pid.clone(),
@@ -52,6 +66,7 @@ impl UsbBridge {
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
+            poll_thread,
         })
     }
 
@@ -138,6 +153,8 @@ impl UsbBridge {
                             Ok(o) => match o {
                                 ConnectThreadRequests::Exit => {
                                     debug!("usb_connect_thread requested exit");
+                                    *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
+                                    cvar.notify_one();
                                     return;
                                 }
                                 ConnectThreadRequests::StartPolling(p, v) => {
@@ -180,6 +197,8 @@ impl UsbBridge {
                     Ok(m) => match m {
                         ConnectThreadRequests::Exit => {
                             debug!("main thread requested exit");
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
+                            cvar.notify_one();
                             return;
                         }
                         ConnectThreadRequests::Peek(_addr) => {
@@ -210,7 +229,6 @@ impl UsbBridge {
         value: u32,
         debug_byte: u8,
     ) -> Result<(), BridgeError> {
-        // debug!("POKE @ {:08x}", addr);
         let mut data_val = [0; 4];
         data_val[0] = ((value >> 0) & 0xff) as u8;
         data_val[1] = ((value >> 8) & 0xff) as u8;
@@ -224,11 +242,16 @@ impl UsbBridge {
             &data_val,
             Duration::from_millis(100),
         ) {
-            Err(e) => Err(BridgeError::USBError(e)),
+            Err(e) => {
+                debug!("POKE @ {:08x}: usb error {:?}", addr, e);
+                Err(BridgeError::USBError(e))
+            }
             Ok(len) => {
                 if len != 4 {
+                    debug!("POKE @ {:08x}: length error: expected 4 bytes, got {} bytes", addr, len);
                     Err(BridgeError::LengthError(4, len))
                 } else {
+                    debug!("POKE @ {:08x} -> {:08x}", addr, value);
                     Ok(())
                 }
             }
@@ -237,7 +260,6 @@ impl UsbBridge {
 
     fn do_peek(usb: &libusb::DeviceHandle, addr: u32, debug_byte: u8) -> Result<u32, BridgeError> {
         let mut data_val = [0; 512];
-        // debug!("PEEK @ {:08x}", addr);
         match usb.read_control(
             0x80 | debug_byte,
             0,
@@ -246,15 +268,21 @@ impl UsbBridge {
             &mut data_val,
             Duration::from_millis(500),
         ) {
-            Err(e) => Err(BridgeError::USBError(e)),
+            Err(e) => {
+                debug!("PEEK @ {:08x}: usb error {:?}", addr, e);
+                Err(BridgeError::USBError(e))
+            }
             Ok(len) => {
                 if len != 4 {
+                    debug!("PEEK @ {:08x}: length error: expected 4 bytes, got {} bytes", addr, len);
                     Err(BridgeError::LengthError(4, len))
                 } else {
-                    Ok(((data_val[3] as u32) << 24)
-                        | ((data_val[2] as u32) << 16)
-                        | ((data_val[1] as u32) << 8)
-                        | ((data_val[0] as u32) << 0))
+                    let value = ((data_val[3] as u32) << 24)
+                              | ((data_val[2] as u32) << 16)
+                              | ((data_val[1] as u32) << 8)
+                              | ((data_val[0] as u32) << 0);
+                    debug!("PEEK @ {:08x} = {:08x}", addr, value);
+                    Ok(value)
                 }
             }
         }
@@ -303,12 +331,29 @@ impl Drop for UsbBridge {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.
-        if Arc::strong_count(&self.mutex) + Arc::weak_count(&self.mutex) <= 1 {
-            let &(ref lock, ref _cvar) = &*self.main_rx;
-            let mut _mtx = lock.lock().unwrap();
+        let sc = Arc::strong_count(&self.mutex);
+        let wc = Arc::weak_count(&self.mutex);
+        debug!("strong count: {}  weak count: {}", sc, wc);
+        if (sc + wc) <= 1 {
+            let &(ref lock, ref cvar) = &*self.main_rx;
+            let mut mtx = lock.lock().unwrap();
             self.main_tx
                 .send(ConnectThreadRequests::Exit)
                 .expect("Unable to send Exit request to thread");
+
+            // Get a response back from the poll thread
+            while mtx.is_none() {
+                mtx = cvar.wait(mtx).unwrap();
+            }
+            match mtx.take() {
+                Some(ConnectThreadResponses::Exiting) => (),
+                e => {
+                    error!("unexpected bridge exit response: {:?}", e);
+                }
+            }
+            if let Some(pt) = self.poll_thread.take() {
+                pt.join().expect("Unable to join polling thread");
+            }
         }
     }
 }
