@@ -249,7 +249,7 @@ pub struct RiscvCpu {
     cached_values: Arc<Mutex<HashMap<RiscvRegister, u32>>>,
 
     /// All available breakpoints
-    breakpoints: RefCell<[RiscvBreakpoint; 4]>,
+    breakpoints: RefCell<[RiscvBreakpoint; 2]>,
 
     /// CPU state
     cpu_state: Arc<Mutex<RiscvCpuState>>,
@@ -347,16 +347,16 @@ impl RiscvCpu {
                     enabled: false,
                     allocated: false,
                 },
-                RiscvBreakpoint {
-                    address: 0,
-                    enabled: false,
-                    allocated: false,
-                },
-                RiscvBreakpoint {
-                    address: 0,
-                    enabled: false,
-                    allocated: false,
-                },
+                // RiscvBreakpoint {
+                //     address: 0,
+                //     enabled: false,
+                //     allocated: false,
+                // },
+                // RiscvBreakpoint {
+                //     address: 0,
+                //     enabled: false,
+                //     allocated: false,
+                // },
             ]),
             controller,
             cpu_state,
