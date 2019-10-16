@@ -648,6 +648,9 @@ impl GdbServer {
                 } else {
                     for offset in (0..len).step_by(4) {
                         values.push(cpu.read_memory(bridge, addr + offset, 4)?);
+                        if addr + offset >= 0xfffffffc {
+                            break;
+                        }
                     }
                     self.gdb_send_u32(values)?
                 }
