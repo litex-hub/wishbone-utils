@@ -1,6 +1,6 @@
 [package]
 name = "wishbone-tool"
-version = "0.4.3"
+version = "0.4.6"
 authors = ["Sean Cross <sean@xobs.io>"]
 edition = "2018"
 
