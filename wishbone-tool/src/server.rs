@@ -270,6 +270,7 @@ pub fn wishbone_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
                     Err(_) => return false,
                 };
 
+                // If there's no more data, pause for a short time.
                 if do_pause {
                     thread::park_timeout(Duration::from_millis(200));
                 }
