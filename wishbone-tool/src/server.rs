@@ -223,11 +223,59 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
 
 pub fn wishbone_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
+    let messible_address = cfg.messible_address;
+
     loop {
         if let Err(e) = wishbone.connect() {
             error!("Unable to connect to Wishbone bridge: {:?}", e);
             return Err(ServerError::WishboneError(e));
         }
+
+        // If there's a messible address specified, enable printf-style debugging.
+        if let Some(addr) = messible_address {
+            let poll_bridge = bridge.clone();
+            thread::spawn(move || loop {
+                let mut data: Vec<u8> = vec![];
+                let max_bytes = 64;
+                while data.len() < max_bytes {
+                    // Get the status to see if it's empty.
+                    let status = match poll_bridge.peek(addr + 8) {
+                        Ok(b) => b,
+                        Err(_) => return false,
+                    };
+
+                    // If the messible is empty, stop filling the buffer.
+                    if status & 2 == 0 {
+                        break;
+                    }
+
+                    // It's not empty, so grab the next character
+                    let b = match poll_bridge.peek(addr + 4) {
+                        Ok(b) => b as u8,
+                        Err(_) => return false,
+                    };
+
+                    data.push(b);
+                }
+
+                let s = match std::str::from_utf8(&data) {
+                    Ok(o) => o,
+                    Err(_) => "[invalid string]",
+                };
+                print!("{}", s);
+
+                // Re-examine the Messible and determine if we still have data
+                let do_pause = match poll_bridge.peek(addr + 8) {
+                    Ok(b) => (b & 2) == 0,
+                    Err(_) => return false,
+                };
+
+                if do_pause {
+                    thread::park_timeout(Duration::from_millis(200));
+                }
+            });
+        }
+
         loop {
             if let Err(e) = wishbone.process(&bridge) {
                 println!("Error in Wishbone server: {:?}", e);
