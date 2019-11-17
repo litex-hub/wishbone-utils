@@ -215,6 +215,9 @@ fn main() {
         .arg(
             Arg::with_name("debug-offset")
                 .long("debug-offset")
+                .help("address to use for debug bridge")
+                .default_value("0xf00f0000")
+                .display_order(11)
                 .takes_value(true),
         )
         .get_matches();
