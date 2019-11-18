@@ -182,7 +182,21 @@ fn main() {
                 .conflicts_with("list")
                 .help("which server to run (if any)")
                 .display_order(1)
-                .possible_values(&["gdb", "wishbone", "random-test"]),
+                .possible_values(&["gdb", "wishbone", "random-test", "load-file"]),
+        )
+        .arg(
+            Arg::with_name("load-name")
+                .long("load-name")
+                .help("A file to load into RAM")
+                .takes_value(true)
+                .display_order(13),
+        )
+        .arg(
+            Arg::with_name("load-address")
+                .long("load-address")
+                .help("Address for file to load")
+                .takes_value(true)
+                .display_order(13),
         )
         .arg(
             Arg::with_name("random-loops")
@@ -249,11 +263,11 @@ fn main() {
     let retcode = {
         let bridge = Bridge::new(&cfg).unwrap();
         bridge.connect().unwrap();
-
         match cfg.server_kind {
             ServerKind::GDB => server::gdb_server(cfg, bridge),
             ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
             ServerKind::RandomTest => server::random_test(cfg, bridge),
+            ServerKind::LoadFile => server::load_file(cfg, bridge),
             ServerKind::None => server::memory_access(cfg, bridge),
         }
     };

@@ -71,6 +71,8 @@ pub struct Config {
     pub messible_address: Option<u32>,
     pub register_mapping: HashMap<String, u32>,
     pub debug_offset: u32,
+    pub load_name: Option<String>,
+    pub load_addr: Option<u32>,
 }
 
 impl Config {
@@ -98,6 +100,18 @@ impl Config {
 
         let serial_baud = if let Some(baud) = matches.value_of("baud") {
             Some(parse_u32(baud)? as usize)
+        } else {
+            None
+        };
+
+        let load_name = if let Some(n) = matches.value_of("load-name") {
+            Some(n.to_owned())
+        } else {
+            None
+        };
+
+        let load_addr = if let Some(addr) = matches.value_of("load-address") {
+            Some(parse_u32(addr)?)
         } else {
             None
         };
@@ -187,6 +201,8 @@ impl Config {
                 messible_address,
                 register_mapping,
                 debug_offset,
+                load_name,
+                load_addr,
             })
         }
     }

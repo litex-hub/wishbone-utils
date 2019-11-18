@@ -10,7 +10,10 @@ use log::{error, info};
 extern crate rand;
 use rand::prelude::*;
 
+use byteorder::{LittleEndian, ReadBytesExt};
+
 use std::io;
+use std::fs::File;
 use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
@@ -28,6 +31,9 @@ pub enum ServerKind {
 
     /// Send random data back and forth
     RandomTest,
+
+    /// Load a file into memory
+    LoadFile,
 }
 
 #[derive(Debug)]
@@ -78,6 +84,7 @@ impl ServerKind {
                 "gdb" => Ok(ServerKind::GDB),
                 "wishbone" => Ok(ServerKind::Wishbone),
                 "random-test" => Ok(ServerKind::RandomTest),
+                "load-file" => Ok(ServerKind::LoadFile),
                 unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
             },
         }
@@ -295,8 +302,9 @@ pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerErro
     info!("writing random values to 0x{:08x}", random_addr);
     loop {
         let val = random::<u32>();
-        bridge.poke(random_addr, val)?;
-        let cmp = bridge.peek(random_addr)?;
+        let extra_addr = random::<u32>() % 65536 << 2;
+        bridge.poke(random_addr + extra_addr, val)?;
+        let cmp = bridge.peek(random_addr + extra_addr)?;
         if cmp != val {
             error!(
                 "loop {}: expected {:08x}, got {:08x}",
@@ -305,7 +313,7 @@ pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerErro
             return Err(ServerError::RandomValueError(loop_counter, val, cmp));
         }
         if (loop_counter % 1000) == 0 {
-            info!("loop: {} ({:08x})", loop_counter, val);
+            info!("loop: {} @ {:08x} ({:08x})", loop_counter, extra_addr + random_addr, val);
         }
         loop_counter = loop_counter.wrapping_add(1);
         if let Some(max_loops) = cfg.random_loops {
@@ -330,6 +338,36 @@ pub fn memory_access(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerEr
         println!(
             "Try specifying an address such as \"0x10000000\".  See --help for more information"
         );
+    }
+    Ok(())
+}
+
+pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+    let mut loop_counter: u32 = 0;
+    if let Some(file_name) = cfg.load_name {
+        if let Some(addr) = cfg.load_addr {
+            info!("Loading {} values to 0x{:08x}", file_name, addr);
+            let mut f = File::open(file_name)?;
+            let f_len = f.metadata().unwrap().len() as u32;
+            loop {
+                let value = match f.read_u32::<LittleEndian>() {
+                    Ok(x) => x,
+                    Err(e) => {
+                        error!("Error reading: {}", e);
+                        return Ok(())
+                    }
+                };
+                if (loop_counter % 1024) == 0 {
+                    info!("write to {:08x}: ({:08x}) - {}%", addr + loop_counter, value, (loop_counter * 100 / f_len));
+                }
+                bridge.poke(addr + loop_counter, value)?;
+                loop_counter = loop_counter.wrapping_add(4);
+            }
+        } else {
+            error!("No load address specified");
+        }
+    } else {
+        println!("No filename specified!");
     }
     Ok(())
 }
