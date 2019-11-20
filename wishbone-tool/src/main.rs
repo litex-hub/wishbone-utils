@@ -206,6 +206,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("random-range")
+                .long("random-range")
+                .help("the size of the random address range (i.e. how many bytes to randomly add to the address)")
+                .display_order(9)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("messible-address")
                 .long("messible-address")
                 .help("address to use to get messible messages from")

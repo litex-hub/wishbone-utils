@@ -68,6 +68,7 @@ pub struct Config {
     pub bind_port: u32,
     pub random_loops: Option<u32>,
     pub random_address: Option<u32>,
+    pub random_range: Option<u32>,
     pub messible_address: Option<u32>,
     pub register_mapping: HashMap<String, u32>,
     pub debug_offset: u32,
@@ -167,6 +168,12 @@ impl Config {
             None
         };
 
+        let random_range = if let Some(random_range) = matches.value_of("random-range") {
+            Some(parse_u32(random_range)?)
+        } else {
+            None
+        };
+
         let messible_address = if let Some(messible_address) = matches.value_of("messible-address")
         {
             Some(parse_u32(messible_address)?)
@@ -198,6 +205,7 @@ impl Config {
                 bind_addr,
                 random_loops,
                 random_address,
+                random_range,
                 messible_address,
                 register_mapping,
                 debug_offset,
