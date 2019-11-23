@@ -32,10 +32,14 @@ fn list_usb() -> Result<(), libusb::Error> {
     println!("devices:");
     for device in devices.iter() {
         let device_desc = device.device_descriptor().unwrap();
+        let usb_bus = device.bus_number();
+        let usb_device = device.address();
         let mut line = format!(
-            "[{:04x}:{:04x}] - ",
+            "[{:04x}:{:04x}] usb: {:03}/{:03} - ",
             device_desc.vendor_id(),
-            device_desc.product_id()
+            device_desc.product_id(),
+            usb_bus,
+            usb_device,
         );
         if let Ok(usb) = device.open() {
             if let Ok(langs) = usb.read_languages(Duration::from_secs(1)) {
@@ -101,6 +105,24 @@ fn main() {
                 .value_name("USB_VID")
                 .help("USB VID to match")
                 .display_order(3)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("bus")
+                .short("B")
+                .long("bus")
+                .value_name("USB_BUS")
+                .help("USB BUS to match")
+                .display_order(4)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("device")
+                .short("d")
+                .long("device")
+                .value_name("USB_DEVICE")
+                .help("USB DEVICE to match")
+                .display_order(4)
                 .takes_value(true),
         )
         .arg(
