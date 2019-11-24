@@ -133,6 +133,9 @@ impl WishboneServer {
             let value = bridge.peek(addr)?;
             let mut value_vec = vec![];
             value_vec.write_u32::<BigEndian>(value)?;
+            // Response goes back as a write
+            buffer[10] = 1;
+            buffer[11] = 0;
             buffer[16] = value_vec[0];
             buffer[17] = value_vec[1];
             buffer[18] = value_vec[2];
