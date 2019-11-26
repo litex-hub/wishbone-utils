@@ -89,8 +89,8 @@ impl WishboneServer {
     }
 
     pub fn process(&mut self, bridge: &Bridge) -> Result<(), WishboneServerError> {
-        let mut buffer = [0; 20];
-        let mut buffer_offset = 0;
+        let mut header = [0; 16];
+        let mut offset = 0;
         let mut byte = [0; 1];
 
         if self.connection.is_none() {
@@ -100,46 +100,75 @@ impl WishboneServer {
         let connection = &mut self.connection.as_mut().unwrap();
 
         // XXX Replace this with a BufReader for performance
-        while buffer_offset < buffer.len() {
+        while offset < header.len() {
             let len = connection.read(&mut byte)?;
             if len == 0 {
                 return Err(WishboneServerError::ConnectionClosed);
             }
-            buffer[buffer_offset] = byte[0];
-            buffer_offset = buffer_offset + 1;
+            header[offset] = byte[0];
+            offset = offset + 1;
         }
 
         // Validate signature matches
-        if buffer[0] != 0x4e || buffer[1] != 0x6f {
+        if header[0] != 0x4e || header[1] != 0x6f {
             return Err(WishboneServerError::NoMagic);
         }
 
+        let wcount = header[10];
+        let rcount = header[11];
+        let buffer_len:usize = (rcount*4 + wcount*4) as usize;
+        let mut buffer = vec![0; buffer_len];
+
+        // XXX Replace this with a BufReader for performance
+        offset = 0;
+        while offset < buffer.len() {
+            let len = connection.read(&mut byte)?;
+            if len == 0 {
+                return Err(WishboneServerError::ConnectionClosed);
+            }
+            buffer[offset] = byte[0];
+            offset = offset + 1;
+        }
+
         // Figure out if it's a read or a write
-        if buffer[10] == 1 {
+        if wcount > 0 {
             // Write
-            let mut addr_vec = Cursor::new(vec![buffer[12], buffer[13], buffer[14], buffer[15]]);
-            let addr = addr_vec.read_u32::<BigEndian>()?;
+            let mut addr_vec = Cursor::new(vec![header[12], header[13], header[14], header[15]]);
+            let mut addr = addr_vec.read_u32::<BigEndian>()?;
+            let mut count = 0;
 
-            let mut value_vec = Cursor::new(vec![buffer[16], buffer[17], buffer[18], buffer[19]]);
-            let value = value_vec.read_u32::<BigEndian>()?;
-
-            bridge.poke(addr, value)?;
+            while count < wcount {
+                let mut value_vec = Cursor::new(vec![buffer[(4*count+0) as usize], buffer[(4*count+1) as usize], buffer[(4*count+2) as usize], buffer[(4*count+3) as usize]]);
+                let value = value_vec.read_u32::<BigEndian>()?;
+                bridge.poke(addr, value)?;
+                count=count+1;
+                addr=addr+4;
+            }
             Ok(())
         }
-        else if buffer[11] == 1 {
-            let mut addr_vec = Cursor::new(vec![buffer[16], buffer[17], buffer[18], buffer[19]]);
-            let addr = addr_vec.read_u32::<BigEndian>()?;
+        else if rcount > 0 {
             // Read
-            let value = bridge.peek(addr)?;
-            let mut value_vec = vec![];
-            value_vec.write_u32::<BigEndian>(value)?;
+            let mut addr_vec = Cursor::new(vec![buffer[0], buffer[1], buffer[2], buffer[3]]);
+            let mut addr = addr_vec.read_u32::<BigEndian>()?;
+            let mut count = 0;
+            while count < rcount {
+                let value = bridge.peek(addr)?;
+                let mut value_vec = vec![];
+                value_vec.write_u32::<BigEndian>(value)?;
+
+                buffer[(count*4+0) as usize] = value_vec[0];
+                buffer[(count*4+1) as usize] = value_vec[1];
+                buffer[(count*4+2) as usize] = value_vec[2];
+                buffer[(count*4+3) as usize] = value_vec[3];
+
+                count=count+1;
+                addr=addr+4;
+            }
+
             // Response goes back as a write
-            buffer[10] = 1;
-            buffer[11] = 0;
-            buffer[16] = value_vec[0];
-            buffer[17] = value_vec[1];
-            buffer[18] = value_vec[2];
-            buffer[19] = value_vec[3];
+            header[10] = header[11];
+            header[11] = 0;
+            connection.write(&header)?;
             connection.write(&buffer)?;
             Ok(())
         }
