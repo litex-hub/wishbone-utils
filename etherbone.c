@@ -1,5 +1,9 @@
-#include <stdio.h>
+#if defined(__FreeBSD__)
+#include <sys/endian.h>
+#else
 #include <endian.h>
+#endif
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
