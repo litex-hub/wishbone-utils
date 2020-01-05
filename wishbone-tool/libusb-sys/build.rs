@@ -14,15 +14,16 @@ fn main() {
 
 pub fn compile_native_libusb() {
 	let mut base_config = cc::Build::new();
+	let src_base = var("SRC_BASE").unwrap_or("/usr/src".to_string());
 
-	base_config.file("/usr/src/lib/libusb/libusb20.c");
-	base_config.file("/usr/src/lib/libusb/libusb20_desc.c");
-	base_config.file("/usr/src/lib/libusb/libusb20_ugen20.c");
+	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20.c"));
+	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_desc.c"));
+	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_ugen20.c"));
 
-	base_config.file("/usr/src/lib/libusb/libusb10.c");
-	base_config.file("/usr/src/lib/libusb/libusb10_desc.c");
-	base_config.file("/usr/src/lib/libusb/libusb10_hotplug.c");
-	base_config.file("/usr/src/lib/libusb/libusb10_io.c");
+	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10.c"));
+	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_desc.c"));
+	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_hotplug.c"));
+	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_io.c"));
 	base_config.compile("libusb.a");
 }
 
