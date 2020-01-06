@@ -3,6 +3,7 @@ freebsd_instance:
 
 task:
   name: FreeBSD 12
+  alias: Tests
   env:
     - ARTIFACTS_DIR: artifacts
     - ARTIFACTS_HOME: ${CIRRUS_WORKING_DIR}/${ARTIFACTS_DIR}
@@ -27,6 +28,7 @@ task:
 
 task:
   name: Publish
+  depends_on: Tests
   environment:
     AUTH_TOKEN: ENCRYPTED[qwerty239abc]
   script: ./ci/cirrus_deploy.sh
