@@ -416,6 +416,7 @@ libusb_get_ss_endpoint_companion_descriptor(struct libusb_context *ctx,
     const struct libusb_endpoint_descriptor *endpoint,
     struct libusb_ss_endpoint_companion_descriptor **ep_comp)
 {
+	(void)ctx;
 	if (endpoint == NULL)
 		return (LIBUSB_ERROR_INVALID_PARAM);
 	return (libusb_parse_ss_endpoint_comp(endpoint->extra, endpoint->extra_length, ep_comp));
@@ -608,6 +609,7 @@ libusb_get_usb_2_0_extension_descriptor(struct libusb_context *ctx,
 {
 	struct libusb_usb_2_0_extension_descriptor *desc;
 
+	(void)ctx;
 	if (dev_cap == NULL || usb_2_0_extension == NULL ||
 	    dev_cap->bDevCapabilityType != LIBUSB_BT_USB_2_0_EXTENSION)
 		return (LIBUSB_ERROR_INVALID_PARAM);
@@ -646,6 +648,7 @@ libusb_get_ss_usb_device_capability_descriptor(struct libusb_context *ctx,
 {
 	struct libusb_ss_usb_device_capability_descriptor *desc;
 
+	(void)ctx;
 	if (dev_cap == NULL || ss_usb_device_capability == NULL ||
 	    dev_cap->bDevCapabilityType != LIBUSB_BT_SS_USB_DEVICE_CAPABILITY)
 		return (LIBUSB_ERROR_INVALID_PARAM);
@@ -686,6 +689,7 @@ libusb_get_container_id_descriptor(struct libusb_context *ctx,
 {
 	struct libusb_container_id_descriptor *desc;
 
+	(void)ctx;
 	if (dev_cap == NULL || container_id == NULL ||
 	    dev_cap->bDevCapabilityType != LIBUSB_BT_CONTAINER_ID)
 		return (LIBUSB_ERROR_INVALID_PARAM);

@@ -410,6 +410,7 @@ libusb_handle_events_locked(libusb_context *ctx, struct timeval *tv)
 int
 libusb_get_next_timeout(libusb_context *ctx, struct timeval *tv)
 {
+	(void)ctx;
 	/* all timeouts are currently being done by the kernel */
 	timerclear(tv);
 	return (0);
@@ -794,6 +795,9 @@ int
 libusb_alloc_streams(libusb_device_handle *dev, uint32_t num_streams,
     unsigned char *endpoints, int num_endpoints)
 {
+	(void)dev;
+	(void)endpoints;
+	(void)num_endpoints;
 	if (num_streams > 1)
 		return (LIBUSB_ERROR_INVALID_PARAM);
 	return (0);
@@ -802,7 +806,9 @@ libusb_alloc_streams(libusb_device_handle *dev, uint32_t num_streams,
 int
 libusb_free_streams(libusb_device_handle *dev, unsigned char *endpoints, int num_endpoints)
 {
-
+	(void)dev;
+	(void)endpoints;
+	(void)num_endpoints;
 	return (0);
 }
 

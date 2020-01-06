@@ -383,6 +383,7 @@ int
 libusb_get_port_path(libusb_context *ctx, libusb_device *dev, uint8_t *buf,
     uint8_t bufsize)
 {
+	(void)ctx;
 	return (libusb20_dev_get_port_path(dev->os_priv, buf, bufsize));
 }
 
@@ -925,6 +926,7 @@ libusb_detach_kernel_driver(struct libusb20_device *pdev, int interface)
 int
 libusb_attach_kernel_driver(struct libusb20_device *pdev, int interface)
 {
+	(void)interface;
 	if (pdev == NULL)
 		return (LIBUSB_ERROR_INVALID_PARAM);
 	/* stub - currently not supported by libusb20 */
@@ -989,6 +991,7 @@ libusb10_get_maxframe(struct libusb20_device *pdev, libusb_transfer *xfer)
 {
 	uint32_t ret;
 
+	(void)pdev;
 	switch (xfer->type) {
 	case LIBUSB_TRANSFER_TYPE_ISOCHRONOUS:
 		ret = 60 | LIBUSB20_MAX_FRAME_PRE_SCALE;	/* 60ms */

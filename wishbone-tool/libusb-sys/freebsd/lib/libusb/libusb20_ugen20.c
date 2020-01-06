@@ -383,6 +383,8 @@ ugen20_open_device(struct libusb20_device *pdev, uint16_t nMaxTransfer)
 	int g;
 	int error;
 
+	(void)nMaxTransfer;
+
 	snprintf(buf, sizeof(buf), "/dev/" USB_GENERIC_NAME "%u.%u",
 	    pdev->bus_number, pdev->device_address);
 
@@ -460,6 +462,7 @@ ugen20_close_device(struct libusb20_device *pdev)
 static void
 ugen20_exit_backend(struct libusb20_backend *pbe)
 {
+	(void)pbe;
 	return;				/* nothing to do */
 }
 
@@ -700,6 +703,7 @@ ugen20_do_request_sync(struct libusb20_device *pdev,
 {
 	struct usb_ctl_request req;
 
+	(void)timeout;
 	memset(&req, 0, sizeof(req));
 
 	req.ucr_data = libusb20_pass_ptr(data);
@@ -925,7 +929,7 @@ ugen20_be_ioctl(uint32_t cmd, void *data)
 }
 
 static int
-ugen20_dev_get_iface_desc(struct libusb20_device *pdev, 
+ugen20_dev_get_iface_desc(struct libusb20_device *pdev,
     uint8_t iface_index, char *buf, uint8_t len)
 {
 	struct usb_gen_descriptor ugd;
@@ -959,6 +963,7 @@ ugen20_root_get_dev_quirk(struct libusb20_backend *pbe,
 	struct usb_gen_quirk q;
 	int error;
 
+	(void)pbe;
 	memset(&q, 0, sizeof(q));
 
 	q.index = quirk_index;
@@ -986,6 +991,7 @@ ugen20_root_get_quirk_name(struct libusb20_backend *pbe, uint16_t quirk_index,
 	struct usb_gen_quirk q;
 	int error;
 
+	(void)pbe;
 	memset(&q, 0, sizeof(q));
 
 	q.index = quirk_index;
@@ -1009,6 +1015,7 @@ ugen20_root_add_dev_quirk(struct libusb20_backend *pbe,
 	struct usb_gen_quirk q;
 	int error;
 
+	(void)pbe;
 	memset(&q, 0, sizeof(q));
 
 	q.vid = pq->vid;
@@ -1033,6 +1040,7 @@ ugen20_root_remove_dev_quirk(struct libusb20_backend *pbe,
 	struct usb_gen_quirk q;
 	int error;
 
+	(void)pbe;
 	memset(&q, 0, sizeof(q));
 
 	q.vid = pq->vid;
@@ -1053,11 +1061,13 @@ ugen20_root_remove_dev_quirk(struct libusb20_backend *pbe,
 static int
 ugen20_root_set_template(struct libusb20_backend *pbe, int temp)
 {
+	(void)pbe;
 	return (ugen20_be_ioctl(IOUSB(USB_SET_TEMPLATE), &temp));
 }
 
 static int
 ugen20_root_get_template(struct libusb20_backend *pbe, int *ptemp)
 {
+	(void)pbe;
 	return (ugen20_be_ioctl(IOUSB(USB_GET_TEMPLATE), ptemp));
 }
