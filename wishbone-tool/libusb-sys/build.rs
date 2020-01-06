@@ -15,6 +15,14 @@ fn main() {
 pub fn compile_native_libusb() {
 	let mut base_config = cc::Build::new();
 	let src_base = var("SRC_BASE").unwrap_or("freebsd".to_string());
+	let headers = var("CI_FREEBSD_HEADERS").unwrap_or("".to_string());
+
+	if headers != "" {
+		base_config.include(headers);
+		base_config.include("/usr/include");
+		base_config.include("freebsd/lib/libusb/");
+		base_config.include("freebsd/");
+	}
 
 	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20.c"));
 	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_desc.c"));
