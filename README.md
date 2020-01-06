@@ -76,6 +76,19 @@ You can connect to a serial port by specifying the `--serial` argument:
 $ wishbone-tool --serial COM4: 0
 ```
 
+### Wishbone Tool auto-completion
+
+You can generate auto-completion for `wishbone-tool` with the `-c` option.  For example,
+to generate auto-completion for bash, run:
+
+```sh
+$ wishbone-tool -c bash > wishbone-tool.bash
+$ . wishbone-tool.bash
+$
+```
+
+Auto-completion is available for zsh, bash, fish, powershell, and elvish.
+
 ## Using the etherbone "library"
 
 You can take the `csr.h` file out from LiteX and use it directly
