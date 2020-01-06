@@ -42,7 +42,7 @@ To build `litex-devmem2`:
 Currently-supported Wishbone bridges include:
 
 * **usb** - For use with Valentyusb such as on Fomu
-* **serial** - Generic UART, nominally running at 115200
+* **serial** - Generic UART, nominally running at 115200 (but can be changed with `--baud`)
 * **spi** - Using 2-, 3-, or 4-wire SPI from [spibone](https://github.com/xobs/spibone)
 
 ### Wishbone Tool Usage
