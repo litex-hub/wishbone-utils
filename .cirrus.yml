@@ -1,0 +1,24 @@
+freebsd_12_task:
+  env:
+    - ARTIFACTS_DIR: artifacts
+    - ARTIFACTS_HOME: ${CIRRUS_WORKING_DIR}/${ARTIFACTS_DIR}
+    - BUILD_TARGET: freebsd-amd64
+    - BUILD_TAG: ${CIRRUS_CHANGE_IN_REPO}-${BUILD_TARGET}
+    - PREFIX: /usr/local
+  freebsd_instance:
+    image: freebsd-12-1-release-amd64
+  install_script:
+    pkg install -y rust gmake
+  build_script:
+    - cd wishbone-tool
+    - cargo build
+    - cargo build --release
+  deploy_script:
+    - cd wishbone-tool
+    - cargo build --release
+    - mkdir -p stage/${PREFIX}/bin ${CIRRUS_WORKING_DIR}/artifacts
+    - cp target/release/wishbone-tool stage/${PREFIX}/bin
+    - cd stage
+    - tar czf ${ARTIFACTS_HOME}/wishbone-tool-${CIRRUS_CHANGE_IN_REPO}-${BUILD_TARGET}.tar.gz *
+  binaries_artifacts:
+    path: ${ARTIFACTS_DIR}/*
