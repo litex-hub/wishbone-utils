@@ -10,6 +10,10 @@ main() {
         sort=gsort  # for `sort --sort-version`, from brew's coreutils.
     fi
 
+    if [ $TARGET = i686-unknown-freebsd -o $TARGET = x86_64-unknown-freebsd ]; then
+        sudo apt-get install freebsd-glue
+    fi
+
     # Builds for iOS are done on OSX, but require the specific target to be
     # installed.
     case $TARGET in
