@@ -1,6 +1,11 @@
+use std::collections::HashMap;
+use std::fs::File;
+
+use crate::bridge::spi::SpiPins;
+use crate::bridge::BridgeKind;
+use crate::server::ServerKind;
 use clap::ArgMatches;
-use super::bridge::BridgeKind;
-use super::server::ServerKind;
+use csv;
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -9,6 +14,9 @@ pub enum ConfigError {
 
     /// Specified a bridge kind that we didn't recognize
     UnknownServerKind(String),
+
+    /// Specified SPI pinspec was invalid
+    SpiParseError(String),
 
     /// No operation was specified
     NoOperationSpecified,
@@ -34,7 +42,7 @@ pub fn parse_u16(value: &str) -> Result<u16, ConfigError> {
     let (value, base) = get_base(value);
     match u16::from_str_radix(value, base) {
         Ok(o) => Ok(o),
-        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e))
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e)),
     }
 }
 
@@ -42,7 +50,7 @@ pub fn parse_u32(value: &str) -> Result<u32, ConfigError> {
     let (value, base) = get_base(value);
     match u32::from_str_radix(value, base) {
         Ok(o) => Ok(o),
-        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e))
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e)),
     }
 }
 
@@ -55,10 +63,17 @@ pub struct Config {
     pub bridge_kind: BridgeKind,
     pub serial_port: Option<String>,
     pub serial_baud: Option<usize>,
+    pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
     pub bind_port: u32,
     pub random_loops: Option<u32>,
     pub random_address: Option<u32>,
+    pub random_range: Option<u32>,
+    pub messible_address: Option<u32>,
+    pub register_mapping: HashMap<String, u32>,
+    pub debug_offset: u32,
+    pub load_name: Option<String>,
+    pub load_addr: Option<u32>,
 }
 
 impl Config {
@@ -90,8 +105,26 @@ impl Config {
             None
         };
 
-        let memory_address = if let Some(addr) = matches.value_of("address") {
+        let load_name = if let Some(n) = matches.value_of("load-name") {
+            Some(n.to_owned())
+        } else {
+            None
+        };
+
+        let load_addr = if let Some(addr) = matches.value_of("load-address") {
             Some(parse_u32(addr)?)
+        } else {
+            None
+        };
+
+        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"));
+
+        let memory_address = if let Some(addr) = matches.value_of("address") {
+            if let Some(addr) = register_mapping.get(&addr.to_lowercase()) {
+                Some(*addr)
+            } else {
+                Some(parse_u32(addr)?)
+            }
         } else {
             None
         };
@@ -114,6 +147,13 @@ impl Config {
             "127.0.0.1".to_owned()
         };
 
+        let spi_pins = if let Some(pins) = matches.value_of("spi-pins") {
+            bridge_kind = BridgeKind::SpiBridge;
+            Some(SpiPins::from_string(pins)?)
+        } else {
+            None
+        };
+
         let server_kind = ServerKind::from_string(&matches.value_of("server-kind"))?;
 
         let random_loops = if let Some(random_loops) = matches.value_of("random-loops") {
@@ -128,15 +168,35 @@ impl Config {
             None
         };
 
+        let random_range = if let Some(random_range) = matches.value_of("random-range") {
+            Some(parse_u32(random_range)?)
+        } else {
+            None
+        };
+
+        let messible_address = if let Some(messible_address) = matches.value_of("messible-address")
+        {
+            Some(parse_u32(messible_address)?)
+        } else {
+            None
+        };
+
+        let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset")
+        {
+            parse_u32(debug_offset)?
+        } else {
+            0xf00f0000
+        };
+
         if memory_address.is_none() && server_kind == ServerKind::None {
             Err(ConfigError::NoOperationSpecified)
-        }
-        else {
+        } else {
             Ok(Config {
                 usb_pid,
                 usb_vid,
                 serial_port,
                 serial_baud,
+                spi_pins,
                 memory_address,
                 memory_value,
                 server_kind,
@@ -145,7 +205,56 @@ impl Config {
                 bind_addr,
                 random_loops,
                 random_address,
+                random_range,
+                messible_address,
+                register_mapping,
+                debug_offset,
+                load_name,
+                load_addr,
             })
         }
+    }
+
+    fn parse_csr_csv(filename: Option<&str>) -> HashMap<String, u32> {
+        let mut map = HashMap::new();
+        let file = match filename {
+            None => return map,
+            Some(s) => match File::open(s) {
+                Ok(o) => o,
+                Err(e) => panic!("Unable to open csr-csv file: {}", e),
+            }
+        };
+        let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(file);
+        for result in rdr.records() {
+            if let Ok(r) = result {
+                if &r[0] != "csr_register" {
+                    continue;
+                }
+                let reg_name = &r[1];
+                let base_addr = match parse_u32(&r[2]) {
+                    Ok(o) => o,
+                    Err(e) => panic!("Couldn't parse csr-csv base address: {:?}", e),
+                };
+                let num_regs = match parse_u32(&r[3]) {
+                    Ok(o) => o,
+                    Err(e) => panic!("Couldn't parse csr-csv number of registers: {:?}", e),
+                };
+
+                // If there's only one register, add it to the map.
+                // However, CSRs can span multiple registers, and do so in reverse.
+                // If this is the case, create indexed offsets for those registers.
+                match num_regs {
+                    1 => {
+                        map.insert(reg_name.to_string().to_lowercase(), base_addr);
+                    },
+                    n => {
+                        for offset in 0..n {
+                            map.insert(format!("{}{}", reg_name.to_string().to_lowercase(), n - offset - 1), base_addr+(offset*4));
+                        }
+                    }
+                }
+            }
+        }
+        map
     }
 }

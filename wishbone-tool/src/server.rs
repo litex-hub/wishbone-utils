@@ -10,7 +10,10 @@ use log::{error, info};
 extern crate rand;
 use rand::prelude::*;
 
+use byteorder::{LittleEndian, ReadBytesExt};
+
 use std::io;
+use std::fs::File;
 use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
@@ -28,6 +31,9 @@ pub enum ServerKind {
 
     /// Send random data back and forth
     RandomTest,
+
+    /// Load a file into memory
+    LoadFile,
 }
 
 #[derive(Debug)]
@@ -78,14 +84,62 @@ impl ServerKind {
                 "gdb" => Ok(ServerKind::GDB),
                 "wishbone" => Ok(ServerKind::Wishbone),
                 "random-test" => Ok(ServerKind::RandomTest),
+                "load-file" => Ok(ServerKind::LoadFile),
                 unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
             },
         }
     }
 }
 
+/// Poll the Messible at the address specified.
+/// Return `true` if there is still data to be read
+/// after returning.
+fn poll_messible(
+    messible_address: &Option<u32>,
+    bridge: &bridge::Bridge,
+    gdb_controller: &mut gdb::GdbController,
+) -> bool {
+    let addr = match messible_address {
+        None => return false,
+        Some(s) => s,
+    };
+
+    let mut data: Vec<u8> = vec![];
+    let max_bytes = 64;
+    while data.len() < max_bytes {
+        let status = match bridge.peek(addr + 8) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+
+        if status & 2 == 0 {
+            break;
+        }
+
+        let b = match bridge.peek(addr + 4) {
+            Ok(b) => b as u8,
+            Err(_) => return false,
+        };
+
+        data.push(b);
+    }
+
+    let s = match std::str::from_utf8(&data) {
+        Ok(o) => o,
+        Err(_) => "[invalid string]",
+    };
+    gdb_controller.print_string(s).ok();
+
+    // Re-examine the Messible and determine if we still have data
+    match bridge.peek(addr + 8) {
+        Ok(b) => (b & 2) != 0,
+        Err(_) => false,
+    }
+}
+
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
-    let cpu = riscv::RiscvCpu::new(&bridge)?;
+    let cpu = riscv::RiscvCpu::new(&bridge, cfg.debug_offset)?;
+    let messible_address = cfg.messible_address;
     loop {
         let connection = {
             let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)) {
@@ -131,15 +185,26 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
         thread::spawn(move || loop {
             let mut had_error = false;
             loop {
-                if let Err(e) = cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
-                    if !had_error {
-                        error!("error while polling bridge: {:?}", e);
-                        had_error = true;
+                let mut do_pause = true;
+                match cpu_controller.poll(&poll_bridge, &mut gdb_controller) {
+                    Err(e) => {
+                        if !had_error {
+                            error!("error while polling bridge: {:?}", e);
+                            had_error = true;
+                        }
                     }
-                } else {
-                    had_error = false;
+                    Ok(running) => {
+                        had_error = false;
+                        // If there's a messible available, poll it.
+                        if running {
+                            do_pause = ! poll_messible(&messible_address, &poll_bridge, &mut gdb_controller);
+                        }
+                    }
                 }
-                thread::park_timeout(Duration::from_millis(200));
+
+                if do_pause {
+                    thread::park_timeout(Duration::from_millis(200));
+                }
             }
         });
 
@@ -165,11 +230,60 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
 
 pub fn wishbone_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
+    let messible_address = cfg.messible_address;
+
     loop {
         if let Err(e) = wishbone.connect() {
             error!("Unable to connect to Wishbone bridge: {:?}", e);
             return Err(ServerError::WishboneError(e));
         }
+
+        // If there's a messible address specified, enable printf-style debugging.
+        if let Some(addr) = messible_address {
+            let poll_bridge = bridge.clone();
+            thread::spawn(move || loop {
+                let mut data: Vec<u8> = vec![];
+                let max_bytes = 64;
+                while data.len() < max_bytes {
+                    // Get the status to see if it's empty.
+                    let status = match poll_bridge.peek(addr + 8) {
+                        Ok(b) => b,
+                        Err(_) => return false,
+                    };
+
+                    // If the messible is empty, stop filling the buffer.
+                    if status & 2 == 0 {
+                        break;
+                    }
+
+                    // It's not empty, so grab the next character
+                    let b = match poll_bridge.peek(addr + 4) {
+                        Ok(b) => b as u8,
+                        Err(_) => return false,
+                    };
+
+                    data.push(b);
+                }
+
+                let s = match std::str::from_utf8(&data) {
+                    Ok(o) => o,
+                    Err(_) => "[invalid string]",
+                };
+                print!("{}", s);
+
+                // Re-examine the Messible and determine if we still have data
+                let do_pause = match poll_bridge.peek(addr + 8) {
+                    Ok(b) => (b & 2) == 0,
+                    Err(_) => return false,
+                };
+
+                // If there's no more data, pause for a short time.
+                if do_pause {
+                    thread::park_timeout(Duration::from_millis(200));
+                }
+            });
+        }
+
         loop {
             if let Err(e) = wishbone.process(&bridge) {
                 println!("Error in Wishbone server: {:?}", e);
@@ -185,20 +299,28 @@ pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerErro
         Some(s) => s,
         None => 0x10000000 + 8192,
     };
-    info!("writing random values to 0x{:08x}", random_addr);
+    let random_range =match cfg.random_range {
+        Some(s) => s,
+        None => 0,
+    };
+    info!("writing random values to 0x{:08x} - 0x{:08x}", random_addr, random_addr + random_range);
     loop {
         let val = random::<u32>();
-        bridge.poke(random_addr, val)?;
-        let cmp = bridge.peek(random_addr)?;
+        let extra_addr = match cfg.random_range {
+            Some(s) => (random::<u32>() % s) & !3,
+            None => 0,
+        };
+        bridge.poke(random_addr + extra_addr, val)?;
+        let cmp = bridge.peek(random_addr + extra_addr)?;
         if cmp != val {
             error!(
-                "loop {}: expected {:08x}, got {:08x}",
-                loop_counter, val, cmp
+                "loop {} @ 0x{:08x}: expected 0x{:08x}, got 0x{:08x}",
+                loop_counter, random_addr + extra_addr, val, cmp
             );
             return Err(ServerError::RandomValueError(loop_counter, val, cmp));
         }
         if (loop_counter % 1000) == 0 {
-            info!("loop: {} ({:08x})", loop_counter, val);
+            info!("loop: {} @ 0x{:08x} (0x{:08x})", loop_counter, extra_addr + random_addr, val);
         }
         loop_counter = loop_counter.wrapping_add(1);
         if let Some(max_loops) = cfg.random_loops {
@@ -223,6 +345,36 @@ pub fn memory_access(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerEr
         println!(
             "Try specifying an address such as \"0x10000000\".  See --help for more information"
         );
+    }
+    Ok(())
+}
+
+pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+    let mut loop_counter: u32 = 0;
+    if let Some(file_name) = cfg.load_name {
+        if let Some(addr) = cfg.load_addr {
+            info!("Loading {} values to 0x{:08x}", file_name, addr);
+            let mut f = File::open(file_name)?;
+            let f_len = f.metadata().unwrap().len() as u32;
+            loop {
+                let value = match f.read_u32::<LittleEndian>() {
+                    Ok(x) => x,
+                    Err(e) => {
+                        error!("Error reading: {}", e);
+                        return Ok(())
+                    }
+                };
+                if (loop_counter % 1024) == 0 {
+                    info!("write to {:08x}: ({:08x}) - {}%", addr + loop_counter, value, (loop_counter * 100 / f_len));
+                }
+                bridge.poke(addr + loop_counter, value)?;
+                loop_counter = loop_counter.wrapping_add(4);
+            }
+        } else {
+            error!("No load address specified");
+        }
+    } else {
+        println!("No filename specified!");
     }
     Ok(())
 }

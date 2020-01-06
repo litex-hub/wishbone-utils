@@ -11,16 +11,29 @@ use log::{debug, error, info};
 use serial::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::bridge::BridgeError;
-use super::config::Config;
+use super::BridgeError;
+use crate::config::Config;
 
-#[derive(Clone)]
 pub struct UartBridge {
     path: String,
     baudrate: usize,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
+    poll_thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Clone for UartBridge {
+    fn clone(&self) -> Self {
+        UartBridge {
+            path: self.path.clone(),
+            baudrate: self.baudrate.clone(),
+            main_tx: self.main_tx.clone(),
+            main_rx: self.main_rx.clone(),
+            mutex: self.mutex.clone(),
+            poll_thread: None,
+        }
+    }
 }
 
 enum ConnectThreadRequests {
@@ -32,6 +45,7 @@ enum ConnectThreadRequests {
 
 #[derive(Debug)]
 enum ConnectThreadResponses {
+    Exiting,
     OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
     PokeResult(Result<(), BridgeError>),
@@ -50,9 +64,9 @@ impl UartBridge {
 
         let thr_cv = cv.clone();
         let thr_path = path.clone();
-        thread::spawn(move || {
+        let poll_thread = Some(thread::spawn(move || {
             Self::serial_connect_thread(thr_cv, thread_rx, thr_path, baudrate)
-        });
+        }));
 
         Ok(UartBridge {
             path,
@@ -60,6 +74,7 @@ impl UartBridge {
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
+            poll_thread,
         })
     }
 
@@ -104,7 +119,7 @@ impl UartBridge {
             if let Err(e) = port.set_timeout(Duration::from_millis(1000)) {
                 error!("unable to set port duration timeout: {}", e);
             }
-        
+
             let mut keep_going = true;
             while keep_going {
                 let var = rx.recv();
@@ -115,7 +130,9 @@ impl UartBridge {
                     },
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
-                            debug!("usb_connect_thread requested exit");
+                            debug!("serial_connect_thread requested exit");
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
+                            cvar.notify_one();
                             return;
                         }
                         ConnectThreadRequests::StartPolling(p, v) => {
@@ -148,6 +165,8 @@ impl UartBridge {
                     Err(TryRecvError::Disconnected) => panic!("main thread disconnected"),
                     Ok(m) => match m {
                         ConnectThreadRequests::Exit => {
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
+                            cvar.notify_one();
                             debug!("main thread requested exit");
                             return;
                         }
@@ -205,15 +224,23 @@ impl UartBridge {
     ) -> Result<(), BridgeError> {
         // WRITE, 1 word
         serial.write(&[0x01, 0x01])?;
-        serial.write_u32::<BigEndian>(addr)?;
+
+        // LiteX ignores the bottom two Wishbone bits, so shift it by
+        // two when writing the address.
+        serial.write_u32::<BigEndian>(addr >> 2)?;
         Ok(serial.write_u32::<BigEndian>(value)?)
     }
 
     fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
         // READ, 1 word
         serial.write(&[0x02, 0x01])?;
-        serial.write_u32::<BigEndian>(addr)?;
-        Ok(serial.read_u32::<BigEndian>()?)
+
+        // LiteX ignores the bottom two Wishbone bits, so shift it by
+        // two when writing the address.
+        serial.write_u32::<BigEndian>(addr >> 2)?;
+
+        let val = serial.read_u32::<BigEndian>()?;
+        Ok(val)
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
@@ -259,12 +286,29 @@ impl Drop for UartBridge {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.
-        if Arc::strong_count(&self.mutex) + Arc::weak_count(&self.mutex) <= 1 {
-            let &(ref lock, ref _cvar) = &*self.main_rx;
-            let mut _mtx = lock.lock().unwrap();
+        let sc = Arc::strong_count(&self.mutex);
+        let wc = Arc::weak_count(&self.mutex);
+        debug!("strong count: {}  weak count: {}", sc, wc);
+        if (sc + wc) <= 1 {
+            let &(ref lock, ref cvar) = &*self.main_rx;
+            let mut mtx = lock.lock().unwrap();
             self.main_tx
                 .send(ConnectThreadRequests::Exit)
                 .expect("Unable to send Exit request to thread");
+
+            *mtx = None;
+            while mtx.is_none() {
+                mtx = cvar.wait(mtx).unwrap();
+            }
+            match mtx.take() {
+                Some(ConnectThreadResponses::Exiting) => (),
+                e => {
+                    error!("unexpected bridge exit response: {:?}", e);
+                }
+            }
+            if let Some(pt) = self.poll_thread.take() {
+                pt.join().expect("Unable to join polling thread");
+            }
         }
     }
 }

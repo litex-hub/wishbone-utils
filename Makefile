@@ -1,11 +1,11 @@
-PROG = litex-devmem2
-OBJS = litex-devmem2.o etherbone.o
-
-CFLAGS ?= -O2 -g
-CFLAGS += -MMD -Wall -Wextra
-
 PREFIX ?= /usr/local
 BINDIR ?= ${PREFIX}/bin
+
+PROG = litex-devmem2
+OBJS = litex-devmem2.o etherbone.o
+CFLAGS ?= -O2 -g
+CFLAGS += -MMD -Wall -Wextra
+CC ?= gcc
 
 ${PROG}: ${OBJS}
 	${CC} ${CFLAGS} -o $@ ${OBJS}

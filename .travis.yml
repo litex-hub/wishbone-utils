@@ -49,7 +49,7 @@ matrix:
     - env: TARGET=mipsel-unknown-linux-gnu
     - env: TARGET=powerpc-unknown-linux-gnu
     - env: TARGET=powerpc64-unknown-linux-gnu
-    - env: TARGET=powerpc64le-unknown-linux-gnu
+    - env: TARGET=powerpc64le-unknown-linux-gnu DISABLE_TESTS=1
     - env: TARGET=s390x-unknown-linux-gnu DISABLE_TESTS=1
     - env: TARGET=x86_64-unknown-linux-gnu
     # - env: TARGET=x86_64-unknown-linux-musl
@@ -81,9 +81,9 @@ matrix:
     # Testing other channels
     - env: TARGET=x86_64-unknown-linux-gnu
       rust: nightly
-    - env: TARGET=x86_64-apple-darwin
-      os: osx
-      rust: nightly
+    # - env: TARGET=x86_64-apple-darwin
+    #   os: osx
+    #   rust: nightly
 
 before_install:
   - set -e

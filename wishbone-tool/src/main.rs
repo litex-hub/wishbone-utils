@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate bitflags;
-
 #[macro_use]
 extern crate clap;
+extern crate csv;
 extern crate libusb;
 extern crate rand;
 
@@ -15,8 +15,6 @@ mod config;
 mod gdb;
 mod riscv;
 mod server;
-mod uart_bridge;
-mod usb_bridge;
 mod wishbone;
 
 use bridge::Bridge;
@@ -126,13 +124,22 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("spi-pins")
+                .short("g")
+                .long("spi-pins")
+                .value_delimiter("PINS")
+                .help("GPIO pins to use for MISO,MOSI,CLK,CS_N (e.g. 2,3,4,18)")
+                .display_order(6)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("address")
                 .index(1)
                 .required_unless("server-kind")
                 .conflicts_with("server-kind")
                 .required_unless("list")
                 .conflicts_with("list")
-                .display_order(6)
+                .display_order(7)
                 .help("address to read/write"),
         )
         .arg(
@@ -140,7 +147,7 @@ fn main() {
                 .value_name("value")
                 .index(2)
                 .required(false)
-                .display_order(6)
+                .display_order(8)
                 .help("value to write"),
         )
         .arg(
@@ -149,7 +156,7 @@ fn main() {
                 .long("bind-addr")
                 .value_name("IP_ADDRESS")
                 .help("IP address to bind to")
-                .default_value("0.0.0.0")
+                .default_value("127.0.0.1")
                 .display_order(2)
                 .takes_value(true),
         )
@@ -175,20 +182,63 @@ fn main() {
                 .conflicts_with("list")
                 .help("which server to run (if any)")
                 .display_order(1)
-                .possible_values(&["gdb", "wishbone", "random-test"]),
+                .possible_values(&["gdb", "wishbone", "random-test", "load-file"]),
+        )
+        .arg(
+            Arg::with_name("load-name")
+                .long("load-name")
+                .help("A file to load into RAM")
+                .takes_value(true)
+                .display_order(13),
+        )
+        .arg(
+            Arg::with_name("load-address")
+                .long("load-address")
+                .help("Address for file to load")
+                .takes_value(true)
+                .display_order(13),
         )
         .arg(
             Arg::with_name("random-loops")
                 .long("random-loops")
                 .help("number of loops to run when doing a random-test")
-                .display_order(7)
+                .display_order(9)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("random-range")
+                .long("random-range")
+                .help("the size of the random address range (i.e. how many bytes to randomly add to the address)")
+                .display_order(9)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("messible-address")
+                .long("messible-address")
+                .help("address to use to get messible messages from")
+                .display_order(9)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("csr-csv")
+                .long("csr-csv")
+                .help("csr.csv file containing register mappings")
+                .display_order(9)
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("random-address")
                 .long("random-address")
                 .help("address to write to when doing a random-test")
-                .display_order(7)
+                .display_order(10)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("debug-offset")
+                .long("debug-offset")
+                .help("address to use for debug bridge")
+                .default_value("0xf00f0000")
+                .display_order(11)
                 .takes_value(true),
         )
         .get_matches();
@@ -211,19 +261,22 @@ fn main() {
                 config::ConfigError::UnknownServerKind(s) => {
                     error!("unknown server '{}', see --help", s)
                 }
+                config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
             }
             process::exit(1);
         }
     };
 
-    let bridge = Bridge::new(&cfg).unwrap();
-    bridge.connect().unwrap();
-
-    let retcode = match cfg.server_kind {
-        ServerKind::GDB => server::gdb_server(cfg, bridge),
-        ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
-        ServerKind::RandomTest => server::random_test(cfg, bridge),
-        ServerKind::None => server::memory_access(cfg, bridge),
+    let retcode = {
+        let bridge = Bridge::new(&cfg).unwrap();
+        bridge.connect().unwrap();
+        match cfg.server_kind {
+            ServerKind::GDB => server::gdb_server(cfg, bridge),
+            ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
+            ServerKind::RandomTest => server::random_test(cfg, bridge),
+            ServerKind::LoadFile => server::load_file(cfg, bridge),
+            ServerKind::None => server::memory_access(cfg, bridge),
+        }
     };
     if let Err(e) = retcode {
         error!("server error: {:?}", e);

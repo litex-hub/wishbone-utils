@@ -11,6 +11,8 @@ use log::{debug, error, info};
 use crate::gdb::byteorder::ByteOrder;
 use byteorder::{BigEndian, NativeEndian};
 
+const SUPPORTED_QUERIES: &[u8] = b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;qXfer:memory-map:read-;QStartNoAckMode+;vContSupported+";
+
 pub struct GdbController {
     connection: TcpStream,
 }
@@ -47,6 +49,19 @@ impl GdbController {
         self.connection.write(&to_write)?;
         Ok(())
     }
+
+
+    pub fn print_string(&mut self, msg: &str) -> io::Result<()> {
+        debug!("Printing string {} to GDB", msg);
+        let mut strs: Vec<String> = msg
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect();
+        strs.insert(0, "O".to_string());
+        let joined = strs.join("");
+        self.gdb_send(joined.as_bytes())
+    }
 }
 
 pub struct GdbServer {
@@ -63,6 +78,41 @@ fn swab(src: u32) -> u32 {
         | (src >> 24) & 0x000000ff
 }
 
+pub fn parse_u32(value: &str) -> Result<u32, GdbServerError> {
+    match u32::from_str_radix(value, 16) {
+        Ok(o) => Ok(o),
+        Err(e) => Err(GdbServerError::NumberParseError(value.to_owned(), e)),
+    }
+}
+
+pub fn parse_i32(value: &str) -> Result<i32, GdbServerError> {
+    match i32::from_str_radix(value, 16) {
+        Ok(o) => Ok(o),
+        Err(e) => Err(GdbServerError::NumberParseError(value.to_owned(), e)),
+    }
+}
+
+fn gdb_unescape(input: &[u8]) -> Vec<u8> {
+    let mut out = input.to_vec();
+    out.iter_mut().fold(&mut Vec::new(), |vec_acc, this_u8| {
+        if vec_acc.last() == Some(&('}' as u8)) {
+            let len = vec_acc.len();
+            vec_acc[len - 1] = *this_u8 ^ 0x20;
+        } else {
+            vec_acc.push(*this_u8);
+        }
+        vec_acc
+    });
+    out
+}
+
+pub fn parse_u64(value: &str) -> Result<u64, GdbServerError> {
+    match u64::from_str_radix(value, 16) {
+        Ok(o) => Ok(o),
+        Err(e) => Err(GdbServerError::NumberParseError(value.to_owned(), e)),
+    }
+}
+
 #[derive(Debug)]
 pub enum GdbServerError {
     /// Rust standard IO error
@@ -72,13 +122,19 @@ pub enum GdbServerError {
     ConnectionClosed,
 
     /// We were unable to parse an integer
-    ParseIntError,
+    NumberParseError(String, std::num::ParseIntError),
 
     /// Something happened with the CPU
     CpuError(RiscvCpuError),
 
     /// The bridge failed somehow
     BridgeError(BridgeError),
+
+    /// Something strange was received
+    ProtocolError,
+
+    /// Client tried to give us a breakpoint we didn't recognize
+    UnknownBreakpointType(String),
 }
 
 impl std::convert::From<BridgeError> for GdbServerError {
@@ -99,12 +155,6 @@ impl std::convert::From<io::Error> for GdbServerError {
     }
 }
 
-impl std::convert::From<std::num::ParseIntError> for GdbServerError {
-    fn from(_e: std::num::ParseIntError) -> Self {
-        GdbServerError::ParseIntError
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum BreakPointType {
     BreakSoft,
@@ -122,7 +172,7 @@ impl BreakPointType {
             "2" => Ok(BreakPointType::WatchWrite),
             "3" => Ok(BreakPointType::WatchRead),
             "4" => Ok(BreakPointType::WatchAccess),
-            _ => Err(GdbServerError::ParseIntError),
+            c => Err(GdbServerError::UnknownBreakpointType(c.to_string())),
         }
     }
 }
@@ -180,9 +230,9 @@ pub enum GdbCommand {
 
     /// M#,#:#
     WriteMemory(
-        u32, /* addr */
-        u32, /* length */
-        u32, /* value */
+        u32,      /* addr */
+        u32,      /* length */
+        Vec<u32>, /* value */
     ),
 
     /// vCont?
@@ -226,6 +276,9 @@ pub enum GdbCommand {
     /// qOffsets
     GetOffsets,
 
+    /// qXfer:memory-map:read::
+    ReadMemoryMap(u32 /* offset */, u32 /* len */),
+
     /// qXfer:features:read:target.xml:0,1000
     ReadFeature(
         String, /* filename */
@@ -250,9 +303,9 @@ impl GdbServer {
         })
     }
 
-    fn packet_to_command(&self, pkt: &[u8]) -> Result<GdbCommand, GdbServerError> {
-        let pkt = String::from_utf8_lossy(pkt).to_string();
-        // debug!("Raw GDB packet: {}", pkt);
+    fn packet_to_command(&self, raw_pkt: &[u8]) -> Result<GdbCommand, GdbServerError> {
+        let pkt = String::from_utf8_lossy(raw_pkt).to_string();
+        debug!("Raw GDB packet: {}", pkt);
 
         if pkt == "qSupported" || pkt.starts_with("qSupported:") {
             Ok(GdbCommand::SupportedQueries(pkt))
@@ -266,32 +319,38 @@ impl GdbServer {
             Ok(GdbCommand::GetOffsets)
         } else if pkt == "qTStatus" {
             Ok(GdbCommand::TraceStatusQuery)
+        } else if pkt.starts_with("qXfer:memory-map:read::") {
+            let pkt = pkt.trim_start_matches("qXfer:memory-map:read::");
+            let offsets: Vec<&str> = pkt.split(',').collect();
+            let offset = parse_u32(offsets[0])?;
+            let len = parse_u32(offsets[1])?;
+            Ok(GdbCommand::ReadMemoryMap(offset, len))
         } else if pkt.starts_with("qXfer:features:read:") {
             let pkt = pkt.trim_start_matches("qXfer:features:read:");
             let fields: Vec<&str> = pkt.split(':').collect();
             let offsets: Vec<&str> = fields[1].split(',').collect();
-            let offset = u32::from_str_radix(offsets[0], 16)?;
-            let len = u32::from_str_radix(offsets[1], 16)?;
+            let offset = parse_u32(offsets[0])?;
+            let len = parse_u32(offsets[1])?;
             Ok(GdbCommand::ReadFeature(fields[0].to_string(), offset, len))
         } else if pkt.starts_with("qXfer:threads:read::") {
             let pkt = pkt.trim_start_matches("qXfer:threads:read::");
             let offsets: Vec<&str> = pkt.split(',').collect();
-            let offset = u32::from_str_radix(offsets[0], 16)?;
-            let len = u32::from_str_radix(offsets[1], 16)?;
+            let offset = parse_u32(offsets[0])?;
+            let len = parse_u32(offsets[1])?;
             Ok(GdbCommand::ReadThreads(offset, len))
         } else if pkt.starts_with("Z") {
             let pkt = pkt.trim_start_matches("Z");
             let fields: Vec<&str> = pkt.split(',').collect();
             let bptype = BreakPointType::from_str(fields[0])?;
-            let address = u32::from_str_radix(fields[1], 16)?;
-            let size = u32::from_str_radix(fields[2], 16)?;
+            let address = parse_u32(fields[1])?;
+            let size = parse_u32(fields[2])?;
             Ok(GdbCommand::AddBreakpoint(bptype, address, size))
         } else if pkt.starts_with("z") {
             let pkt = pkt.trim_start_matches("z");
             let fields: Vec<&str> = pkt.split(',').collect();
             let bptype = BreakPointType::from_str(fields[0])?;
-            let address = u32::from_str_radix(fields[1], 16)?;
-            let size = u32::from_str_radix(fields[2], 16)?;
+            let address = parse_u32(fields[1])?;
+            let size = parse_u32(fields[2])?;
             Ok(GdbCommand::RemoveBreakpoint(bptype, address, size))
         } else if pkt.starts_with("qRcmd,") {
             let pkt = pkt.trim_start_matches("qRcmd,");
@@ -323,8 +382,8 @@ impl GdbServer {
         } else if pkt.starts_with("P") {
             let pkt = pkt.trim_start_matches("P").to_string();
             let v: Vec<&str> = pkt.split('=').collect();
-            let addr = u32::from_str_radix(v[0], 16)?;
-            let value = swab(u32::from_str_radix(v[1], 16)?);
+            let addr = parse_u32(v[0])?;
+            let value = swab(parse_u32(v[1])?);
             Ok(GdbCommand::SetRegister(addr, value))
         } else if pkt == "c" {
             Ok(GdbCommand::Continue)
@@ -333,31 +392,71 @@ impl GdbServer {
         } else if pkt.starts_with("m") {
             let pkt = pkt.trim_start_matches("m").to_string();
             let v: Vec<&str> = pkt.split(',').collect();
-            let addr = u32::from_str_radix(v[0], 16)?;
-            let length = u32::from_str_radix(v[1], 16)?;
+            let addr = parse_u32(v[0])?;
+            let length = parse_u32(v[1])?;
             Ok(GdbCommand::ReadMemory(addr, length))
         } else if pkt.starts_with("M") {
             let pkt = pkt.trim_start_matches("M").to_string();
             let d: Vec<&str> = pkt.split(':').collect();
             let v: Vec<&str> = d[0].split(',').collect();
-            let addr = u32::from_str_radix(v[0], 16)?;
-            let length = u32::from_str_radix(v[1], 16)?;
-            let value = swab(u32::from_str_radix(d[1], 16)?);
-            Ok(GdbCommand::WriteMemory(addr, length, value))
+            let addr = parse_u32(v[0])?;
+            let length = parse_u32(v[1])?;
+            let value = swab(parse_u32(d[1])?);
+            Ok(GdbCommand::WriteMemory(addr, length, vec![value]))
+        } else if pkt.starts_with("X") {
+            let (_opcode, data) = match raw_pkt.split_first() {
+                None => return Err(GdbServerError::ProtocolError),
+                Some(s) => s,
+            };
+            // Packet format: Xaddr,count:data
+            // Look for ":"
+            let mut delimiter_offset = None;
+            for (idx, c) in data.iter().enumerate() {
+                if *c == ':' as u8 {
+                    delimiter_offset = Some(idx);
+                    break;
+                }
+            }
+            let delimiter_offset = match delimiter_offset {
+                Some(s) => s,
+                None => return Err(GdbServerError::ProtocolError),
+            };
+            // warn!("X command: Not doing GDB unescaping");
+            let (description, bin_data_plus) = data.split_at(delimiter_offset);
+            let bin_data_plus = bin_data_plus.split_first();
+            let description = String::from_utf8_lossy(&description).to_string();
+            let v: Vec<&str> = description.split(',').collect();
+            let addr = parse_u32(v[0])?;
+            let length = parse_u32(v[1])?;
+
+            let mut values = vec![];
+            if let Some((_delimiter, bin_data)) = bin_data_plus {
+                let bin_data = gdb_unescape(bin_data);
+                for value in bin_data.chunks_exact(4) {
+                    values.push(swab(BigEndian::read_u32(&value)));
+                }
+                let remainder = bin_data.chunks_exact(4).remainder();
+                if remainder.len() > 0 {
+                    let mut remainder = remainder.to_vec();
+                    while remainder.len() < 4 {
+                        remainder.insert(0, 0);
+                    }
+                    // remainder.resize(4, 0);
+                    values.push(swab(BigEndian::read_u32(&remainder)));
+                }
+            }
+            Ok(GdbCommand::WriteMemory(addr, length, values))
         } else if pkt.starts_with("p") {
-            Ok(GdbCommand::GetRegister(u32::from_str_radix(
+            Ok(GdbCommand::GetRegister(parse_u32(
                 pkt.trim_start_matches("p"),
-                16,
             )?))
         } else if pkt.starts_with("Hg") {
-            Ok(GdbCommand::SetCurrentThread(u64::from_str_radix(
+            Ok(GdbCommand::SetCurrentThread(parse_u64(
                 pkt.trim_start_matches("Hg"),
-                16,
             )?))
         } else if pkt.starts_with("Hc") {
-            Ok(GdbCommand::ContinueThread(i32::from_str_radix(
+            Ok(GdbCommand::ContinueThread(parse_i32(
                 pkt.trim_start_matches("Hc"),
-                16,
             )?))
         } else if pkt == "qC" {
             Ok(GdbCommand::GetCurrentThreadId)
@@ -464,9 +563,11 @@ impl GdbServer {
         bridge: &Bridge,
     ) -> Result<(), GdbServerError> {
         match cmd {
-            // qXfer:memory-map:read+;
-            GdbCommand::SupportedQueries(_) => self.gdb_send(b"PacketSize=3fff;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;vContSupported+")?,
-            GdbCommand::StartNoAckMode => { self.no_ack_mode = true; self.gdb_send(b"OK")?},
+            GdbCommand::SupportedQueries(_) => self.gdb_send(SUPPORTED_QUERIES)?,
+            GdbCommand::StartNoAckMode => {
+                self.no_ack_mode = true;
+                self.gdb_send(b"OK")?
+            }
             GdbCommand::SetCurrentThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::ContinueThread(_) => self.gdb_send(b"OK")?,
             GdbCommand::AddBreakpoint(_bptype, address, _size) => {
@@ -475,23 +576,30 @@ impl GdbServer {
                     Err(RiscvCpuError::BreakpointExhausted) => {
                         error!("No available breakpoint found");
                         "E0E"
-                    },
+                    }
                     Err(e) => {
-                        error!("An error occurred while trying to add the breakpoint: {:?}", e);
-                        "EOE"
-                    },
+                        error!(
+                            "An error occurred while trying to add the breakpoint: {:?}",
+                            e
+                        );
+                        "E0E"
+                    }
                 };
                 self.gdb_send(response.as_bytes())?;
-            },
+            }
             GdbCommand::TraceStatusQuery => self.gdb_send(b"")?,
             GdbCommand::RemoveBreakpoint(_bptype, address, _size) => {
                 cpu.remove_breakpoint(bridge, address)?;
                 self.gdb_send(b"OK")?
-            },
+            }
             GdbCommand::LastSignalPacket => {
                 let sig_str = format!("S{:02x}", self.last_signal);
-                self.gdb_send(if self.is_alive { sig_str.as_bytes() } else { b"W00" })?
-            },
+                self.gdb_send(if self.is_alive {
+                    sig_str.as_bytes()
+                } else {
+                    b"W00"
+                })?
+            }
             GdbCommand::GetThreadInfo => self.gdb_send(b"l")?,
             GdbCommand::GetCurrentThreadId => self.gdb_send(b"QC0")?,
             GdbCommand::CheckIsAttached => self.gdb_send(b"1")?,
@@ -502,7 +610,8 @@ impl GdbServer {
             GdbCommand::GetRegisters => {
                 let mut register_list = String::new();
                 for i in 0..33 {
-                    register_list.push_str(format!("{:08x}", swab(cpu.read_register(bridge, i)?)).as_str());
+                    register_list
+                        .push_str(format!("{:08x}", swab(cpu.read_register(bridge, i)?)).as_str());
                 }
                 self.gdb_send(register_list.as_bytes())?
             }
@@ -527,80 +636,108 @@ impl GdbServer {
                     let val = cpu.read_memory(bridge, addr, 1)? as u8;
                     out_str.push_str(&format!("{:02x}", val));
                     self.gdb_send(out_str.as_bytes())?
-                }
-                else if len == 2 {
+                } else if len == 2 {
                     let val = cpu.read_memory(bridge, addr, 2)? as u16;
                     let mut buf = [0; 2];
                     BigEndian::write_u16(&mut buf, val);
                     out_str.push_str(&format!("{:04x}", NativeEndian::read_u16(&buf)));
                     self.gdb_send(out_str.as_bytes())?
-                }
-                else if len == 4 {
+                } else if len == 4 {
                     values.push(cpu.read_memory(bridge, addr, 4)?);
                     self.gdb_send_u32(values)?
-                }
-                else {
-                    for offset in (0 .. len).step_by(4) {
+                } else {
+                    for offset in (0..len).step_by(4) {
                         values.push(cpu.read_memory(bridge, addr + offset, 4)?);
+                        if addr + offset >= 0xfffffffc {
+                            break;
+                        }
                     }
                     self.gdb_send_u32(values)?
                 }
-            },
-            GdbCommand::WriteMemory(addr, len, value) => {
-                debug!("Writing memory {:08x} -> {:08x}", addr, value);
+            }
+            GdbCommand::WriteMemory(addr, len, values) => {
                 if len == 1 {
-                    cpu.write_memory(bridge, addr, 1, value >> 24)?;
-                }
-                else if len == 2 {
-                    cpu.write_memory(bridge, addr, 2, value >> 16)?;
-                }
-                else if len == 4 {
-                    cpu.write_memory(bridge, addr, 4, value)?;
-                }
-                else {
-                    for offset in (0 .. len).step_by(4) {
-                        cpu.write_memory(bridge, addr + offset, 4, value)?;
+                    debug!("Writing memory {:08x} -> {:08x}", addr, values[0] >> 24);
+                    cpu.write_memory(bridge, addr, 1, values[0] >> 24)?;
+                } else if len == 2 {
+                    debug!("Writing memory {:08x} -> {:08x}", addr, values[0] >> 16);
+                    cpu.write_memory(bridge, addr, 2, values[0] >> 16)?;
+                } else if len == 4 {
+                    debug!("Writing memory {:08x} -> {:08x}", addr, values[0]);
+                    cpu.write_memory(bridge, addr, 4, values[0])?;
+                } else {
+                    for (offset, value) in values.iter().enumerate() {
+                        debug!("Writing memory {:08x} -> {:08x}", addr, values[offset]);
+                        cpu.write_memory(bridge, addr + (offset as u32 * 4), 4, *value)?;
                     }
                 }
                 self.gdb_send("OK".as_bytes())?
-            },
+            }
             GdbCommand::VContQuery => self.gdb_send(b"vCont;c;C;s;S")?,
-            GdbCommand::VContContinue => cpu.resume(bridge)?,
-            GdbCommand::VContContinueFromSignal(_) => cpu.resume(bridge)?,
+            GdbCommand::VContContinue => {
+                if let Some(s) = cpu.resume(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                }
+            }
+            GdbCommand::VContContinueFromSignal(_) => {
+                if let Some(s) = cpu.resume(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                }
+            }
             GdbCommand::VContStepFromSignal(_) => {
-                cpu.step(bridge)?;
+                if let Some(s) = cpu.step(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?;
+                }
                 self.last_signal = 5;
                 self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?;
-            },
+            }
             GdbCommand::GetOffsets => self.gdb_send(b"Text=0;Data=0;Bss=0")?,
-            GdbCommand::Continue => cpu.resume(&bridge)?,
-            GdbCommand::Step => cpu.step(&bridge)?,
+            GdbCommand::Continue => {
+                if let Some(s) = cpu.resume(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                }
+            }
+            GdbCommand::Step => {
+                if let Some(s) = cpu.step(bridge)? {
+                    self.print_string(&format!("Note: CPU is currently in a trap: {}\n", s))?
+                }
+            }
             GdbCommand::MonitorCommand(cmd) => {
                 match cmd.as_str() {
                     "reset" => {
                         self.print_string("Resetting CPU...\n")?;
                         cpu.reset(&bridge)?;
-                    },
+                    }
                     "about" => {
                         self.print_string("VexRiscv GDB bridge\n")?;
-                    },
+                    }
+                    "explain" => {
+                        self.print_string(&cpu.explain(&bridge)?)?;
+                    }
                     _ => {
                         self.print_string("Unrecognized monitor command.  Available commands:\n")?;
                         self.print_string("    about           - Information about the bridge\n")?;
+                        self.print_string("    explain         - Explain what the CPU is doing\n")?;
                         self.print_string("    reset           - Reset the CPU\n")?;
-                    },
+                    }
                 }
                 self.gdb_send(b"OK")?
-            },
+            }
             GdbCommand::ReadFeature(filename, offset, len) => {
                 self.gdb_send_file(cpu.get_feature(&filename)?, offset, len)?
-            },
-            GdbCommand::ReadThreads(offset, len) => self.gdb_send_file(cpu.get_threads()?, offset, len)?,
+            }
+            GdbCommand::ReadMemoryMap(_offset, _len) => {
+                // self.gdb_send_file(cpu.get_memory_map()?, offset, len)?
+                self.gdb_send(b"")?
+            }
+            GdbCommand::ReadThreads(offset, len) => {
+                self.gdb_send_file(cpu.get_threads()?, offset, len)?
+            }
             GdbCommand::Interrupt => {
                 self.last_signal = 2;
                 cpu.halt(bridge)?;
-                self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?
-            },
+                self.gdb_send(format!("S{:02x}", self.last_signal).as_bytes())?;
+            }
             GdbCommand::MustReplyEmpty => self.gdb_send(b"")?,
             GdbCommand::Unknown(_) => self.gdb_send(b"")?,
         };
@@ -670,14 +807,14 @@ impl GdbServer {
             if end > data.len() {
                 end = data.len();
             }
-            let mut trimmed_features: Vec<u8> = data.drain(offset..end).collect();
-            if trimmed_features.len() >= len {
+            let mut trimmed_data: Vec<u8> = data.drain(offset..end).collect();
+            if trimmed_data.len() >= len {
                 // XXX should this be <= or < ?
-                trimmed_features.insert(0, 'm' as u8);
+                trimmed_data.insert(0, 'm' as u8);
             } else {
-                trimmed_features.insert(0, 'l' as u8);
+                trimmed_data.insert(0, 'l' as u8);
             }
-            self.gdb_send(&trimmed_features)?;
+            self.gdb_send(&trimmed_data)?;
         }
         Ok(())
     }
