@@ -14,7 +14,7 @@ fn main() {
 
 pub fn compile_native_libusb() {
 	let mut base_config = cc::Build::new();
-	let src_base = var("SRC_BASE").unwrap_or("/usr/src".to_string());
+	let src_base = var("SRC_BASE").unwrap_or(".".to_string());
 
 	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20.c"));
 	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_desc.c"));
