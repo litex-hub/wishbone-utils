@@ -19,7 +19,7 @@ mod wishbone;
 
 use bridge::Bridge;
 
-use clap::{App, Arg};
+use clap::{App, Arg, Shell};
 use config::Config;
 use server::ServerKind;
 
@@ -68,11 +68,8 @@ fn list_usb() -> Result<(), libusb::Error> {
     Ok(())
 }
 
-fn main() {
-    flexi_logger::Logger::with_env_or_str("wishbone_tool=info")
-        .start()
-        .unwrap();
-    let matches = App::new("Wishbone Tool")
+fn clap_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("Wishbone Tool")
         .version(crate_version!())
         .author("Sean Cross <sean@xobs.io>")
         .about("Work with Wishbone devices over various bridges")
@@ -81,12 +78,29 @@ fn main() {
                 .short("l")
                 .long("list")
                 .help("List USB devices in the system")
+                .required_unless("completion")
+                .conflicts_with("completion")
                 .required_unless("address")
                 .conflicts_with("address")
                 .required_unless("server-kind")
                 .conflicts_with("server-kind")
                 .display_order(3)
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("completion")
+                .short("c")
+                .long("completion")
+                .help("Generate shell auto-completion file")
+                .required_unless("list")
+                .conflicts_with("list")
+                .required_unless("address")
+                .conflicts_with("address")
+                .required_unless("server-kind")
+                .conflicts_with("server-kind")
+                .display_order(3)
+                .possible_values(&Shell::variants())
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("pid")
@@ -157,6 +171,8 @@ fn main() {
         .arg(
             Arg::with_name("address")
                 .index(1)
+                .required_unless("completion")
+                .conflicts_with("completion")
                 .required_unless("server-kind")
                 .conflicts_with("server-kind")
                 .required_unless("list")
@@ -198,6 +214,8 @@ fn main() {
                 .long("server")
                 .alias("server-kind")
                 .takes_value(true)
+                .required_unless("completion")
+                .conflicts_with("completion")
                 .required_unless("address")
                 .conflicts_with("address")
                 .required_unless("list")
@@ -263,12 +281,33 @@ fn main() {
                 .display_order(11)
                 .takes_value(true),
         )
-        .get_matches();
+}
+
+fn main() {
+    flexi_logger::Logger::with_env_or_str("wishbone_tool=info")
+        .start()
+        .unwrap();
+    let matches = clap_app().get_matches();
 
     if matches.is_present("list") {
         if list_usb().is_err() {
             println!("USB is not properly configured");
         };
+        return;
+    }
+
+    if let Some(shell_str) = matches.value_of("completion") {
+        use std::io;
+        use std::str::FromStr;
+        let shell = match Shell::from_str(shell_str) {
+            Ok(s) => s,
+            Err(_) => panic!("Unrecognized shell"),
+        };
+        clap_app().gen_completions_to(
+            "wishbone-tool",
+            shell,
+            &mut io::stdout()
+        );
         return;
     }
 
