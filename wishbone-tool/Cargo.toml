@@ -3,6 +3,13 @@ name = "wishbone-tool"
 version = "0.4.8"
 authors = ["Sean Cross <sean@xobs.io>"]
 edition = "2018"
+repository = "https://github.com/litex-hub/wishbone-utils"
+keywords = [ "litex", "wishbone" ]
+license = "APACHE-2.0"
+
+[badges]
+travis-ci = { repository = "litex-hub/wishbone-utils", branch = "master" }
+cirrus-ci = { repository = "litex-hub/wishbone-utils", branch = "master" }
 
 [dependencies]
 bitflags = "1"
