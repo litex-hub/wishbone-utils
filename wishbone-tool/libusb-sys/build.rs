@@ -4,43 +4,27 @@ use std::env::var;
 
 fn main() {
 	let target_os = var("CARGO_CFG_TARGET_OS").unwrap();
-
-	if target_os == "freebsd" {
-		compile_native_libusb();
-	} else {
-		compile_libusb(&target_os);
-	}
-}
-
-pub fn compile_native_libusb() {
-	let mut base_config = cc::Build::new();
-	let src_base = var("SRC_BASE").unwrap_or("freebsd".to_string());
-	let headers = var("CI_FREEBSD_HEADERS").unwrap_or("".to_string());
-
-	if headers != "" {
-		base_config.include(headers);
-		base_config.include("/usr/include");
-		base_config.include("freebsd/lib/libusb/");
-		base_config.include("freebsd/");
-	}
-
-	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20.c"));
-	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_desc.c"));
-	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_ugen20.c"));
-
-	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10.c"));
-	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_desc.c"));
-	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_hotplug.c"));
-	base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_io.c"));
-	base_config.compile("libusb.a");
-}
-
-pub fn compile_libusb(target_os: &str) {
 	let target_family = var("CARGO_CFG_TARGET_FAMILY").unwrap();
 	let target_env = var("CARGO_CFG_TARGET_ENV").unwrap();
 	let target_triple = var("TARGET").unwrap();
 
 	let mut base_config = cc::Build::new();
+
+	if target_os == "freebsd" {
+		let src_base = var("SRC_BASE").unwrap_or("freebsd".to_string());
+
+		base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20.c"));
+		base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_desc.c"));
+		base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb20_ugen20.c"));
+
+		base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10.c"));
+		base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_desc.c"));
+		base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_hotplug.c"));
+		base_config.file(format!("{}{}", src_base, "/lib/libusb/libusb10_io.c"));
+		base_config.compile("libusb.a");
+		return;
+	}
+
 	base_config.include(".");
 	base_config.include("libusb/libusb");
 
