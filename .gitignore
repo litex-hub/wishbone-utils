@@ -3,3 +3,4 @@
 *~
 litex-devmem2
 *.o
+*.d

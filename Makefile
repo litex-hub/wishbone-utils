@@ -1,16 +1,21 @@
-CFLAGS = -O0 -Wall -ggdb2
-CC?= gcc
+PREFIX ?= /usr/local
+BINDIR ?= ${PREFIX}/bin
 
-all: litex-devmem2
+PROG = litex-devmem2
+OBJS = litex-devmem2.o etherbone.o
+CFLAGS ?= -O2 -g
+CFLAGS += -MMD -Wall -Wextra
+CC ?= gcc
 
-etherbone.o: etherbone.c etherbone.h
-	${CC} -c $(CFLAGS) etherbone.c -o etherbone.o
+${PROG}: ${OBJS}
+	${CC} ${CFLAGS} -o $@ ${OBJS}
 
-litex-devmem2.o: litex-devmem2.c etherbone.h
-	${CC} -c $(CFLAGS) litex-devmem2.c -o litex-devmem2.o
-
-litex-devmem2: etherbone.o litex-devmem2.o
-	${CC} $(CFLAGS) etherbone.o litex-devmem2.o -o litex-devmem2
+install:
+	install -D -m 0755 -t ${DESTDIR}${BINDIR} ${PROG}
 
 clean:
-	rm -f etherbone.o litex-devmem2.o
+	rm -f ${PROG} ${OBJS} ${OBJS:.o=.d}
+
+.PHONY: install clean
+
+-include ${OBJS:.o=.d}
