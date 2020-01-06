@@ -60,7 +60,7 @@ pub enum RiscvException {
 
     /// 0 6
     StoreAddressMisaligned(u32 /* mepc */, u32 /* target address */),
-    
+
     /// 0 7
     StoreAccessFault(u32 /* mepc */, u32 /* target address */),
 
@@ -174,7 +174,7 @@ impl RiscvException {
             15 => StorePageFault(mepc, mtval),
             x @ 10 |
             x @ 14 |
-            x @ 15 ..= 0x7fffffff => ReservedFault(x, mepc, mtval),
+            x @ 16 ..= 0x7fffffff => ReservedFault(x, mepc, mtval),
         }
     }
 }

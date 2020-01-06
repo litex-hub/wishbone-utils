@@ -45,11 +45,11 @@ pub type Registration = c_int;
 impl Context {
     /// Opens a new `libusb` context.
     pub fn new() -> ::Result<Self> {
-        let mut context = unsafe { mem::uninitialized() };
+        let mut context =  mem::MaybeUninit::<*mut libusb_context>::uninit();
 
-        try_unsafe!(libusb_init(&mut context));
+        try_unsafe!(libusb_init(context.as_mut_ptr()));
 
-        Ok(Context { context: context })
+        Ok(unsafe { Context { context: context.assume_init() } } )
     }
 
     /// Sets the log level of a `libusb` context.
@@ -88,15 +88,15 @@ impl Context {
 
     /// Returns a list of the current USB devices. The context must outlive the device list.
     pub fn devices<'a>(&'a self) -> ::Result<DeviceList<'a>> {
-        let mut list: *const *mut libusb_device = unsafe { mem::uninitialized() };
+        let mut list = mem::MaybeUninit::<*const *mut libusb_device>::uninit();
 
-        let n = unsafe { libusb_get_device_list(self.context, &mut list) };
+        let n = unsafe { libusb_get_device_list(self.context, list.as_mut_ptr()) };
 
         if n < 0 {
             Err(error::from_libusb(n as c_int))
         }
         else {
-            Ok(unsafe { device_list::from_libusb(self, list, n as usize) })
+            Ok(unsafe { device_list::from_libusb(self, list.assume_init(), n as usize) })
         }
     }
 
@@ -141,8 +141,8 @@ impl Context {
         }
 	}
 
+    /// TODO: fix handler leak
 	pub fn unregister_callback(&self, reg: Registration) {
-		/// TODO: fix handler leak
 		unsafe { libusb_hotplug_deregister_callback(self.context, reg) }
 	}
 
