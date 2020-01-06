@@ -31,4 +31,5 @@ task:
   depends_on: Tests
   environment:
     AUTH_TOKEN: ENCRYPTED[qwerty239abc]
-  script: ./ci/cirrus_deploy.sh
+  install_script: pkg install -y bash
+  deploy_script: ./ci/cirrus_deploy.sh
