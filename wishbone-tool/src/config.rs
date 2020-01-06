@@ -38,6 +38,14 @@ pub fn get_base(value: &str) -> (&str, u32) {
     }
 }
 
+pub fn parse_u8(value: &str) -> Result<u8, ConfigError> {
+    let (value, base) = get_base(value);
+    match u8::from_str_radix(value, base) {
+        Ok(o) => Ok(o),
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e)),
+    }
+}
+
 pub fn parse_u16(value: &str) -> Result<u16, ConfigError> {
     let (value, base) = get_base(value);
     match u16::from_str_radix(value, base) {
@@ -57,6 +65,8 @@ pub fn parse_u32(value: &str) -> Result<u32, ConfigError> {
 pub struct Config {
     pub usb_pid: Option<u16>,
     pub usb_vid: Option<u16>,
+    pub usb_bus: Option<u8>,
+    pub usb_device: Option<u8>,
     pub memory_address: Option<u32>,
     pub memory_value: Option<u32>,
     pub server_kind: ServerKind,
@@ -91,6 +101,19 @@ impl Config {
         } else {
             None
         };
+
+        let usb_bus = if let Some(bus) = matches.value_of("bus") {
+            Some(parse_u8(bus)?)
+        } else {
+            None
+        };
+
+        let usb_device = if let Some(device) = matches.value_of("device") {
+            Some(parse_u8(device)?)
+        } else {
+            None
+        };
+        // TODO: add parsing for bus and address here
 
         let serial_port = if let Some(port) = matches.value_of("serial") {
             bridge_kind = BridgeKind::UartBridge;
@@ -194,6 +217,8 @@ impl Config {
             Ok(Config {
                 usb_pid,
                 usb_vid,
+                usb_bus,
+                usb_device,
                 serial_port,
                 serial_baud,
                 spi_pins,

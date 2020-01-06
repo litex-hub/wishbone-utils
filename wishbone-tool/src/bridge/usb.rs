@@ -55,9 +55,11 @@ impl UsbBridge {
 
         let thr_pid = cfg.usb_pid.clone();
         let thr_vid = cfg.usb_vid.clone();
+        let thr_bus = cfg.usb_bus.clone();
+        let thr_device = cfg.usb_device.clone();
         let thr_cv = cv.clone();
         let poll_thread = Some(thread::spawn(move || {
-            Self::usb_connect_thread(usb_ctx, thr_cv, thread_rx, thr_pid, thr_vid, 0x43)
+            Self::usb_connect_thread(usb_ctx, thr_cv, thread_rx, thr_pid, thr_vid, thr_bus, thr_device, 0x43)
         }));
 
         Ok(UsbBridge {
@@ -71,9 +73,12 @@ impl UsbBridge {
     }
 
     fn device_matches(
+        device: &libusb::Device,
         device_desc: &libusb::DeviceDescriptor,
         usb_pid: &Option<u16>,
         usb_vid: &Option<u16>,
+        usb_bus: &Option<u8>,
+        usb_device: &Option<u8>,
     ) -> bool {
         if let Some(pid) = usb_pid {
             if *pid != device_desc.product_id() {
@@ -82,6 +87,16 @@ impl UsbBridge {
         }
         if let Some(vid) = usb_vid {
             if *vid != device_desc.vendor_id() {
+                return false;
+            }
+        }
+        if let Some(bus) = usb_bus {
+            if *bus != device.bus_number() {
+                return false;
+            }
+        }
+        if let Some(device_id) = usb_device {
+            if *device_id != device.address() {
                 return false;
             }
         }
@@ -119,6 +134,8 @@ impl UsbBridge {
         rx: Receiver<ConnectThreadRequests>,
         pid: Option<u16>,
         vid: Option<u16>,
+        usb_bus: Option<u8>,
+        usb_device: Option<u8>,
         debug_byte: u8,
     ) {
         let mut pid = pid;
@@ -129,7 +146,7 @@ impl UsbBridge {
             let devices = usb_ctx.devices().unwrap();
             for device in devices.iter() {
                 let device_desc = device.device_descriptor().unwrap();
-                if Self::device_matches(&device_desc, &pid, &vid) {
+                if Self::device_matches(&device, &device_desc, &pid, &vid, &usb_bus, &usb_device) {
                     let usb = match device.open() {
                         Ok(o) => {
                             info!("opened USB device device {:03} on bus {:03}",
