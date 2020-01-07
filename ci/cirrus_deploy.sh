@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+set -x
 
 if [[ "$CIRRUS_TAG" == "" ]]; then
   echo "Not a tag. No need to deploy!"
@@ -22,7 +23,7 @@ fi
 # one artifact first.
 # However, Travis builds generally finish in 3-4 minutes, wherease Cirrus builds
 # take 7-10 minutes, so this usually isn't an issue.
-release_id=$(curl --fail --header "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/$CIRRUS_REPO_FULL_NAME/releases/tags/$CIRRUS_TAG | grep -m 1 "id.:" | grep -w id | tr -cd '[0-9]')
+release_id=$(curl --fail https://api.github.com/repos/$CIRRUS_REPO_FULL_NAME/releases/tags/$CIRRUS_TAG | grep -m 1 "id.:" | grep -w id | tr -cd '[0-9]')
 if [[ "$release_id" == "" ]]; then
   echo "Unable to get release ID from tag $CIRRUS_TAG"
   exit 1
