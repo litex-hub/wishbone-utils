@@ -30,6 +30,6 @@ task:
   name: Publish
   depends_on: Tests
   environment:
-    AUTH_TOKEN: ENCRYPTED[qwerty239abc]
+    GITHUB_TOKEN: ENCRYPTED[9eb6c5b0551e9eb813609d7d01ee9546935eaf7272ca6834e8382701e78bc1f335f5232650c4b83d3e6ac7e1f14de994]
   install_script: pkg install -y bash
   deploy_script: ./ci/cirrus_deploy.sh
