@@ -21,7 +21,7 @@ fi
 file_content_type="application/octet-stream"
 files_to_upload=(
   # relative paths of assets to upload
-  $ARTIFACTS_DIR/*
+  $CIRRUS_WORKING_DIR/artifacts/*
 )
 
 for fpath in $files_to_upload

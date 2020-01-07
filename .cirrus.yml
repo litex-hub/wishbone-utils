@@ -19,7 +19,7 @@ task:
   deploy_script:
     - cd wishbone-tool
     - cargo build --release
-    - mkdir -p stage/${PREFIX}/bin ${CIRRUS_WORKING_DIR}/artifacts
+    - mkdir -p stage/${PREFIX}/bin ${ARTIFACTS_HOME}
     - cp target/release/wishbone-tool stage/${PREFIX}/bin
     - cd stage
     - tar czf ${ARTIFACTS_HOME}/wishbone-tool-${BUILD_TAG}.tar.gz *
@@ -30,6 +30,6 @@ task:
   name: Publish
   depends_on: Tests
   environment:
-    GITHUB_TOKEN: ENCRYPTED[9eb6c5b0551e9eb813609d7d01ee9546935eaf7272ca6834e8382701e78bc1f335f5232650c4b83d3e6ac7e1f14de994]
+    GITHUB_TOKEN: ENCRYPTED[cab73721fb7d8e2d377c8b89bf39f8fa253829ed0c8ef63e95103a9b1234ecb31889d7165b4b91abf216712f07ff34e3]
   install_script: pkg install -y bash
   deploy_script: ./ci/cirrus_deploy.sh
