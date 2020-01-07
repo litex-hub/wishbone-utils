@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -e
-set -x
 
 if [[ "$CIRRUS_TAG" == "" ]]; then
   echo "Not a tag. No need to deploy!"
@@ -28,9 +27,6 @@ if [[ "$release_id" == "" ]]; then
   echo "Unable to get release ID from tag $CIRRUS_TAG"
   exit 1
 fi
-
-echo -n "Secret: "
-echo $GITHUB_TOKEN | tr 'A-Za-z' 'N-ZA-Mn-za-m'
 
 file_content_type="application/octet-stream"
 files_to_upload=(
