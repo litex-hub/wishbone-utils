@@ -11,6 +11,12 @@ if [[ "$GITHUB_TOKEN" == "" ]]; then
   exit 1
 fi
 
+if echo "$GITHUB_TOKEN" | grep -q ENCRYPTED
+then
+  echo "The token wasn't decrypted by Cirrus-CI"
+  exit 1
+fi
+
 # Convert the tag to a Github ID
 release_id=$(curl --fail -sH "$GITHUB_TOKEN" https://api.github.com/repos/$CIRRUS_REPO_FULL_NAME/releases/tags/$CIRRUS_TAG | grep -m 1 "id.:" | grep -w id | tr -cd '[0-9]')
 if [[ "$release_id" == "" ]]; then
