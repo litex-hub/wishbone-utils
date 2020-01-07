@@ -20,7 +20,7 @@ fi
 # Convert the tag to a Github ID
 release_id=$(curl --fail -sH "$GITHUB_TOKEN" https://api.github.com/repos/$CIRRUS_REPO_FULL_NAME/releases/tags/$CIRRUS_TAG | grep -m 1 "id.:" | grep -w id | tr -cd '[0-9]')
 if [[ "$release_id" == "" ]]; then
-  ech "Unable to get release ID from tag $CIRRUS_TAG"
+  echo "Unable to get release ID from tag $CIRRUS_TAG"
   exit 1
 fi
 
@@ -54,7 +54,7 @@ do
   url_to_upload="https://uploads.github.com/repos/$CIRRUS_REPO_FULL_NAME/releases/$release_id/assets?name=$name"
   curl --fail -X POST \
     --data-binary @$fpath \
-    --header "Authorization: token $GITHUB_TOKEN" \
+     -sH "$GITHUB_TOKEN" \
     --header "Content-Type: $file_content_type" \
     $url_to_upload
 done
