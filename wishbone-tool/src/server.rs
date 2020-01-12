@@ -51,6 +51,7 @@ pub enum ServerError {
         u32, /* expected */
         u32, /* observed */
     ),
+    TerminalError(terminal::error::ErrorKind),
 }
 
 impl std::convert::From<io::Error> for ServerError {
@@ -76,6 +77,12 @@ impl std::convert::From<bridge::BridgeError> for ServerError {
 impl std::convert::From<riscv::RiscvCpuError> for ServerError {
     fn from(e: riscv::RiscvCpuError) -> ServerError {
         ServerError::RiscvCpuError(e)
+    }
+}
+
+impl std::convert::From<terminal::error::ErrorKind> for ServerError {
+    fn from(e: terminal::error::ErrorKind) -> ServerError {
+        ServerError::TerminalError(e)
     }
 }
 
@@ -420,17 +427,54 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
 }
 
 pub fn terminal_client(_cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+    use terminal::{Action, Retrieved, Value, KeyEvent, KeyCode, KeyModifiers, Event};
+    let poll_time = 10;
+    let mut terminal = terminal::stdout();
+    use std::io::stdout;
+    use std::io::Write;
+
+    terminal.act(Action::EnableRawMode)?;
+    terminal.act(Action::EnableMouseCapture)?;
+
     // let xover_status = Some(0xe0001824);
     let xover_pending = Some(0xe0001828);
     let xover_rxtx = Some(0xe0001818);
     let xover_rxempty = Some(0xe0001820);
     loop {
         if poll_uart(&xover_rxempty, &bridge)? {
-            // println!("Polled uart");
+            let mut char_buffer = vec![];
             while bridge.peek(xover_rxempty.unwrap())? == 0 {
-                let next_char = bridge.peek(xover_rxtx.unwrap())? as u8 as char;
+                char_buffer.push(bridge.peek(xover_rxtx.unwrap())? as u8);
                 bridge.poke(xover_pending.unwrap(), 2)?;
-                print!("{}", next_char);
+            }
+            print!("{}", String::from_utf8_lossy(&char_buffer));
+            stdout().flush();
+        }
+
+        if let Retrieved::Event(event) =
+            terminal.get(Value::Event(Some(Duration::from_millis(poll_time))))?
+        {
+            match event {
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Esc, ..
+                })) => return Ok(()),
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Enter, ..
+                })) => {
+                    bridge.poke(xover_rxtx.unwrap(), '\r' as u32)?;
+                    bridge.poke(xover_rxtx.unwrap(), '\n' as u32)?;
+                },
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Char('c'),
+                    modifiers: KeyModifiers::CONTROL,
+                })) => return Ok(()),
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Char(e), ..
+                })) => bridge.poke(xover_rxtx.unwrap(), e as u32)?,
+                Some(event) => {
+                    println!("{:?}\r", event);
+                }
+                None => ()
             }
         }
     }

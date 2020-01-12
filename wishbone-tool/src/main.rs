@@ -3,6 +3,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate clap;
 extern crate csv;
+extern crate terminal;
 extern crate libusb;
 extern crate rand;
 
