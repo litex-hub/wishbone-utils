@@ -1,7 +1,7 @@
 extern crate libusb;
 
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -59,7 +59,9 @@ impl UsbBridge {
         let thr_device = cfg.usb_device.clone();
         let thr_cv = cv.clone();
         let poll_thread = Some(thread::spawn(move || {
-            Self::usb_connect_thread(usb_ctx, thr_cv, thread_rx, thr_pid, thr_vid, thr_bus, thr_device, 0x43)
+            Self::usb_poll_thread(
+                usb_ctx, thr_cv, thread_rx, thr_pid, thr_vid, thr_bus, thr_device, 0x43,
+            )
         }));
 
         Ok(UsbBridge {
@@ -128,7 +130,7 @@ impl UsbBridge {
         }
     }
 
-    fn usb_connect_thread(
+    fn usb_poll_thread(
         usb_ctx: libusb::Context,
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
@@ -141,6 +143,7 @@ impl UsbBridge {
         let mut pid = pid;
         let mut vid = vid;
         let mut print_waiting_message = true;
+        let mut first_open = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
             let devices = usb_ctx.devices().unwrap();
@@ -149,18 +152,24 @@ impl UsbBridge {
                 if Self::device_matches(&device, &device_desc, &pid, &vid, &usb_bus, &usb_device) {
                     let usb = match device.open() {
                         Ok(o) => {
-                            info!("opened USB device device {:03} on bus {:03}",
+                            info!(
+                                "opened USB device device {:03} on bus {:03}",
                                 device.address(),
-                                device.bus_number());
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
-                            cvar.notify_one();
+                                device.bus_number()
+                            );
+                            if first_open {
+                                *response.lock().unwrap() =
+                                    Some(ConnectThreadResponses::OpenedDevice);
+                                cvar.notify_one();
+                                first_open = false;
+                            }
                             print_waiting_message = true;
                             o
-                        },
+                        }
                         Err(e) => {
                             error!("unable to open usb device: {:?}", e);
                             continue;
-                        },
+                        }
                     };
                     let mut keep_going = true;
                     while keep_going {
@@ -169,8 +178,9 @@ impl UsbBridge {
                             Err(e) => panic!("error in connect thread: {}", e),
                             Ok(o) => match o {
                                 ConnectThreadRequests::Exit => {
-                                    debug!("usb_connect_thread requested exit");
-                                    *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
+                                    debug!("usb_poll_thread requested exit");
+                                    *response.lock().unwrap() =
+                                        Some(ConnectThreadResponses::Exiting);
                                     cvar.notify_one();
                                     return;
                                 }
@@ -181,13 +191,15 @@ impl UsbBridge {
                                 ConnectThreadRequests::Peek(addr) => {
                                     let result = Self::do_peek(&usb, addr, debug_byte);
                                     keep_going = result.is_ok();
-                                    *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(result));
+                                    *response.lock().unwrap() =
+                                        Some(ConnectThreadResponses::PeekResult(result));
                                     cvar.notify_one();
                                 }
                                 ConnectThreadRequests::Poke(addr, val) => {
                                     let result = Self::do_poke(&usb, addr, val, debug_byte);
                                     keep_going = result.is_ok();
-                                    *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(result));
+                                    *response.lock().unwrap() =
+                                        Some(ConnectThreadResponses::PokeResult(result));
                                     cvar.notify_one();
                                 }
                             },
@@ -219,17 +231,17 @@ impl UsbBridge {
                             return;
                         }
                         ConnectThreadRequests::Peek(_addr) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(
+                                Err(BridgeError::NotConnected),
+                            ));
                             cvar.notify_one();
-                        },
+                        }
                         ConnectThreadRequests::Poke(_addr, _val) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(
+                                Err(BridgeError::NotConnected),
+                            ));
                             cvar.notify_one();
-                        },
+                        }
                         ConnectThreadRequests::StartPolling(p, v) => {
                             pid = p.clone();
                             vid = v.clone();
@@ -265,7 +277,10 @@ impl UsbBridge {
             }
             Ok(len) => {
                 if len != 4 {
-                    debug!("POKE @ {:08x}: length error: expected 4 bytes, got {} bytes", addr, len);
+                    debug!(
+                        "POKE @ {:08x}: length error: expected 4 bytes, got {} bytes",
+                        addr, len
+                    );
                     Err(BridgeError::LengthError(4, len))
                 } else {
                     debug!("POKE @ {:08x} -> {:08x}", addr, value);
@@ -291,13 +306,16 @@ impl UsbBridge {
             }
             Ok(len) => {
                 if len != 4 {
-                    debug!("PEEK @ {:08x}: length error: expected 4 bytes, got {} bytes", addr, len);
+                    debug!(
+                        "PEEK @ {:08x}: length error: expected 4 bytes, got {} bytes",
+                        addr, len
+                    );
                     Err(BridgeError::LengthError(4, len))
                 } else {
                     let value = ((data_val[3] as u32) << 24)
-                              | ((data_val[2] as u32) << 16)
-                              | ((data_val[1] as u32) << 8)
-                              | ((data_val[0] as u32) << 0);
+                        | ((data_val[2] as u32) << 16)
+                        | ((data_val[1] as u32) << 8)
+                        | ((data_val[0] as u32) << 0);
                     debug!("PEEK @ {:08x} = {:08x}", addr, value);
                     Ok(value)
                 }
