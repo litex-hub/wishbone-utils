@@ -17,13 +17,14 @@ Currently-supported Wishbone bridges include:
 -  **serial** - Generic UART, nominally running at 115200 (but can be
    changed with ``--baud``)
 -  **spi** - Using 2-, 3-, or 4-wire SPI from
-   `spibone <https://github.com/xobs/spibone>`__
+   `spibone <https://github.com/litex-hub/spibone>`__
 
 Binaries
 --------
 
 Precompiled versions of ``wishbone-tool`` can be found in the
-`releases/ <https://github.com/xobs/wishbone-utils/releases>`__ section.
+`releases/ <https://github.com/litex-hub/wishbone-utils/releases>`__
+section.
 
 Building
 --------
