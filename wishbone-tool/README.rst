@@ -48,7 +48,7 @@ device. To use a serial device instead, specify
 
 To read from an area of memory (such as 0x10000000), run:
 
-.. code:: sh
+.. session:: sh
 
    $ wishbone-tool 0x10000000
    INFO [wishbone_tool::usb_bridge] waiting for target device
@@ -58,7 +58,7 @@ To read from an area of memory (such as 0x10000000), run:
 
 To write a value to memory, add an additional parameter:
 
-.. code:: sh
+.. session:: sh
 
    $ wishbone-tool 0x10000000 0x12345678
    INFO [wishbone_tool::usb_bridge] opened USB device device 019 on bus 001
@@ -70,7 +70,7 @@ To write a value to memory, add an additional parameter:
 You can connect to a serial port by specifying the ``--serial``
 argument:
 
-.. code:: sh
+.. session:: sh
 
    $ wishbone-tool --serial COM4: 0
 
@@ -80,7 +80,7 @@ Command line Auto-Completion
 You can generate auto-completion for ``wishbone-tool`` with the ``-c``
 option. For example, to generate auto-completion for bash, run:
 
-.. code:: sh
+.. session:: sh
 
    $ wishbone-tool -c bash > wishbone-tool.bash
    $ . wishbone-tool.bash
