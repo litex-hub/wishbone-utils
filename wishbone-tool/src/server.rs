@@ -141,6 +141,21 @@ fn poll_messible(
     }
 }
 
+/// Poll the UART at the address specified.
+/// Return `true` if there is still data to be read
+/// after returning.
+fn poll_uart(
+    uart_address: &Option<u32>,
+    bridge: &bridge::Bridge
+) -> Result<bool, bridge::BridgeError> {
+    match uart_address {
+        None => Ok(false),
+        Some(s) => {
+            Ok(bridge.peek(*s)? == 0)
+        }
+    }
+}
+
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let cpu = riscv::RiscvCpu::new(&bridge, cfg.debug_offset)?;
     let messible_address = cfg.messible_address;
@@ -404,6 +419,19 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
     Ok(())
 }
 
-pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
-    Ok(())
+pub fn terminal_client(_cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+    // let xover_status = Some(0xe0001824);
+    let xover_pending = Some(0xe0001828);
+    let xover_rxtx = Some(0xe0001818);
+    let xover_rxempty = Some(0xe0001820);
+    loop {
+        if poll_uart(&xover_rxempty, &bridge)? {
+            // println!("Polled uart");
+            while bridge.peek(xover_rxempty.unwrap())? == 0 {
+                let next_char = bridge.peek(xover_rxtx.unwrap())? as u8 as char;
+                bridge.poke(xover_pending.unwrap(), 2)?;
+                print!("{}", next_char);
+            }
+        }
+    }
 }

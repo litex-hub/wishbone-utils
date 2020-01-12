@@ -222,7 +222,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("list")
                 .help("which server to run (if any)")
                 .display_order(1)
-                .possible_values(&["gdb", "wishbone", "random-test", "load-file"]),
+                .possible_values(&["gdb", "wishbone", "random-test", "load-file", "terminal"]),
         )
         .arg(
             Arg::with_name("load-name")
