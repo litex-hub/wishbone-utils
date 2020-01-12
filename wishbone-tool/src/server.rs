@@ -151,16 +151,8 @@ fn poll_messible(
 /// Poll the UART at the address specified.
 /// Return `true` if there is still data to be read
 /// after returning.
-fn poll_uart(
-    uart_address: &Option<u32>,
-    bridge: &bridge::Bridge
-) -> Result<bool, bridge::BridgeError> {
-    match uart_address {
-        None => Ok(false),
-        Some(s) => {
-            Ok(bridge.peek(*s)? == 0)
-        }
-    }
+fn poll_uart(uart_address: u32, bridge: &bridge::Bridge) -> Result<bool, bridge::BridgeError> {
+    Ok(bridge.peek(uart_address)? == 0)
 }
 
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
@@ -426,56 +418,80 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
     Ok(())
 }
 
-pub fn terminal_client(_cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
-    use terminal::{Action, Retrieved, Value, KeyEvent, KeyCode, KeyModifiers, Event};
+use terminal::{Action, Event, KeyCode, KeyEvent, KeyModifiers, Retrieved, Terminal, Value};
+struct IOInterface {
+    term: Terminal<std::io::Stdout>,
+}
+
+pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let poll_time = 10;
-    let mut terminal = terminal::stdout();
+    let my_terminal = IOInterface::new();
     use std::io::stdout;
     use std::io::Write;
 
-    terminal.act(Action::EnableRawMode)?;
-    terminal.act(Action::EnableMouseCapture)?;
-
-    // let xover_status = Some(0xe0001824);
-    let xover_pending = Some(0xe0001828);
-    let xover_rxtx = Some(0xe0001818);
-    let xover_rxempty = Some(0xe0001820);
+    let xover_pending = *cfg
+        .register_mapping
+        .get("uart_xover_ev_pending")
+        .unwrap_or(&0xe0001828);
+    let xover_rxtx = *cfg
+        .register_mapping
+        .get("uart_xover_rxtx")
+        .unwrap_or(&0xe0001818);
+    let xover_rxempty = *cfg
+        .register_mapping
+        .get("uart_xover_rxempty")
+        .unwrap_or(&0xe0001820);
     loop {
-        if poll_uart(&xover_rxempty, &bridge)? {
+        if poll_uart(xover_rxempty, &bridge)? {
             let mut char_buffer = vec![];
-            while bridge.peek(xover_rxempty.unwrap())? == 0 {
-                char_buffer.push(bridge.peek(xover_rxtx.unwrap())? as u8);
-                bridge.poke(xover_pending.unwrap(), 2)?;
+            while bridge.peek(xover_rxempty)? == 0 {
+                char_buffer.push(bridge.peek(xover_rxtx)? as u8);
+                bridge.poke(xover_pending, 2)?;
             }
             print!("{}", String::from_utf8_lossy(&char_buffer));
-            stdout().flush();
+            stdout().flush().ok();
         }
 
-        if let Retrieved::Event(event) =
-            terminal.get(Value::Event(Some(Duration::from_millis(poll_time))))?
+        if let Retrieved::Event(event) = my_terminal
+            .term
+            .get(Value::Event(Some(Duration::from_millis(poll_time))))?
         {
             match event {
                 Some(Event::Key(KeyEvent {
                     code: KeyCode::Esc, ..
                 })) => return Ok(()),
                 Some(Event::Key(KeyEvent {
-                    code: KeyCode::Enter, ..
+                    code: KeyCode::Enter,
+                    ..
                 })) => {
-                    bridge.poke(xover_rxtx.unwrap(), '\r' as u32)?;
-                    bridge.poke(xover_rxtx.unwrap(), '\n' as u32)?;
-                },
+                    bridge.poke(xover_rxtx, '\r' as u32)?;
+                    bridge.poke(xover_rxtx, '\n' as u32)?;
+                }
                 Some(Event::Key(KeyEvent {
                     code: KeyCode::Char('c'),
                     modifiers: KeyModifiers::CONTROL,
                 })) => return Ok(()),
                 Some(Event::Key(KeyEvent {
-                    code: KeyCode::Char(e), ..
-                })) => bridge.poke(xover_rxtx.unwrap(), e as u32)?,
-                Some(event) => {
-                    println!("{:?}\r", event);
+                    code: KeyCode::Char(e),
+                    ..
+                })) => bridge.poke(xover_rxtx, e as u32)?,
+                Some(_event) => {
+                    // println!("{:?}\r", event);
                 }
-                None => ()
+                None => (),
             }
         }
+    }
+}
+
+impl IOInterface {
+    pub fn new() -> IOInterface {
+        IOInterface { term: terminal::stdout() }
+    }
+}
+impl Drop for IOInterface {
+    fn drop(&mut self) {
+        self.term.act(Action::DisableRawMode).ok();
+        self.term.act(Action::DisableMouseCapture).ok();
     }
 }
