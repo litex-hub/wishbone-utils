@@ -12,8 +12,8 @@ use rand::prelude::*;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use std::io;
 use std::fs::File;
+use std::io;
 use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
@@ -34,6 +34,9 @@ pub enum ServerKind {
 
     /// Load a file into memory
     LoadFile,
+
+    /// Run a terminal
+    Terminal,
 }
 
 #[derive(Debug)]
@@ -85,6 +88,7 @@ impl ServerKind {
                 "wishbone" => Ok(ServerKind::Wishbone),
                 "random-test" => Ok(ServerKind::RandomTest),
                 "load-file" => Ok(ServerKind::LoadFile),
+                "terminal" => Ok(ServerKind::Terminal),
                 unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
             },
         }
@@ -197,7 +201,11 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
                         had_error = false;
                         // If there's a messible available, poll it.
                         if running {
-                            do_pause = ! poll_messible(&messible_address, &poll_bridge, &mut gdb_controller);
+                            do_pause = !poll_messible(
+                                &messible_address,
+                                &poll_bridge,
+                                &mut gdb_controller,
+                            );
                         }
                     }
                 }
@@ -299,11 +307,15 @@ pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerErro
         Some(s) => s,
         None => 0x10000000 + 8192,
     };
-    let random_range =match cfg.random_range {
+    let random_range = match cfg.random_range {
         Some(s) => s,
         None => 0,
     };
-    info!("writing random values to 0x{:08x} - 0x{:08x}", random_addr, random_addr + random_range);
+    info!(
+        "writing random values to 0x{:08x} - 0x{:08x}",
+        random_addr,
+        random_addr + random_range
+    );
     loop {
         let val = random::<u32>();
         let extra_addr = match cfg.random_range {
@@ -315,12 +327,20 @@ pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerErro
         if cmp != val {
             error!(
                 "loop {} @ 0x{:08x}: expected 0x{:08x}, got 0x{:08x}",
-                loop_counter, random_addr + extra_addr, val, cmp
+                loop_counter,
+                random_addr + extra_addr,
+                val,
+                cmp
             );
             return Err(ServerError::RandomValueError(loop_counter, val, cmp));
         }
         if (loop_counter % 1000) == 0 {
-            info!("loop: {} @ 0x{:08x} (0x{:08x})", loop_counter, extra_addr + random_addr, val);
+            info!(
+                "loop: {} @ 0x{:08x} (0x{:08x})",
+                loop_counter,
+                extra_addr + random_addr,
+                val
+            );
         }
         loop_counter = loop_counter.wrapping_add(1);
         if let Some(max_loops) = cfg.random_loops {
@@ -361,11 +381,16 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
                     Ok(x) => x,
                     Err(e) => {
                         error!("Error reading: {}", e);
-                        return Ok(())
+                        return Ok(());
                     }
                 };
                 if (loop_counter % 1024) == 0 {
-                    info!("write to {:08x}: ({:08x}) - {}%", addr + loop_counter, value, (loop_counter * 100 / f_len));
+                    info!(
+                        "write to {:08x}: ({:08x}) - {}%",
+                        addr + loop_counter,
+                        value,
+                        (loop_counter * 100 / f_len)
+                    );
                 }
                 bridge.poke(addr + loop_counter, value)?;
                 loop_counter = loop_counter.wrapping_add(4);
@@ -376,5 +401,9 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
     } else {
         println!("No filename specified!");
     }
+    Ok(())
+}
+
+pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     Ok(())
 }

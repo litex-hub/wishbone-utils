@@ -336,6 +336,7 @@ fn main() {
             ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
             ServerKind::RandomTest => server::random_test(cfg, bridge),
             ServerKind::LoadFile => server::load_file(cfg, bridge),
+            ServerKind::Terminal => server::terminal_client(cfg, bridge),
             ServerKind::None => server::memory_access(cfg, bridge),
         }
     };
