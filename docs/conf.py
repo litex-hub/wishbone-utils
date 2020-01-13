@@ -48,6 +48,8 @@ extensions = [
     'symbolator_sphinx',
     'sphinxcontrib_verilog_diagrams',
     'sphinxcontrib_session',
+    'breathe',
+    'exhale',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -279,3 +281,26 @@ intersphinx_mapping = {'https://docs.python.org/': None}
 
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = True
+
+# -- Options for breathe / exhale --------------------------------------------
+
+# Setup the breathe extension
+breathe_projects = {
+    "libeb-c": "./doxyoutput/xml"
+}
+breathe_default_project = "libeb-c"
+
+# Setup the exhale extension
+exhale_args = {
+    # These arguments are required
+    "containmentFolder":     "./libeb-c-api",
+    "rootFileName":          "library_root.rst",
+    "rootFileTitle":         "Library API",
+    "doxygenStripFromPath":  "../libeb-c",
+    # Suggested optional arguments
+    "createTreeView":        True,
+    # TIP: if using the sphinx-bootstrap-theme, you need
+    # "treeViewIsBootstrap": True,
+    "exhaleExecutesDoxygen": True,
+    "exhaleDoxygenStdin":    "INPUT = ../libeb-c"
+}

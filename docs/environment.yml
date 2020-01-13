@@ -4,12 +4,13 @@ channels:
 - conda-forge
 - defaults
 dependencies:
-- python=3.7
+- doxygen
+- netlistsvg
+- pango
 - pip
 - pycairo
-- pango
 - pygobject
+- python=3.7
 - yosys
-- netlistsvg
 - pip:                            # Packages installed from PyPI
   - -r file:requirements.txt

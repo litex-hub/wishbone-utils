@@ -40,3 +40,9 @@ env: _download/Miniconda3-latest-Linux-x86_64.sh
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 .PHONY: Makefile
+
+clean:
+	rm -rf libeb-c/doxyoutput/ libeb-c/api/
+	@$(SPHINXBUILD) -M clean "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+
+.PHONY: clean

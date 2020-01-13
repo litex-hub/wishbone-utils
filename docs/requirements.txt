@@ -5,8 +5,7 @@ sphinxcontrib-napoleon
 
 # Better looking Sphinx theme
 # sphinx_materialdesign_theme
-git+http://github.com/SymbiFlow/sphinx_materialdesign_theme.git@master#egg=sphinx_symbiflow_theme
-
+git+https://github.com/SymbiFlow/sphinx_materialdesign_theme.git@master#egg=sphinx_symbiflow_theme
 
 # Support copying without prompts.
 git+https://github.com/mithro/sphinxcontrib-session.git#egg=sphinxcontrib-session
@@ -15,7 +14,6 @@ git+https://github.com/mithro/sphinxcontrib-session.git#egg=sphinxcontrib-sessio
 # --------------------------------------
 breathe
 exhale
-
 
 # HDL specific functionality
 # --------------------------------------
