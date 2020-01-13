@@ -1,5 +1,5 @@
-libeb
-=====
+Etherbone C Library
+===================
 
 A library that can be used for communicating with a remote device.
 
