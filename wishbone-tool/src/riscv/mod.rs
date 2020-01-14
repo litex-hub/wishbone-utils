@@ -62,6 +62,21 @@ pub enum RiscvCpuError {
     InstructionTimeout,
 }
 
+impl ::std::fmt::Display for RiscvCpuError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        use RiscvCpuError::*;
+        match self {
+            UnrecognizedFile(s) => write!(f, "unrecognized file: {}", s),
+            InvalidRegister(r) => write!(f, "invalid register {}", r),
+            BreakpointExhausted => write!(f, "ran out of hardware breakpoints"),
+            BreakpointNotFound(b) => write!(f, "breakpoint {} not found", b),
+            BridgeError(e) => write!(f, "bridge error: {}", e),
+            IoError(e) => write!(f, "io error: {}", e),
+            InstructionTimeout => write!(f, "cpu instruction timed out"),
+        }
+    }
+}
+
 impl std::convert::From<BridgeError> for RiscvCpuError {
     fn from(e: BridgeError) -> RiscvCpuError {
         RiscvCpuError::BridgeError(e)
