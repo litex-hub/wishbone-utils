@@ -212,13 +212,18 @@ impl Config {
             None
         };
 
+        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"))?;
+
         let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset") {
             parse_u32(debug_offset)?
         } else {
-            0xf00f0000
+            if let Some(debug_offset) = register_mapping.get("vexriscv_debug") {
+                *debug_offset
+            } else {
+                0xf00f0000
+            }
         };
 
-        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"))?;
 
         let memory_address = if let Some(addr) = matches.value_of("address") {
             if let Some(addr) = register_mapping.get(&addr.to_lowercase()) {
