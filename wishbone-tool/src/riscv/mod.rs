@@ -779,6 +779,18 @@ impl RiscvCpu {
         self.controller.read_register(bridge, reg)
     }
 
+    /// Return a vec containing all valid CPU registers.
+    pub fn all_cpu_registers(&self) -> Vec<u32> {
+        let mut v = vec![];
+        for (idx, reg) in &self.gdb_register_map {
+            if reg.register_type == RiscvRegisterType::General {
+                v.push(*idx);
+            }
+        }
+        v.sort();
+        v
+    }
+
     /// Write a register on the device.
     ///
     /// For general-purpose registers, simply place the new value in the
