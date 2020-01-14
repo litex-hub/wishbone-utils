@@ -52,6 +52,20 @@ pub enum BridgeError {
     Timeout,
 }
 
+impl ::std::fmt::Display for BridgeError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        use BridgeError::*;
+        match self {
+            LengthError(expected, actual) => write!(f, "expected {} bytes, but got {} instead", expected, actual),
+            USBError(e) => write!(f, "libusb error {}", e.strerror()),
+            IoError(e) => write!(f, "io error {}", e),
+            NotConnected => write!(f, "bridge not connected"),
+            WrongResponse => write!(f, "wrong response received"),
+            Timeout => write!(f, "connection timed out"),
+        }
+    }
+}
+
 impl std::convert::From<libusb::Error> for BridgeError {
     fn from(e: libusb::Error) -> BridgeError {
         BridgeError::USBError(e)
