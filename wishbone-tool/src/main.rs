@@ -325,6 +325,7 @@ fn main() {
                     error!("unknown server '{}', see --help", s)
                 }
                 config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
+                config::ConfigError::IoError(s) => error!("file error: {}", s),
             }
             process::exit(1);
         }

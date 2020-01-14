@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
+use std::io;
 
 use crate::bridge::spi::SpiPins;
 use crate::bridge::BridgeKind;
@@ -20,6 +21,15 @@ pub enum ConfigError {
 
     /// No operation was specified
     NoOperationSpecified,
+
+    /// Generic IO Error
+    IoError(io::Error),
+}
+
+impl std::convert::From<io::Error> for ConfigError {
+    fn from(e: io::Error) -> ConfigError {
+        ConfigError::IoError(e)
+    }
 }
 
 pub fn get_base(value: &str) -> (&str, u32) {
@@ -143,18 +153,6 @@ impl Config {
             None
         };
 
-        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"));
-
-        let memory_address = if let Some(addr) = matches.value_of("address") {
-            if let Some(addr) = register_mapping.get(&addr.to_lowercase()) {
-                Some(*addr)
-            } else {
-                Some(parse_u32(addr)?)
-            }
-        } else {
-            None
-        };
-
         let memory_value = if let Some(v) = matches.value_of("value") {
             Some(parse_u32(v)?)
         } else {
@@ -211,11 +209,22 @@ impl Config {
             None
         };
 
-        let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset")
-        {
+        let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset") {
             parse_u32(debug_offset)?
         } else {
             0xf00f0000
+        };
+
+        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"))?;
+
+        let memory_address = if let Some(addr) = matches.value_of("address") {
+            if let Some(addr) = register_mapping.get(&addr.to_lowercase()) {
+                Some(*addr)
+            } else {
+                Some(parse_u32(addr)?)
+            }
+        } else {
+            None
         };
 
         if server_kind.len() == 0 {
@@ -250,14 +259,11 @@ impl Config {
         })
     }
 
-    fn parse_csr_csv(filename: Option<&str>) -> HashMap<String, u32> {
+    fn parse_csr_csv(filename: Option<&str>) -> Result<HashMap<String, u32>, ConfigError> {
         let mut map = HashMap::new();
         let file = match filename {
-            None => return map,
-            Some(s) => match File::open(s) {
-                Ok(o) => o,
-                Err(e) => panic!("Unable to open csr-csv file: {}", e),
-            }
+            None => return Ok(map),
+            Some(s) => File::open(s)?
         };
         let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(file);
         for result in rdr.records() {
@@ -266,14 +272,8 @@ impl Config {
                     continue;
                 }
                 let reg_name = &r[1];
-                let base_addr = match parse_u32(&r[2]) {
-                    Ok(o) => o,
-                    Err(e) => panic!("Couldn't parse csr-csv base address: {:?}", e),
-                };
-                let num_regs = match parse_u32(&r[3]) {
-                    Ok(o) => o,
-                    Err(e) => panic!("Couldn't parse csr-csv number of registers: {:?}", e),
-                };
+                let base_addr = parse_u32(&r[2])?;
+                let num_regs = parse_u32(&r[3])?;
 
                 // If there's only one register, add it to the map.
                 // However, CSRs can span multiple registers, and do so in reverse.
@@ -281,15 +281,22 @@ impl Config {
                 match num_regs {
                     1 => {
                         map.insert(reg_name.to_string().to_lowercase(), base_addr);
-                    },
+                    }
                     n => {
                         for offset in 0..n {
-                            map.insert(format!("{}{}", reg_name.to_string().to_lowercase(), n - offset - 1), base_addr+(offset*4));
+                            map.insert(
+                                format!(
+                                    "{}{}",
+                                    reg_name.to_string().to_lowercase(),
+                                    n - offset - 1
+                                ),
+                                base_addr + (offset * 4),
+                            );
                         }
                     }
                 }
             }
         }
-        map
+        Ok(map)
     }
 }
