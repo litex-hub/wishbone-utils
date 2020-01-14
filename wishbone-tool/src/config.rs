@@ -132,7 +132,13 @@ impl Config {
 
         let serial_port = if let Some(port) = matches.value_of("serial") {
             bridge_kind = BridgeKind::UartBridge;
-            Some(port.to_owned())
+            // Strip off the trailing ":" on Windows, since it's confusing
+            if cfg!(windows) && port.ends_with(":") {
+                Some(port.get(0..port.len()-1).unwrap_or("").to_owned())
+            }
+            else {
+                Some(port.to_owned())
+            }
         } else {
             None
         };
