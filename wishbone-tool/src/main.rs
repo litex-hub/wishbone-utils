@@ -215,6 +215,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .long("server")
                 .alias("server-kind")
                 .takes_value(true)
+                .multiple(true)
                 .required_unless("completion")
                 .conflicts_with("completion")
                 .required_unless("address")
@@ -329,20 +330,33 @@ fn main() {
         }
     };
 
-    let retcode = {
+    {
         let bridge = Bridge::new(&cfg).unwrap();
         bridge.connect().unwrap();
-        match cfg.server_kind {
-            ServerKind::GDB => server::gdb_server(&cfg, bridge),
-            ServerKind::Wishbone => server::wishbone_server(&cfg, bridge),
-            ServerKind::RandomTest => server::random_test(&cfg, bridge),
-            ServerKind::LoadFile => server::load_file(&cfg, bridge),
-            ServerKind::Terminal => server::terminal_client(&cfg, bridge),
-            ServerKind::None => server::memory_access(&cfg, bridge),
+        let mut threads = vec![];
+        for server_kind in &cfg.server_kind {
+            use std::thread;
+            let bridge = bridge.clone();
+            let cfg = cfg.clone();
+            let kind = server_kind.clone();
+            let thr_handle = thread::spawn(move || {
+                match kind {
+                    ServerKind::GDB => server::gdb_server(cfg, bridge),
+                    ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
+                    ServerKind::RandomTest => server::random_test(cfg, bridge),
+                    ServerKind::LoadFile => server::load_file(cfg, bridge),
+                    ServerKind::Terminal => server::terminal_client(cfg, bridge),
+                    ServerKind::None => server::memory_access(cfg, bridge),
+                }
+            });
+            threads.push(thr_handle);
+        }
+        for handle in threads {
+            handle.join().ok();
         }
     };
-    if let Err(e) = retcode {
-        error!("server error: {:?}", e);
-        process::exit(1);
-    }
+    // if let Err(e) = retcode {
+    //     error!("server error: {:?}", e);
+    //     process::exit(1);
+    // }
 }

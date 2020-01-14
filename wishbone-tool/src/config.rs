@@ -62,6 +62,7 @@ pub fn parse_u32(value: &str) -> Result<u32, ConfigError> {
     }
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub usb_pid: Option<u16>,
     pub usb_vid: Option<u16>,
@@ -69,7 +70,7 @@ pub struct Config {
     pub usb_device: Option<u8>,
     pub memory_address: Option<u32>,
     pub memory_value: Option<u32>,
-    pub server_kind: ServerKind,
+    pub server_kind: Vec<ServerKind>,
     pub bridge_kind: BridgeKind,
     pub serial_port: Option<String>,
     pub serial_baud: Option<usize>,
@@ -177,7 +178,12 @@ impl Config {
             None
         };
 
-        let server_kind = ServerKind::from_string(&matches.value_of("server-kind"))?;
+        let mut server_kind = vec![];
+        if let Some(server_kinds) = matches.values_of("server-kind") {
+            for sk in server_kinds {
+                server_kind.push(ServerKind::from_string(&Some(sk))?);
+            }
+        }
 
         let random_loops = if let Some(random_loops) = matches.value_of("random-loops") {
             Some(parse_u32(random_loops)?)
@@ -211,7 +217,7 @@ impl Config {
             0xf00f0000
         };
 
-        if memory_address.is_none() && server_kind == ServerKind::None {
+        if memory_address.is_none() && server_kind.len() == 0 {
             Err(ConfigError::NoOperationSpecified)
         } else {
             Ok(Config {

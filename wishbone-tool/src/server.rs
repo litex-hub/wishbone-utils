@@ -18,7 +18,7 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum ServerKind {
     /// No server
     None,
@@ -155,7 +155,7 @@ fn poll_uart(uart_address: u32, bridge: &bridge::Bridge) -> Result<bool, bridge:
     Ok(bridge.peek(uart_address)? == 0)
 }
 
-pub fn gdb_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let cpu = riscv::RiscvCpu::new(&bridge, cfg.debug_offset)?;
     let messible_address = cfg.messible_address;
     loop {
@@ -250,7 +250,7 @@ pub fn gdb_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerErro
     }
 }
 
-pub fn wishbone_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn wishbone_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
     let messible_address = cfg.messible_address;
 
@@ -315,7 +315,7 @@ pub fn wishbone_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), Serve
     }
 }
 
-pub fn random_test(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut loop_counter: u32 = 0;
     let random_addr = match cfg.random_address {
         Some(s) => s,
@@ -366,7 +366,7 @@ pub fn random_test(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerErr
     }
 }
 
-pub fn memory_access(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn memory_access(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     if let Some(addr) = cfg.memory_address {
         if let Some(value) = cfg.memory_value {
             bridge.poke(addr, value)?;
@@ -383,7 +383,7 @@ pub fn memory_access(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerE
     Ok(())
 }
 
-pub fn load_file(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut loop_counter: u32 = 0;
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
@@ -423,7 +423,7 @@ struct IOInterface {
     term: Terminal<std::io::Stdout>,
 }
 
-pub fn terminal_client(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let poll_time = 10;
     let my_terminal = IOInterface::new();
     use std::io::stdout;
