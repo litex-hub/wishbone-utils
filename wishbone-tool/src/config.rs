@@ -24,6 +24,9 @@ pub enum ConfigError {
 
     /// Generic IO Error
     IoError(io::Error),
+
+    /// The configuration doesn't make sense
+    InvalidConfig(String),
 }
 
 impl std::convert::From<io::Error> for ConfigError {
@@ -234,6 +237,28 @@ impl Config {
             server_kind.push(ServerKind::MemoryAccess);
         }
 
+        // Validate the configuration is correct
+        if matches.value_of("csr-csv").is_some() {
+            if server_kind.contains(&ServerKind::GDB) {
+                // You asked for --server gdb but no vexriscv jtag interfaces is found in the csr.csv file it should complain.
+                if !register_mapping.contains_key("vexriscv_debug") {
+                    return Err(ConfigError::InvalidConfig(
+                        "GDB specified but no vexriscv address present in csv file".to_owned(),
+                    ));
+                }
+                // You asked for --server terminal but no uart is found in the csr.csv file it should complain.
+                if !(register_mapping.contains_key("uart_xover_rxtx")
+                    && register_mapping.contains_key("uart_xover_rxempty")
+                    && register_mapping.contains_key("uart_xover_ev_pending"))
+                {
+                    return Err(ConfigError::InvalidConfig(
+                        "Terminal specified, but no xover uart addresses present in csv file"
+                            .to_owned(),
+                    ));
+                }
+            }
+        }
+
         Ok(Config {
             usb_pid,
             usb_vid,
@@ -263,38 +288,45 @@ impl Config {
         let mut map = HashMap::new();
         let file = match filename {
             None => return Ok(map),
-            Some(s) => File::open(s)?
+            Some(s) => File::open(s)?,
         };
         let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(file);
         for result in rdr.records() {
             if let Ok(r) = result {
-                if &r[0] != "csr_register" {
-                    continue;
-                }
-                let reg_name = &r[1];
-                let base_addr = parse_u32(&r[2])?;
-                let num_regs = parse_u32(&r[3])?;
+                match &r[0] {
+                    "csr_register" => {
+                        let reg_name = &r[1];
+                        let base_addr = parse_u32(&r[2])?;
+                        let num_regs = parse_u32(&r[3])?;
 
-                // If there's only one register, add it to the map.
-                // However, CSRs can span multiple registers, and do so in reverse.
-                // If this is the case, create indexed offsets for those registers.
-                match num_regs {
-                    1 => {
-                        map.insert(reg_name.to_string().to_lowercase(), base_addr);
-                    }
-                    n => {
-                        for offset in 0..n {
-                            map.insert(
-                                format!(
-                                    "{}{}",
-                                    reg_name.to_string().to_lowercase(),
-                                    n - offset - 1
-                                ),
-                                base_addr + (offset * 4),
-                            );
+                        // If there's only one register, add it to the map.
+                        // However, CSRs can span multiple registers, and do so in reverse.
+                        // If this is the case, create indexed offsets for those registers.
+                        match num_regs {
+                            1 => {
+                                map.insert(reg_name.to_string().to_lowercase(), base_addr);
+                            }
+                            n => {
+                                for offset in 0..n {
+                                    map.insert(
+                                        format!(
+                                            "{}{}",
+                                            reg_name.to_string().to_lowercase(),
+                                            n - offset - 1
+                                        ),
+                                        base_addr + (offset * 4),
+                                    );
+                                }
+                            }
                         }
+                    },
+                    "memory_region" => {
+                        let region = &r[1];
+                        let base_addr = parse_u32(&r[2])?;
+                        map.insert(region.to_string().to_lowercase(), base_addr);
                     }
-                }
+                    _ => (),
+                };
             }
         }
         Ok(map)

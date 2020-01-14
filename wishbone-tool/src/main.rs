@@ -326,6 +326,7 @@ fn main() {
                 }
                 config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
                 config::ConfigError::IoError(s) => error!("file error: {}", s),
+                config::ConfigError::InvalidConfig(s) => error!("invalid configuration: {}", s),
             }
             process::exit(1);
         }
