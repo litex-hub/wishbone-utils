@@ -125,6 +125,7 @@ impl UartBridge {
             }
 
             let mut keep_going = true;
+            let mut result_error = "".to_owned();
             while keep_going {
                 let var = rx.recv();
                 match var {
@@ -145,20 +146,26 @@ impl UartBridge {
                         }
                         ConnectThreadRequests::Peek(addr) => {
                             let result = Self::do_peek(&mut port, addr);
-                            keep_going = result.is_ok();
+                            if let Err(err) = &result {
+                                result_error = format!("peek {:?} @ {:08x}", err, addr);
+                                keep_going = false;
+                            }
                             *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(result));
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::Poke(addr, val) => {
                             let result = Self::do_poke(&mut port, addr, val);
-                            keep_going = result.is_ok();
+                            if let Err(err) = &result {
+                                result_error = format!("poke {:?} @ {:08x}", err, addr);
+                                keep_going = false;
+                            }
                             *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(result));
                             cvar.notify_one();
                         }
                     },
                 }
             }
-            debug!("serial port was closed");
+            error!("serial port was closed: {}", result_error);
             thread::park_timeout(Duration::from_millis(500));
 
             // Respond to any messages in the buffer with NotConnected.  As soon
