@@ -2,6 +2,7 @@ use crate::config::ConfigError;
 use crate::config::ConfigError::SpiParseError;
 use crate::config::parse_u32;
 
+#[derive(Clone)]
 pub struct SpiPins {
     #[allow(dead_code)]
     mosi: u8,

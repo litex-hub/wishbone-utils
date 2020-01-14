@@ -10,6 +10,7 @@ use spi::SpiBridge;
 use std::sync::{Arc, Mutex};
 use std::io;
 
+#[derive(Clone)]
 pub enum BridgeKind {
     UsbBridge,
     UartBridge,

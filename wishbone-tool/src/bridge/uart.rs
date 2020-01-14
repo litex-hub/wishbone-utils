@@ -87,13 +87,17 @@ impl UartBridge {
         let mut path = path;
         let mut baud = baud;
         let mut print_waiting_message = true;
+        let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
             let mut port = match serial::open(&path) {
                 Ok(port) => {
-                    info!("opened serial device {}", path);
-                    *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
-                    cvar.notify_one();
+                    info!("Re-opened serial device {}", path);
+                    if first_run {
+                        *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
+                        first_run = false;
+                        cvar.notify_one();
+                    }
                     print_waiting_message = true;
                     port
                 },
@@ -154,7 +158,7 @@ impl UartBridge {
                     },
                 }
             }
-
+            debug!("serial port was closed");
             thread::park_timeout(Duration::from_millis(500));
 
             // Respond to any messages in the buffer with NotConnected.  As soon
@@ -222,6 +226,7 @@ impl UartBridge {
         addr: u32,
         value: u32,
     ) -> Result<(), BridgeError> {
+        debug!("POKE @ {:08x} -> {:08x}", addr, value);
         // WRITE, 1 word
         serial.write(&[0x01, 0x01])?;
 
@@ -233,6 +238,7 @@ impl UartBridge {
 
     fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
         // READ, 1 word
+        debug!("Peeking @ {:08x}", addr);
         serial.write(&[0x02, 0x01])?;
 
         // LiteX ignores the bottom two Wishbone bits, so shift it by
@@ -240,6 +246,7 @@ impl UartBridge {
         serial.write_u32::<BigEndian>(addr >> 2)?;
 
         let val = serial.read_u32::<BigEndian>()?;
+        debug!("PEEK @ {:08x} = {:08x}", addr, val);
         Ok(val)
     }
 
