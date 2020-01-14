@@ -20,8 +20,8 @@ use std::time::Duration;
 
 #[derive(PartialEq, Clone)]
 pub enum ServerKind {
-    /// No server
-    None,
+    /// DevMem2 equivalent
+    MemoryAccess,
 
     /// Wishbone bridge
     Wishbone,
@@ -87,17 +87,15 @@ impl std::convert::From<terminal::error::ErrorKind> for ServerError {
 }
 
 impl ServerKind {
-    pub fn from_string(item: &Option<&str>) -> Result<ServerKind, ConfigError> {
+    pub fn from_string(item: &str) -> Result<ServerKind, ConfigError> {
         match item {
-            None => Ok(ServerKind::None),
-            Some(k) => match *k {
-                "gdb" => Ok(ServerKind::GDB),
-                "wishbone" => Ok(ServerKind::Wishbone),
-                "random-test" => Ok(ServerKind::RandomTest),
-                "load-file" => Ok(ServerKind::LoadFile),
-                "terminal" => Ok(ServerKind::Terminal),
-                unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
-            },
+            "gdb" => Ok(ServerKind::GDB),
+            "wishbone" => Ok(ServerKind::Wishbone),
+            "random-test" => Ok(ServerKind::RandomTest),
+            "load-file" => Ok(ServerKind::LoadFile),
+            "terminal" => Ok(ServerKind::Terminal),
+            "memory-access" => Ok(ServerKind::MemoryAccess),
+            unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
         }
     }
 }

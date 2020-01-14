@@ -90,6 +90,7 @@ pub struct Config {
 impl Config {
     pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
         let mut bridge_kind = BridgeKind::UsbBridge;
+        let mut server_kind = vec![];
 
         let usb_vid = if let Some(vid) = matches.value_of("vid") {
             Some(parse_u16(vid)?)
@@ -136,6 +137,7 @@ impl Config {
         };
 
         let load_addr = if let Some(addr) = matches.value_of("load-address") {
+            server_kind.push(ServerKind::MemoryAccess);
             Some(parse_u32(addr)?)
         } else {
             None
@@ -178,10 +180,9 @@ impl Config {
             None
         };
 
-        let mut server_kind = vec![];
         if let Some(server_kinds) = matches.values_of("server-kind") {
             for sk in server_kinds {
-                server_kind.push(ServerKind::from_string(&Some(sk))?);
+                server_kind.push(ServerKind::from_string(sk)?);
             }
         }
 
@@ -217,8 +218,11 @@ impl Config {
             0xf00f0000
         };
 
-        if memory_address.is_none() && server_kind.len() == 0 {
-            return Err(ConfigError::NoOperationSpecified);
+        if server_kind.len() == 0 {
+            if memory_address.is_none() {
+                return Err(ConfigError::NoOperationSpecified);
+            }
+            server_kind.push(ServerKind::MemoryAccess);
         }
 
         Ok(Config {
@@ -244,7 +248,6 @@ impl Config {
             load_name,
             load_addr,
         })
-        }
     }
 
     fn parse_csr_csv(filename: Option<&str>) -> HashMap<String, u32> {
