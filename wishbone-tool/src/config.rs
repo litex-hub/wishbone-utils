@@ -218,31 +218,32 @@ impl Config {
         };
 
         if memory_address.is_none() && server_kind.len() == 0 {
-            Err(ConfigError::NoOperationSpecified)
-        } else {
-            Ok(Config {
-                usb_pid,
-                usb_vid,
-                usb_bus,
-                usb_device,
-                serial_port,
-                serial_baud,
-                spi_pins,
-                memory_address,
-                memory_value,
-                server_kind,
-                bridge_kind,
-                bind_port,
-                bind_addr,
-                random_loops,
-                random_address,
-                random_range,
-                messible_address,
-                register_mapping,
-                debug_offset,
-                load_name,
-                load_addr,
-            })
+            return Err(ConfigError::NoOperationSpecified);
+        }
+
+        Ok(Config {
+            usb_pid,
+            usb_vid,
+            usb_bus,
+            usb_device,
+            serial_port,
+            serial_baud,
+            spi_pins,
+            memory_address,
+            memory_value,
+            server_kind,
+            bridge_kind,
+            bind_port,
+            bind_addr,
+            random_loops,
+            random_address,
+            random_range,
+            messible_address,
+            register_mapping,
+            debug_offset,
+            load_name,
+            load_addr,
+        })
         }
     }
 
