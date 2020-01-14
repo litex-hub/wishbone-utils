@@ -764,6 +764,10 @@ impl RiscvCpu {
         }
     }
 
+    /// Read the specified register and return its value.
+    ///
+    /// The `gdb_idx` is the GDB index, and may include both CPU registers
+    /// and CSR-index registers, which are offset by an index.
     pub fn read_register(&self, bridge: &Bridge, gdb_idx: u32) -> Result<u32, RiscvCpuError> {
         let reg = self.gdb_to_register(gdb_idx)?;
 
