@@ -609,14 +609,21 @@ impl GdbServer {
             }
             GdbCommand::GetRegisters => {
                 let mut register_list = String::new();
-                for i in 0..33 {
+                for i in cpu.all_cpu_registers() {
                     register_list
                         .push_str(format!("{:08x}", swab(cpu.read_register(bridge, i)?)).as_str());
                 }
                 self.gdb_send(register_list.as_bytes())?
             }
             GdbCommand::GetRegister(reg) => {
-                self.gdb_send(format!("{:08x}", swab(cpu.read_register(bridge, reg)?)).as_bytes())?
+                let response = match cpu.read_register(bridge, reg) {
+                    Ok(val) => format!("{:08x}", swab(val)),
+                    Err(e) => {
+                        error!("Error reading register: {}", e);
+                        format!("E01")
+                    }
+                };
+                self.gdb_send(response.as_bytes())?
             }
             GdbCommand::SetRegister(reg, val) => {
                 let response = match cpu.write_register(bridge, reg, val) {
