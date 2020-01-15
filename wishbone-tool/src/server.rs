@@ -439,6 +439,7 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
         .register_mapping
         .get("uart_xover_rxempty")
         .unwrap_or(&0xe0001820);
+
     loop {
         if poll_uart(xover_rxempty, &bridge)? {
             let mut char_buffer = vec![];
@@ -484,7 +485,10 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
 
 impl IOInterface {
     pub fn new() -> IOInterface {
-        IOInterface { term: terminal::stdout() }
+        let term = terminal::stdout();
+        term.act(Action::EnableRawMode).expect("can't enable raw mode");
+        term.act(Action::EnableMouseCapture).expect("can't capture mouse");
+        IOInterface { term }
     }
 }
 impl Drop for IOInterface {
