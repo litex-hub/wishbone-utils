@@ -161,6 +161,23 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("ethernet-host")
+                .long("ethernet-host")
+                .value_name("HOSTNAME")
+                .help("Address to use when connecting via Etherbone")
+                .display_order(6)
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("ethernet-port")
+                .long("ethernet-port")
+                .value_name("PORT")
+                .help("Port to use when connecting via Etherbone")
+                .default_value("1234")
+                .display_order(6)
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("spi-pins")
                 .short("g")
                 .long("spi-pins")

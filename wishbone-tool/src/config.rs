@@ -90,6 +90,8 @@ pub struct Config {
     pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
     pub bind_port: u32,
+    pub ethernet_host: Option<String>,
+    pub ethernet_port: u16,
     pub random_loops: Option<u32>,
     pub random_address: Option<u32>,
     pub random_range: Option<u32>,
@@ -178,6 +180,19 @@ impl Config {
             addr.to_owned()
         } else {
             "127.0.0.1".to_owned()
+        };
+
+        let ethernet_host = if let Some(host) = matches.value_of("ethernet-host") {
+            bridge_kind = BridgeKind::EthernetBridge;
+            Some(host.to_owned())
+        } else {
+            None
+        };
+
+        let ethernet_port = if let Some(port) = matches.value_of("ethernet-port") {
+            parse_u16(port)?
+        } else {
+            1234
         };
 
         let spi_pins = if let Some(pins) = matches.value_of("spi-pins") {
@@ -292,6 +307,8 @@ impl Config {
             debug_offset,
             load_name,
             load_addr,
+            ethernet_host,
+            ethernet_port,
         })
     }
 
