@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use log::{debug, error, info};
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ByteOrder};
 
 use super::BridgeError;
 use crate::config::Config;
@@ -136,7 +136,7 @@ impl EthernetBridge {
                             port = p;
                         }
                         ConnectThreadRequests::Peek(addr) => {
-                            let result = Self::do_peek(&mut connection, addr);
+                            let result = Self::do_peek(&mut connection, &host, port, addr);
                             if let Err(err) = &result {
                                 result_error = format!("peek {:?} @ {:08x}", err, addr);
                                 keep_going = false;
@@ -145,7 +145,7 @@ impl EthernetBridge {
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::Poke(addr, val) => {
-                            let result = Self::do_poke(&mut connection, addr, val);
+                            let result = Self::do_poke(&mut connection, &host, port, addr, val);
                             if let Err(err) = &result {
                                 result_error = format!("poke {:?} @ {:08x}", err, addr);
                                 keep_going = false;
@@ -220,33 +220,92 @@ impl EthernetBridge {
     }
 
     fn do_poke(
-        serial: &mut UdpSocket,
+        connection: &mut UdpSocket,
+        host: &String,
+        port: u16,
         addr: u32,
         value: u32,
     ) -> Result<(), BridgeError> {
         debug!("POKE @ {:08x} -> {:08x}", addr, value);
-        // WRITE, 1 word
-        // serial.write(&[0x01, 0x01])?;
+        let mut buffer: [u8;20] = [
 
-        // LiteX ignores the bottom two Wishbone bits, so shift it by
-        // two when writing the address.
-        // serial.write_u32::<BigEndian>(addr >> 2)?;
-        // Ok(serial.write_u32::<BigEndian>(value)?)
+            // 0
+            0x4e,       // Magic byte 0
+            0x6f,       // Magic byte 1
+            0x10,       // Version 1, all other flags 0
+            0x44,       // Address is 32-bits, port is 32-bits
+
+            // 4
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+
+            // 8 - Record
+            0,          // No Wishbone flags are set (cyc, wca, wff, etc.)
+            0x0f,       // Byte enable
+            1,          // Write count
+            0,          // Read count
+
+            // 12 - Address
+            0,
+            0,
+            0,
+            0,
+
+            // 16 - Value
+            0,
+            0,
+            0,
+            0,
+        ];
+        BigEndian::write_u32(&mut buffer[12..16], addr);
+        BigEndian::write_u32(&mut buffer[16..20], value);
+        connection.send_to(&buffer, format!("{}:{}", host, port))?;
         Ok(())
     }
 
-    fn do_peek(serial: &mut UdpSocket, addr: u32) -> Result<u32, BridgeError> {
-        // // READ, 1 word
-        // debug!("Peeking @ {:08x}", addr);
-        // serial.write(&[0x02, 0x01])?;
+    fn do_peek(connection: &mut UdpSocket, host: &String, port: u16, addr: u32) -> Result<u32, BridgeError> {
+        let mut buffer: [u8;20] = [
 
-        // // LiteX ignores the bottom two Wishbone bits, so shift it by
-        // // two when writing the address.
-        // serial.write_u32::<BigEndian>(addr >> 2)?;
+            // 0
+            0x4e,       // Magic byte 0
+            0x6f,       // Magic byte 1
+            0x10,       // Version 1, all other flags 0
+            0x44,       // Address is 32-bits, port is 32-bits
 
-        // let val = serial.read_u32::<BigEndian>()?;
-        // debug!("PEEK @ {:08x} = {:08x}", addr, val);
-        let val = 0;
+            // 4
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+
+            // 8 - Record
+            0,          // No Wishbone flags are set (cyc, wca, wff, etc.)
+            0x0f,       // Byte enable
+            0,          // Write count
+            1,          // Read count
+
+            // 12 - Address
+            0,
+            0,
+            0,
+            0,
+
+            // 16 - Value
+            0,
+            0,
+            0,
+            0,
+        ];
+        BigEndian::write_u32(&mut buffer[16..20], addr);
+        connection.send_to(&buffer, format!("{}:{}", host, port))?;
+        let (amt, _src) = connection.recv_from(&mut buffer)?;
+        if amt != buffer.len() {
+            return Err(BridgeError::LengthError(amt, buffer.len()));
+        }
+        let val = BigEndian::read_u32(&buffer[16..20]);
+        debug!("PEEK @ {:08x} = {:08x}", addr, val);
         Ok(val)
     }
 
@@ -289,33 +348,33 @@ impl EthernetBridge {
     }
 }
 
-// impl Drop for EthernetBridge {
-//     fn drop(&mut self) {
-//         // If this is the last reference to the bridge, tell the control thread
-//         // to exit.
-//         let sc = Arc::strong_count(&self.mutex);
-//         let wc = Arc::weak_count(&self.mutex);
-//         debug!("strong count: {}  weak count: {}", sc, wc);
-//         if (sc + wc) <= 1 {
-//             let &(ref lock, ref cvar) = &*self.main_rx;
-//             let mut mtx = lock.lock().unwrap();
-//             self.main_tx
-//                 .send(ConnectThreadRequests::Exit)
-//                 .expect("Unable to send Exit request to thread");
+impl Drop for EthernetBridge {
+    fn drop(&mut self) {
+        // If this is the last reference to the bridge, tell the control thread
+        // to exit.
+        let sc = Arc::strong_count(&self.mutex);
+        let wc = Arc::weak_count(&self.mutex);
+        debug!("strong count: {}  weak count: {}", sc, wc);
+        if (sc + wc) <= 1 {
+            let &(ref lock, ref cvar) = &*self.main_rx;
+            let mut mtx = lock.lock().unwrap();
+            self.main_tx
+                .send(ConnectThreadRequests::Exit)
+                .expect("Unable to send Exit request to thread");
 
-//             *mtx = None;
-//             while mtx.is_none() {
-//                 mtx = cvar.wait(mtx).unwrap();
-//             }
-//             match mtx.take() {
-//                 Some(ConnectThreadResponses::Exiting) => (),
-//                 e => {
-//                     error!("unexpected bridge exit response: {:?}", e);
-//                 }
-//             }
-//             if let Some(pt) = self.poll_thread.take() {
-//                 pt.join().expect("Unable to join polling thread");
-//             }
-//         }
-//     }
-// }
+            *mtx = None;
+            while mtx.is_none() {
+                mtx = cvar.wait(mtx).unwrap();
+            }
+            match mtx.take() {
+                Some(ConnectThreadResponses::Exiting) => (),
+                e => {
+                    error!("unexpected bridge exit response: {:?}", e);
+                }
+            }
+            if let Some(pt) = self.poll_thread.take() {
+                pt.join().expect("Unable to join polling thread");
+            }
+        }
+    }
+}
