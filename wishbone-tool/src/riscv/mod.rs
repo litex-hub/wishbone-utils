@@ -909,7 +909,7 @@ impl RiscvCpuController {
         } else {
             // If we're currently running but we shouldn't be, flush caches and stop.
             if *current_status == RiscvCpuState::Halted {
-                info!("POLL: CPU started running on its own!  Halting it and flushing the caches.");
+                info!("POLL: The debugger thinks the CPU is halted, but CPU is now running!  Halting it and flushing the caches.");
                 self.cached_values.lock().unwrap().drain();
                 self.perform_halt(bridge)?;
             }
