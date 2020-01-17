@@ -223,9 +223,10 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("port")
+            Arg::with_name("wishbone-port")
                 .short("n")
-                .long("port")
+                .long("wishbone-port")
+                .alias("port")
                 .value_name("PORT_NUMBER")
                 .help("port number to listen on")
                 .default_value("1234")
@@ -248,6 +249,13 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .help("which server to run (if any)")
                 .display_order(1)
                 .possible_values(&["gdb", "wishbone", "random-test", "load-file", "terminal"]),
+        )
+        .arg(
+            Arg::with_name("gdb-port")
+                .long("gdb-port")
+                .help("Port to listen for GDB connections")
+                .default_value("3333")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("load-name")

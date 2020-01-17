@@ -158,7 +158,7 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
     let messible_address = cfg.messible_address;
     loop {
         let connection = {
-            let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)) {
+            let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.gdb_port)) {
                 Ok(o) => o,
                 Err(e) => {
                     error!("couldn't bind to address: {:?}", e);

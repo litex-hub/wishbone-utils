@@ -89,7 +89,8 @@ pub struct Config {
     pub serial_baud: Option<usize>,
     pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
-    pub bind_port: u32,
+    pub bind_port: u16,
+    pub gdb_port: u16,
     pub ethernet_host: Option<String>,
     pub ethernet_port: u16,
     pub ethernet_tcp: bool,
@@ -171,11 +172,10 @@ impl Config {
             None
         };
 
-        let bind_port = if let Some(port) = matches.value_of("port") {
-            parse_u32(port)?
-        } else {
-            3333
-        };
+        // unwrap() is safe because there is a default value
+        let gdb_port = parse_u16(matches.value_of("gdb-port").unwrap())?;
+        let bind_port = parse_u16(matches.value_of("wishbone-port").unwrap())?;
+        let ethernet_port = parse_u16(matches.value_of("ethernet-port").unwrap())?;
 
         let bind_addr = if let Some(addr) = matches.value_of("bind-addr") {
             addr.to_owned()
@@ -188,12 +188,6 @@ impl Config {
             Some(host.to_owned())
         } else {
             None
-        };
-
-        let ethernet_port = if let Some(port) = matches.value_of("ethernet-port") {
-            parse_u16(port)?
-        } else {
-            1234
         };
 
         let ethernet_tcp = matches.is_present("ethernet-tcp");
@@ -302,6 +296,7 @@ impl Config {
             bridge_kind,
             bind_port,
             bind_addr,
+            gdb_port,
             random_loops,
             random_address,
             random_range,
