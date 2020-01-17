@@ -88,7 +88,7 @@ impl EthernetBridge {
         let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
-            let mut connection = match UdpSocket::bind(format!("{}:{}", host, port)) {
+            let mut connection = match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
                 Ok(conn) => {
                     info!("Re-opened ethernet host {}:{}", host, port);
                     if first_run {
@@ -102,7 +102,7 @@ impl EthernetBridge {
                 Err(e) => {
                     if print_waiting_message {
                         print_waiting_message = false;
-                        error!("unable to open ethernet host, will wait for it to appear again: {}", e);
+                        error!("unable to open ethernet host {}:{}, will wait for it to appear again: {}", host, port, e);
                     }
                     thread::park_timeout(Duration::from_millis(500));
                     continue;
