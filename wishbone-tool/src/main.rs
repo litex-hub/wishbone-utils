@@ -178,6 +178,12 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("ethernet-tcp")
+                .long("ethernet-tcp")
+                .help("Connect using TCP, for example when using an external wishbone bridge")
+                .display_order(6)
+        )
+        .arg(
             Arg::with_name("spi-pins")
                 .short("g")
                 .long("spi-pins")
