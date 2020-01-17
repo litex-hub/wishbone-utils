@@ -92,6 +92,7 @@ pub struct Config {
     pub bind_port: u32,
     pub ethernet_host: Option<String>,
     pub ethernet_port: u16,
+    pub ethernet_tcp: bool,
     pub random_loops: Option<u32>,
     pub random_address: Option<u32>,
     pub random_range: Option<u32>,
@@ -194,6 +195,8 @@ impl Config {
         } else {
             1234
         };
+
+        let ethernet_tcp = matches.is_present("ethernet-tcp");
 
         let spi_pins = if let Some(pins) = matches.value_of("spi-pins") {
             bridge_kind = BridgeKind::SpiBridge;
@@ -309,6 +312,7 @@ impl Config {
             load_addr,
             ethernet_host,
             ethernet_port,
+            ethernet_tcp,
         })
     }
 
