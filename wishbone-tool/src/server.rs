@@ -427,10 +427,13 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
     use std::io::stdout;
     use std::io::Write;
 
-    let xover_pending = *cfg
-        .register_mapping
-        .get("uart_xover_ev_pending")
-        .unwrap_or(&0xe0001828);
+    // The UART device used to require setting a bit in
+    // the xover_ev_pending register.  This was changed
+    // so the FIFO is auto-advancing.
+    // let xover_pending = *cfg
+    //     .register_mapping
+    //     .get("uart_xover_ev_pending")
+    //     .unwrap_or(&0xe0001828);
     let xover_rxtx = *cfg
         .register_mapping
         .get("uart_xover_rxtx")
@@ -445,7 +448,7 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
             let mut char_buffer = vec![];
             while bridge.peek(xover_rxempty)? == 0 {
                 char_buffer.push(bridge.peek(xover_rxtx)? as u8);
-                bridge.poke(xover_pending, 2)?;
+                // bridge.poke(xover_pending, 2)?;
             }
             print!("{}", String::from_utf8_lossy(&char_buffer));
             stdout().flush().ok();
