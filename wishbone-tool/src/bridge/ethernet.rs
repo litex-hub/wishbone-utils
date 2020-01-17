@@ -1,6 +1,6 @@
 extern crate byteorder;
 
-use std::net::UdpSocket;
+use std::net::{UdpSocket, TcpStream};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
@@ -13,9 +13,20 @@ use byteorder::{BigEndian, ByteOrder};
 use super::BridgeError;
 use crate::config::Config;
 
-pub struct EthernetBridge {
+enum EthernetConnection {
+    UDP(UdpSocket),
+    TCP(TcpStream),
+}
+
+#[derive(Clone)]
+struct EthernetConfig {
     host: String,
     port: u16,
+    tcp: bool,
+}
+
+pub struct EthernetBridge {
+    cfg: EthernetConfig,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
@@ -40,8 +51,7 @@ enum ConnectThreadResponses {
 impl Clone for EthernetBridge {
     fn clone(&self) -> Self {
         EthernetBridge {
-            host: self.host.clone(),
-            port: self.port,
+            cfg: self.cfg.clone(),
             main_tx: self.main_tx.clone(),
             main_rx: self.main_rx.clone(),
             mutex: self.mutex.clone(),
@@ -49,6 +59,7 @@ impl Clone for EthernetBridge {
         }
     }
 }
+
 impl EthernetBridge {
     pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
@@ -59,16 +70,17 @@ impl EthernetBridge {
             None => panic!("no ethernet hostname path was found"),
         };
         let port = cfg.ethernet_port;
+        let tcp = cfg.ethernet_tcp;
+        let cfg = EthernetConfig { host, port, tcp, };
 
         let thr_cv = cv.clone();
-        let thr_hostname = host.clone();
+        let thr_cfg = cfg.clone();
         let poll_thread = Some(thread::spawn(move || {
-            Self::ethernet_thread(thr_cv, thread_rx, thr_hostname, port)
+            Self::ethernet_thread(thr_cv, thread_rx, thr_cfg)
         }));
 
         Ok(EthernetBridge {
-            host,
-            port,
+            cfg,
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
@@ -79,11 +91,10 @@ impl EthernetBridge {
     fn ethernet_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        host: String,
-        port: u16
+        cfg: EthernetConfig
     ) {
-        let mut host = host;
-        let mut port = port;
+        let mut host = cfg.host;
+        let mut port = cfg.port;
         let mut print_waiting_message = true;
         let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
@@ -201,8 +212,8 @@ impl EthernetBridge {
     pub fn connect(&self) -> Result<(), BridgeError> {
         self.main_tx
             .send(ConnectThreadRequests::StartPolling(
-                self.host.clone(),
-                self.port,
+                self.cfg.host.clone(),
+                self.cfg.port,
             ))
             .unwrap();
         loop {
