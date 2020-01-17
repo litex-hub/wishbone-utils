@@ -5,6 +5,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
 use std::time::Duration;
+use std::io::{Read, Write};
 
 use log::{debug, error, info};
 
@@ -16,6 +17,22 @@ use crate::config::Config;
 enum EthernetConnection {
     UDP(UdpSocket),
     TCP(TcpStream),
+}
+
+impl EthernetConnection {
+    pub fn set_write_timeout(&self, dur: Option<Duration>) -> ::std::io::Result<()> {
+        match self {
+            EthernetConnection::UDP(u) => u.set_write_timeout(dur),
+            EthernetConnection::TCP(t) => t.set_write_timeout(dur),
+        }
+    }
+
+    pub fn set_read_timeout(&self, dur: Option<Duration>) -> ::std::io::Result<()> {
+        match self {
+            EthernetConnection::UDP(u) => u.set_read_timeout(dur),
+            EthernetConnection::TCP(t) => t.set_read_timeout(dur),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -99,26 +116,44 @@ impl EthernetBridge {
         let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
-            let mut connection = match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
-                Ok(conn) => {
-                    info!("Re-opened ethernet host {}:{}", host, port);
-                    if first_run {
-                        *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
-                        first_run = false;
-                        cvar.notify_one();
+            let mut connection = match cfg.tcp {
+                true => match TcpStream::connect(format!("{}:{}", host, port)) {
+                    Ok(conn) => {
+                        info!("Re-opened ethernet host {}:{}", host, port);
+                        EthernetConnection::TCP(conn)
+                    },
+                    Err(e) => {
+                        if print_waiting_message {
+                            print_waiting_message = false;
+                            error!("unable to open ethernet host {}:{}, will wait for it to appear again: {}", host, port, e);
+                        }
+                        thread::park_timeout(Duration::from_millis(500));
+                        continue;
                     }
-                    print_waiting_message = true;
-                    conn
                 },
-                Err(e) => {
-                    if print_waiting_message {
-                        print_waiting_message = false;
-                        error!("unable to open ethernet host {}:{}, will wait for it to appear again: {}", host, port, e);
+                false => match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
+                    Ok(conn) => {
+                        info!("Re-opened ethernet host {}:{}", host, port);
+                        EthernetConnection::UDP(conn)
+                    },
+                    Err(e) => {
+                        if print_waiting_message {
+                            print_waiting_message = false;
+                            error!("unable to open ethernet host {}:{}, will wait for it to appear again: {}", host, port, e);
+                        }
+                        thread::park_timeout(Duration::from_millis(500));
+                        continue;
                     }
-                    thread::park_timeout(Duration::from_millis(500));
-                    continue;
                 }
             };
+
+            if first_run {
+                *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
+                first_run = false;
+                cvar.notify_one();
+            }
+            print_waiting_message = true;
+
             if let Err(e) = connection.set_read_timeout(Some(Duration::from_millis(1000))) {
                 error!("unable to set ethernet read duration timeout: {}", e);
             }
@@ -231,7 +266,7 @@ impl EthernetBridge {
     }
 
     fn do_poke(
-        connection: &mut UdpSocket,
+        connection: &mut EthernetConnection,
         host: &String,
         port: u16,
         addr: u32,
@@ -272,11 +307,14 @@ impl EthernetBridge {
         ];
         BigEndian::write_u32(&mut buffer[12..16], addr);
         BigEndian::write_u32(&mut buffer[16..20], value);
-        connection.send_to(&buffer, format!("{}:{}", host, port))?;
+        match connection {
+            EthernetConnection::UDP(u) => u.send_to(&buffer, format!("{}:{}", host, port))?,
+            EthernetConnection::TCP(t) => t.write(&buffer)?,
+        };
         Ok(())
     }
 
-    fn do_peek(connection: &mut UdpSocket, host: &String, port: u16, addr: u32) -> Result<u32, BridgeError> {
+    fn do_peek(connection: &mut EthernetConnection, host: &String, port: u16, addr: u32) -> Result<u32, BridgeError> {
         let mut buffer: [u8;20] = [
 
             // 0
@@ -310,8 +348,17 @@ impl EthernetBridge {
             0,
         ];
         BigEndian::write_u32(&mut buffer[16..20], addr);
-        connection.send_to(&buffer, format!("{}:{}", host, port))?;
-        let (amt, _src) = connection.recv_from(&mut buffer)?;
+        let amt = match connection {
+            EthernetConnection::UDP(u) => {
+                u.send_to(&buffer, format!("{}:{}", host, port))?;
+                let (amt, _src) = u.recv_from(&mut buffer)?;
+                amt
+            },
+            EthernetConnection::TCP(t) => {
+                t.write(&buffer)?;
+                t.read(&mut buffer)?
+            }
+        };
         if amt != buffer.len() {
             return Err(BridgeError::LengthError(amt, buffer.len()));
         }
