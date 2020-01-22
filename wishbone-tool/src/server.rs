@@ -37,6 +37,9 @@ pub enum ServerKind {
 
     /// Run a terminal
     Terminal,
+
+    /// View the messible
+    Messible,
 }
 
 #[derive(Debug)]
@@ -94,6 +97,7 @@ impl ServerKind {
             "random-test" => Ok(ServerKind::RandomTest),
             "load-file" => Ok(ServerKind::LoadFile),
             "terminal" => Ok(ServerKind::Terminal),
+            "messible" => Ok(ServerKind::Messible),
             "memory-access" => Ok(ServerKind::MemoryAccess),
             unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
         }
@@ -489,8 +493,10 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
 impl IOInterface {
     pub fn new() -> IOInterface {
         let term = terminal::stdout();
-        term.act(Action::EnableRawMode).expect("can't enable raw mode");
-        term.act(Action::EnableMouseCapture).expect("can't capture mouse");
+        term.act(Action::EnableRawMode)
+            .expect("can't enable raw mode");
+        term.act(Action::EnableMouseCapture)
+            .expect("can't capture mouse");
         IOInterface { term }
     }
 }
@@ -498,5 +504,49 @@ impl Drop for IOInterface {
     fn drop(&mut self) {
         self.term.act(Action::DisableRawMode).ok();
         self.term.act(Action::DisableMouseCapture).ok();
+    }
+}
+
+pub fn messible_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+    let poll_time = 10;
+    let my_terminal = IOInterface::new();
+    use std::io::stdout;
+    use std::io::Write;
+
+    let messible_status = *cfg
+        .register_mapping
+        .get("messible_status")
+        .unwrap_or(&0xe0008008);
+    let messible_out = *cfg
+        .register_mapping
+        .get("messible_out")
+        .unwrap_or(&0xe0008004);
+
+    loop {
+        let mut char_buffer = vec![];
+        while bridge.peek(messible_status)? & 0x2 == 2 {
+            char_buffer.push(bridge.peek(messible_out)? as u8);
+        }
+        if char_buffer.len() > 0 {
+            print!("{}", String::from_utf8_lossy(&char_buffer));
+            stdout().flush().ok();
+        }
+
+        if let Retrieved::Event(event) = my_terminal
+            .term
+            .get(Value::Event(Some(Duration::from_millis(poll_time))))?
+        {
+            match event {
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Esc, ..
+                })) => return Ok(()),
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Char('c'),
+                    modifiers: KeyModifiers::CONTROL,
+                })) => return Ok(()),
+                Some(_event) => (),
+                None => (),
+            }
+        }
     }
 }

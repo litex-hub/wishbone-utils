@@ -248,7 +248,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("list")
                 .help("which server to run (if any)")
                 .display_order(1)
-                .possible_values(&["gdb", "wishbone", "random-test", "load-file", "terminal"]),
+                .possible_values(&["gdb", "wishbone", "random-test", "load-file", "terminal", "messible"]),
         )
         .arg(
             Arg::with_name("gdb-port")
@@ -380,6 +380,7 @@ fn main() {
                     ServerKind::LoadFile => server::load_file(cfg, bridge),
                     ServerKind::Terminal => server::terminal_client(cfg, bridge),
                     ServerKind::MemoryAccess => server::memory_access(cfg, bridge),
+                    ServerKind::Messible => server::messible_client(cfg, bridge),
                 }
             });
             threads.push(thr_handle);
