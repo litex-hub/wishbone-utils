@@ -1,43 +1,57 @@
 extern crate byteorder;
-extern crate serial;
 
+use std::net::{UdpSocket, TcpStream};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
 use std::time::Duration;
+use std::io::{Read, Write};
 
 use log::{debug, error, info};
 
-use serial::prelude::*;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ByteOrder};
 
 use super::BridgeError;
 use crate::config::Config;
 
-pub struct UartBridge {
-    path: String,
-    baudrate: usize,
+enum EthernetConnection {
+    UDP(UdpSocket),
+    TCP(TcpStream),
+}
+
+impl EthernetConnection {
+    pub fn set_write_timeout(&self, dur: Option<Duration>) -> ::std::io::Result<()> {
+        match self {
+            EthernetConnection::UDP(u) => u.set_write_timeout(dur),
+            EthernetConnection::TCP(t) => t.set_write_timeout(dur),
+        }
+    }
+
+    pub fn set_read_timeout(&self, dur: Option<Duration>) -> ::std::io::Result<()> {
+        match self {
+            EthernetConnection::UDP(u) => u.set_read_timeout(dur),
+            EthernetConnection::TCP(t) => t.set_read_timeout(dur),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct EthernetConfig {
+    host: String,
+    port: u16,
+    tcp: bool,
+}
+
+pub struct EthernetBridge {
+    cfg: EthernetConfig,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
     poll_thread: Option<thread::JoinHandle<()>>,
 }
 
-impl Clone for UartBridge {
-    fn clone(&self) -> Self {
-        UartBridge {
-            path: self.path.clone(),
-            baudrate: self.baudrate.clone(),
-            main_tx: self.main_tx.clone(),
-            main_rx: self.main_rx.clone(),
-            mutex: self.mutex.clone(),
-            poll_thread: None,
-        }
-    }
-}
-
 enum ConnectThreadRequests {
-    StartPolling(String /* path */, usize /* baudrate */),
+    StartPolling(String /* host */, u16 /* port */),
     Exit,
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
@@ -51,26 +65,39 @@ enum ConnectThreadResponses {
     PokeResult(Result<(), BridgeError>),
 }
 
-impl UartBridge {
+impl Clone for EthernetBridge {
+    fn clone(&self) -> Self {
+        EthernetBridge {
+            cfg: self.cfg.clone(),
+            main_tx: self.main_tx.clone(),
+            main_rx: self.main_rx.clone(),
+            mutex: self.mutex.clone(),
+            poll_thread: None,
+        }
+    }
+}
+
+impl EthernetBridge {
     pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let path = match &cfg.serial_port {
-            Some(s) => s.clone(),
-            None => panic!("no serial port path was found"),
+        let host = match &cfg.ethernet_host {
+            Some(h) => h.clone(),
+            None => panic!("no ethernet hostname path was found"),
         };
-        let baudrate = cfg.serial_baud.expect("no serial port baudrate was found");
+        let port = cfg.ethernet_port;
+        let tcp = cfg.ethernet_tcp;
+        let cfg = EthernetConfig { host, port, tcp, };
 
         let thr_cv = cv.clone();
-        let thr_path = path.clone();
+        let thr_cfg = cfg.clone();
         let poll_thread = Some(thread::spawn(move || {
-            Self::serial_connect_thread(thr_cv, thread_rx, thr_path, baudrate)
+            Self::ethernet_thread(thr_cv, thread_rx, thr_cfg)
         }));
 
-        Ok(UartBridge {
-            path,
-            baudrate,
+        Ok(EthernetBridge {
+            cfg,
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
@@ -78,50 +105,60 @@ impl UartBridge {
         })
     }
 
-    fn serial_connect_thread(
+    fn ethernet_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        path: String,
-        baud: usize
+        cfg: EthernetConfig
     ) {
-        let mut path = path;
-        let mut baud = baud;
+        let mut host = cfg.host;
+        let mut port = cfg.port;
         let mut print_waiting_message = true;
         let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
-            let mut port = match serial::open(&path) {
-                Ok(port) => {
-                    info!("Re-opened serial device {}", path);
-                    if first_run {
-                        *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
-                        first_run = false;
-                        cvar.notify_one();
+            let mut connection = match cfg.tcp {
+                true => match TcpStream::connect(format!("{}:{}", host, port)) {
+                    Ok(conn) => {
+                        info!("Re-opened ethernet host {}:{}", host, port);
+                        EthernetConnection::TCP(conn)
+                    },
+                    Err(e) => {
+                        if print_waiting_message {
+                            print_waiting_message = false;
+                            error!("unable to open ethernet host {}:{}, will wait for it to appear again: {}", host, port, e);
+                        }
+                        thread::park_timeout(Duration::from_millis(500));
+                        continue;
                     }
-                    print_waiting_message = true;
-                    port
                 },
-                Err(e) => {
-                    if print_waiting_message {
-                        print_waiting_message = false;
-                        error!("unable to open serial device, will wait for it to appear again: {}", e);
+                false => match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
+                    Ok(conn) => {
+                        info!("Re-opened ethernet host {}:{}", host, port);
+                        EthernetConnection::UDP(conn)
+                    },
+                    Err(e) => {
+                        if print_waiting_message {
+                            print_waiting_message = false;
+                            error!("unable to open ethernet host {}:{}, will wait for it to appear again: {}", host, port, e);
+                        }
+                        thread::park_timeout(Duration::from_millis(500));
+                        continue;
                     }
-                    thread::park_timeout(Duration::from_millis(500));
-                    continue;
                 }
             };
-            if let Err(e) = port.reconfigure(&|settings| {
-                    settings.set_baud_rate(serial::BaudRate::from_speed(baud))?;
-                    settings.set_char_size(serial::Bits8);
-                    settings.set_parity(serial::ParityNone);
-                    settings.set_stop_bits(serial::Stop1);
-                    settings.set_flow_control(serial::FlowNone);
-                    Ok(())
-            }) {
-                error!("unable to reconfigure serial port {} -- connection may not work", e);
+
+            if first_run {
+                *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
+                first_run = false;
+                cvar.notify_one();
             }
-            if let Err(e) = port.set_timeout(Duration::from_millis(1000)) {
-                error!("unable to set port duration timeout: {}", e);
+            print_waiting_message = true;
+
+            if let Err(e) = connection.set_read_timeout(Some(Duration::from_millis(1000))) {
+                error!("unable to set ethernet read duration timeout: {}", e);
+            }
+            if let Err(e) = connection.set_write_timeout(Some(Duration::from_millis(1000))) {
+                error!("unable to set ethernet write duration timeout: {}", e);
             }
 
             let mut keep_going = true;
@@ -135,17 +172,17 @@ impl UartBridge {
                     },
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
-                            debug!("serial_connect_thread requested exit");
+                            debug!("ethernet_thread requested exit");
                             *response.lock().unwrap() = Some(ConnectThreadResponses::Exiting);
                             cvar.notify_one();
                             return;
                         }
-                        ConnectThreadRequests::StartPolling(p, v) => {
-                            path = p.clone();
-                            baud = v;
+                        ConnectThreadRequests::StartPolling(h, p) => {
+                            host = h.clone();
+                            port = p;
                         }
                         ConnectThreadRequests::Peek(addr) => {
-                            let result = Self::do_peek(&mut port, addr);
+                            let result = Self::do_peek(&mut connection, &host, port, addr);
                             if let Err(err) = &result {
                                 result_error = format!("peek {:?} @ {:08x}", err, addr);
                                 keep_going = false;
@@ -154,7 +191,7 @@ impl UartBridge {
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::Poke(addr, val) => {
-                            let result = Self::do_poke(&mut port, addr, val);
+                            let result = Self::do_poke(&mut connection, &host, port, addr, val);
                             if let Err(err) = &result {
                                 result_error = format!("poke {:?} @ {:08x}", err, addr);
                                 keep_going = false;
@@ -165,7 +202,7 @@ impl UartBridge {
                     },
                 }
             }
-            error!("serial port was closed: {}", result_error);
+            error!("ethernet connection was closed: {}", result_error);
             thread::park_timeout(Duration::from_millis(500));
 
             // Respond to any messages in the buffer with NotConnected.  As soon
@@ -193,9 +230,9 @@ impl UartBridge {
                             )));
                             cvar.notify_one();
                         },
-                        ConnectThreadRequests::StartPolling(p, v) => {
-                            path = p.clone();
-                            baud = v;
+                        ConnectThreadRequests::StartPolling(h, p) => {
+                            host = h.clone();
+                            port = p;
                         }
                     },
                 }
@@ -210,8 +247,8 @@ impl UartBridge {
     pub fn connect(&self) -> Result<(), BridgeError> {
         self.main_tx
             .send(ConnectThreadRequests::StartPolling(
-                self.path.clone(),
-                self.baudrate,
+                self.cfg.host.clone(),
+                self.cfg.port,
             ))
             .unwrap();
         loop {
@@ -228,31 +265,104 @@ impl UartBridge {
         }
     }
 
-    fn do_poke<T: SerialPort>(
-        serial: &mut T,
+    fn do_poke(
+        connection: &mut EthernetConnection,
+        host: &String,
+        port: u16,
         addr: u32,
         value: u32,
     ) -> Result<(), BridgeError> {
         debug!("POKE @ {:08x} -> {:08x}", addr, value);
-        // WRITE, 1 word
-        serial.write(&[0x01, 0x01])?;
+        let mut buffer: [u8;20] = [
 
-        // LiteX ignores the bottom two Wishbone bits, so shift it by
-        // two when writing the address.
-        serial.write_u32::<BigEndian>(addr >> 2)?;
-        Ok(serial.write_u32::<BigEndian>(value)?)
+            // 0
+            0x4e,       // Magic byte 0
+            0x6f,       // Magic byte 1
+            0x10,       // Version 1, all other flags 0
+            0x44,       // Address is 32-bits, port is 32-bits
+
+            // 4
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+
+            // 8 - Record
+            0,          // No Wishbone flags are set (cyc, wca, wff, etc.)
+            0x0f,       // Byte enable
+            1,          // Write count
+            0,          // Read count
+
+            // 12 - Address
+            0,
+            0,
+            0,
+            0,
+
+            // 16 - Value
+            0,
+            0,
+            0,
+            0,
+        ];
+        BigEndian::write_u32(&mut buffer[12..16], addr);
+        BigEndian::write_u32(&mut buffer[16..20], value);
+        match connection {
+            EthernetConnection::UDP(u) => u.send_to(&buffer, format!("{}:{}", host, port))?,
+            EthernetConnection::TCP(t) => t.write(&buffer)?,
+        };
+        Ok(())
     }
 
-    fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
-        // READ, 1 word
-        debug!("Peeking @ {:08x}", addr);
-        serial.write(&[0x02, 0x01])?;
+    fn do_peek(connection: &mut EthernetConnection, host: &String, port: u16, addr: u32) -> Result<u32, BridgeError> {
+        let mut buffer: [u8;20] = [
 
-        // LiteX ignores the bottom two Wishbone bits, so shift it by
-        // two when writing the address.
-        serial.write_u32::<BigEndian>(addr >> 2)?;
+            // 0
+            0x4e,       // Magic byte 0
+            0x6f,       // Magic byte 1
+            0x10,       // Version 1, all other flags 0
+            0x44,       // Address is 32-bits, port is 32-bits
 
-        let val = serial.read_u32::<BigEndian>()?;
+            // 4
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+            0,          // Padding
+
+            // 8 - Record
+            0,          // No Wishbone flags are set (cyc, wca, wff, etc.)
+            0x0f,       // Byte enable
+            0,          // Write count
+            1,          // Read count
+
+            // 12 - Address
+            0,
+            0,
+            0,
+            0,
+
+            // 16 - Value
+            0,
+            0,
+            0,
+            0,
+        ];
+        BigEndian::write_u32(&mut buffer[16..20], addr);
+        let amt = match connection {
+            EthernetConnection::UDP(u) => {
+                u.send_to(&buffer, format!("{}:{}", host, port))?;
+                let (amt, _src) = u.recv_from(&mut buffer)?;
+                amt
+            },
+            EthernetConnection::TCP(t) => {
+                t.write(&buffer)?;
+                t.read(&mut buffer)?
+            }
+        };
+        if amt != buffer.len() {
+            return Err(BridgeError::LengthError(amt, buffer.len()));
+        }
+        let val = BigEndian::read_u32(&buffer[16..20]);
         debug!("PEEK @ {:08x} = {:08x}", addr, val);
         Ok(val)
     }
@@ -296,7 +406,7 @@ impl UartBridge {
     }
 }
 
-impl Drop for UartBridge {
+impl Drop for EthernetBridge {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.

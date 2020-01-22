@@ -62,6 +62,21 @@ pub enum RiscvCpuError {
     InstructionTimeout,
 }
 
+impl ::std::fmt::Display for RiscvCpuError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        use RiscvCpuError::*;
+        match self {
+            UnrecognizedFile(s) => write!(f, "unrecognized file: {}", s),
+            InvalidRegister(r) => write!(f, "invalid register {}", r),
+            BreakpointExhausted => write!(f, "ran out of hardware breakpoints"),
+            BreakpointNotFound(b) => write!(f, "breakpoint {} not found", b),
+            BridgeError(e) => write!(f, "bridge error: {}", e),
+            IoError(e) => write!(f, "io error: {}", e),
+            InstructionTimeout => write!(f, "cpu instruction timed out"),
+        }
+    }
+}
+
 impl std::convert::From<BridgeError> for RiscvCpuError {
     fn from(e: BridgeError) -> RiscvCpuError {
         RiscvCpuError::BridgeError(e)
@@ -749,6 +764,10 @@ impl RiscvCpu {
         }
     }
 
+    /// Read the specified register and return its value.
+    ///
+    /// The `gdb_idx` is the GDB index, and may include both CPU registers
+    /// and CSR-index registers, which are offset by an index.
     pub fn read_register(&self, bridge: &Bridge, gdb_idx: u32) -> Result<u32, RiscvCpuError> {
         let reg = self.gdb_to_register(gdb_idx)?;
 
@@ -758,6 +777,18 @@ impl RiscvCpu {
         }
 
         self.controller.read_register(bridge, reg)
+    }
+
+    /// Return a vec containing all valid CPU registers.
+    pub fn all_cpu_registers(&self) -> Vec<u32> {
+        let mut v = vec![];
+        for (idx, reg) in &self.gdb_register_map {
+            if reg.register_type == RiscvRegisterType::General {
+                v.push(*idx);
+            }
+        }
+        v.sort();
+        v
     }
 
     /// Write a register on the device.
@@ -878,7 +909,7 @@ impl RiscvCpuController {
         } else {
             // If we're currently running but we shouldn't be, flush caches and stop.
             if *current_status == RiscvCpuState::Halted {
-                info!("POLL: CPU started running on its own!  Halting it and flushing the caches.");
+                info!("POLL: The debugger thinks the CPU is halted, but CPU is now running!  Halting it and flushing the caches.");
                 self.cached_values.lock().unwrap().drain();
                 self.perform_halt(bridge)?;
             }

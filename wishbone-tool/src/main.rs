@@ -3,6 +3,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate clap;
 extern crate csv;
+extern crate terminal;
 extern crate libusb;
 extern crate rand;
 
@@ -160,6 +161,29 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("ethernet-host")
+                .long("ethernet-host")
+                .value_name("HOSTNAME")
+                .help("Address to use when connecting via Etherbone")
+                .display_order(6)
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("ethernet-port")
+                .long("ethernet-port")
+                .value_name("PORT")
+                .help("Port to use when connecting via Etherbone")
+                .default_value("1234")
+                .display_order(6)
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("ethernet-tcp")
+                .long("ethernet-tcp")
+                .help("Connect using TCP, for example when using an external wishbone bridge")
+                .display_order(6)
+        )
+        .arg(
             Arg::with_name("spi-pins")
                 .short("g")
                 .long("spi-pins")
@@ -199,9 +223,10 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("port")
+            Arg::with_name("wishbone-port")
                 .short("n")
-                .long("port")
+                .long("wishbone-port")
+                .alias("port")
                 .value_name("PORT_NUMBER")
                 .help("port number to listen on")
                 .default_value("1234")
@@ -214,6 +239,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .long("server")
                 .alias("server-kind")
                 .takes_value(true)
+                .multiple(true)
                 .required_unless("completion")
                 .conflicts_with("completion")
                 .required_unless("address")
@@ -222,7 +248,14 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("list")
                 .help("which server to run (if any)")
                 .display_order(1)
-                .possible_values(&["gdb", "wishbone", "random-test", "load-file"]),
+                .possible_values(&["gdb", "wishbone", "random-test", "load-file", "terminal"]),
+        )
+        .arg(
+            Arg::with_name("gdb-port")
+                .long("gdb-port")
+                .help("Port to listen for GDB connections")
+                .default_value("3333")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("load-name")
@@ -323,24 +356,40 @@ fn main() {
                     error!("unknown server '{}', see --help", s)
                 }
                 config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
+                config::ConfigError::IoError(s) => error!("file error: {}", s),
+                config::ConfigError::InvalidConfig(s) => error!("invalid configuration: {}", s),
             }
             process::exit(1);
         }
     };
 
-    let retcode = {
+    {
         let bridge = Bridge::new(&cfg).unwrap();
         bridge.connect().unwrap();
-        match cfg.server_kind {
-            ServerKind::GDB => server::gdb_server(cfg, bridge),
-            ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
-            ServerKind::RandomTest => server::random_test(cfg, bridge),
-            ServerKind::LoadFile => server::load_file(cfg, bridge),
-            ServerKind::None => server::memory_access(cfg, bridge),
+        let mut threads = vec![];
+        for server_kind in &cfg.server_kind {
+            use std::thread;
+            let bridge = bridge.clone();
+            let cfg = cfg.clone();
+            let kind = server_kind.clone();
+            let thr_handle = thread::spawn(move || {
+                match kind {
+                    ServerKind::GDB => server::gdb_server(cfg, bridge),
+                    ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
+                    ServerKind::RandomTest => server::random_test(cfg, bridge),
+                    ServerKind::LoadFile => server::load_file(cfg, bridge),
+                    ServerKind::Terminal => server::terminal_client(cfg, bridge),
+                    ServerKind::MemoryAccess => server::memory_access(cfg, bridge),
+                }
+            });
+            threads.push(thr_handle);
+        }
+        for handle in threads {
+            handle.join().ok();
         }
     };
-    if let Err(e) = retcode {
-        error!("server error: {:?}", e);
-        process::exit(1);
-    }
+    // if let Err(e) = retcode {
+    //     error!("server error: {:?}", e);
+    //     process::exit(1);
+    // }
 }

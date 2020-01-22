@@ -1,0 +1,25 @@
+docutils
+sphinx>=2.3.1
+sphinx-autobuild
+sphinxcontrib-napoleon
+
+# Better looking Sphinx theme
+# sphinx_materialdesign_theme
+git+https://github.com/SymbiFlow/sphinx_materialdesign_theme.git@master#egg=sphinx_symbiflow_theme
+
+# Support copying without prompts.
+git+https://github.com/mithro/sphinxcontrib-session.git#egg=sphinxcontrib-session
+
+# C API
+# --------------------------------------
+breathe
+exhale
+
+# HDL specific functionality
+# --------------------------------------
+
+# Model diagrams from Verilog code.
+symbolator
+
+# Verilog diagrams using Yosys + netlistsvg
+git+https://github.com/SymbiFlow/sphinxcontrib-verilog-diagrams.git#egg=sphinxcontrib-verilog-diagrams

@@ -12,16 +12,16 @@ use rand::prelude::*;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use std::io;
 use std::fs::File;
+use std::io;
 use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum ServerKind {
-    /// No server
-    None,
+    /// DevMem2 equivalent
+    MemoryAccess,
 
     /// Wishbone bridge
     Wishbone,
@@ -34,6 +34,9 @@ pub enum ServerKind {
 
     /// Load a file into memory
     LoadFile,
+
+    /// Run a terminal
+    Terminal,
 }
 
 #[derive(Debug)]
@@ -48,6 +51,7 @@ pub enum ServerError {
         u32, /* expected */
         u32, /* observed */
     ),
+    TerminalError(terminal::error::ErrorKind),
 }
 
 impl std::convert::From<io::Error> for ServerError {
@@ -76,17 +80,22 @@ impl std::convert::From<riscv::RiscvCpuError> for ServerError {
     }
 }
 
+impl std::convert::From<terminal::error::ErrorKind> for ServerError {
+    fn from(e: terminal::error::ErrorKind) -> ServerError {
+        ServerError::TerminalError(e)
+    }
+}
+
 impl ServerKind {
-    pub fn from_string(item: &Option<&str>) -> Result<ServerKind, ConfigError> {
+    pub fn from_string(item: &str) -> Result<ServerKind, ConfigError> {
         match item {
-            None => Ok(ServerKind::None),
-            Some(k) => match *k {
-                "gdb" => Ok(ServerKind::GDB),
-                "wishbone" => Ok(ServerKind::Wishbone),
-                "random-test" => Ok(ServerKind::RandomTest),
-                "load-file" => Ok(ServerKind::LoadFile),
-                unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
-            },
+            "gdb" => Ok(ServerKind::GDB),
+            "wishbone" => Ok(ServerKind::Wishbone),
+            "random-test" => Ok(ServerKind::RandomTest),
+            "load-file" => Ok(ServerKind::LoadFile),
+            "terminal" => Ok(ServerKind::Terminal),
+            "memory-access" => Ok(ServerKind::MemoryAccess),
+            unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
         }
     }
 }
@@ -137,12 +146,19 @@ fn poll_messible(
     }
 }
 
+/// Poll the UART at the address specified.
+/// Return `true` if there is still data to be read
+/// after returning.
+fn poll_uart(uart_address: u32, bridge: &bridge::Bridge) -> Result<bool, bridge::BridgeError> {
+    Ok(bridge.peek(uart_address)? == 0)
+}
+
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let cpu = riscv::RiscvCpu::new(&bridge, cfg.debug_offset)?;
     let messible_address = cfg.messible_address;
     loop {
         let connection = {
-            let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port)) {
+            let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.gdb_port)) {
                 Ok(o) => o,
                 Err(e) => {
                     error!("couldn't bind to address: {:?}", e);
@@ -197,7 +213,11 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
                         had_error = false;
                         // If there's a messible available, poll it.
                         if running {
-                            do_pause = ! poll_messible(&messible_address, &poll_bridge, &mut gdb_controller);
+                            do_pause = !poll_messible(
+                                &messible_address,
+                                &poll_bridge,
+                                &mut gdb_controller,
+                            );
                         }
                     }
                 }
@@ -299,11 +319,15 @@ pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerErro
         Some(s) => s,
         None => 0x10000000 + 8192,
     };
-    let random_range =match cfg.random_range {
+    let random_range = match cfg.random_range {
         Some(s) => s,
         None => 0,
     };
-    info!("writing random values to 0x{:08x} - 0x{:08x}", random_addr, random_addr + random_range);
+    info!(
+        "writing random values to 0x{:08x} - 0x{:08x}",
+        random_addr,
+        random_addr + random_range
+    );
     loop {
         let val = random::<u32>();
         let extra_addr = match cfg.random_range {
@@ -315,12 +339,20 @@ pub fn random_test(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerErro
         if cmp != val {
             error!(
                 "loop {} @ 0x{:08x}: expected 0x{:08x}, got 0x{:08x}",
-                loop_counter, random_addr + extra_addr, val, cmp
+                loop_counter,
+                random_addr + extra_addr,
+                val,
+                cmp
             );
             return Err(ServerError::RandomValueError(loop_counter, val, cmp));
         }
         if (loop_counter % 1000) == 0 {
-            info!("loop: {} @ 0x{:08x} (0x{:08x})", loop_counter, extra_addr + random_addr, val);
+            info!(
+                "loop: {} @ 0x{:08x} (0x{:08x})",
+                loop_counter,
+                extra_addr + random_addr,
+                val
+            );
         }
         loop_counter = loop_counter.wrapping_add(1);
         if let Some(max_loops) = cfg.random_loops {
@@ -351,7 +383,7 @@ pub fn memory_access(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerEr
 
 pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut loop_counter: u32 = 0;
-    if let Some(file_name) = cfg.load_name {
+    if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
             info!("Loading {} values to 0x{:08x}", file_name, addr);
             let mut f = File::open(file_name)?;
@@ -361,11 +393,16 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
                     Ok(x) => x,
                     Err(e) => {
                         error!("Error reading: {}", e);
-                        return Ok(())
+                        return Ok(());
                     }
                 };
                 if (loop_counter % 1024) == 0 {
-                    info!("write to {:08x}: ({:08x}) - {}%", addr + loop_counter, value, (loop_counter * 100 / f_len));
+                    info!(
+                        "write to {:08x}: ({:08x}) - {}%",
+                        addr + loop_counter,
+                        value,
+                        (loop_counter * 100 / f_len)
+                    );
                 }
                 bridge.poke(addr + loop_counter, value)?;
                 loop_counter = loop_counter.wrapping_add(4);
@@ -377,4 +414,89 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
         println!("No filename specified!");
     }
     Ok(())
+}
+
+use terminal::{Action, Event, KeyCode, KeyEvent, KeyModifiers, Retrieved, Terminal, Value};
+struct IOInterface {
+    term: Terminal<std::io::Stdout>,
+}
+
+pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+    let poll_time = 10;
+    let my_terminal = IOInterface::new();
+    use std::io::stdout;
+    use std::io::Write;
+
+    // The UART device used to require setting a bit in
+    // the xover_ev_pending register.  This was changed
+    // so the FIFO is auto-advancing.
+    // let xover_pending = *cfg
+    //     .register_mapping
+    //     .get("uart_xover_ev_pending")
+    //     .unwrap_or(&0xe0001828);
+    let xover_rxtx = *cfg
+        .register_mapping
+        .get("uart_xover_rxtx")
+        .unwrap_or(&0xe0001818);
+    let xover_rxempty = *cfg
+        .register_mapping
+        .get("uart_xover_rxempty")
+        .unwrap_or(&0xe0001820);
+
+    loop {
+        if poll_uart(xover_rxempty, &bridge)? {
+            let mut char_buffer = vec![];
+            while bridge.peek(xover_rxempty)? == 0 {
+                char_buffer.push(bridge.peek(xover_rxtx)? as u8);
+                // bridge.poke(xover_pending, 2)?;
+            }
+            print!("{}", String::from_utf8_lossy(&char_buffer));
+            stdout().flush().ok();
+        }
+
+        if let Retrieved::Event(event) = my_terminal
+            .term
+            .get(Value::Event(Some(Duration::from_millis(poll_time))))?
+        {
+            match event {
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Esc, ..
+                })) => return Ok(()),
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Enter,
+                    ..
+                })) => {
+                    bridge.poke(xover_rxtx, '\r' as u32)?;
+                    bridge.poke(xover_rxtx, '\n' as u32)?;
+                }
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Char('c'),
+                    modifiers: KeyModifiers::CONTROL,
+                })) => return Ok(()),
+                Some(Event::Key(KeyEvent {
+                    code: KeyCode::Char(e),
+                    ..
+                })) => bridge.poke(xover_rxtx, e as u32)?,
+                Some(_event) => {
+                    // println!("{:?}\r", event);
+                }
+                None => (),
+            }
+        }
+    }
+}
+
+impl IOInterface {
+    pub fn new() -> IOInterface {
+        let term = terminal::stdout();
+        term.act(Action::EnableRawMode).expect("can't enable raw mode");
+        term.act(Action::EnableMouseCapture).expect("can't capture mouse");
+        IOInterface { term }
+    }
+}
+impl Drop for IOInterface {
+    fn drop(&mut self) {
+        self.term.act(Action::DisableRawMode).ok();
+        self.term.act(Action::DisableMouseCapture).ok();
+    }
 }

@@ -1,19 +1,23 @@
 pub mod uart;
 pub mod usb;
 pub mod spi;
+pub mod ethernet;
 
 use crate::config::Config;
 use usb::UsbBridge;
 use uart::UartBridge;
 use spi::SpiBridge;
+use ethernet::EthernetBridge;
 
 use std::sync::{Arc, Mutex};
 use std::io;
 
+#[derive(Clone)]
 pub enum BridgeKind {
     UsbBridge,
     UartBridge,
     SpiBridge,
+    EthernetBridge,
 }
 
 #[derive(Clone)]
@@ -21,6 +25,7 @@ pub enum BridgeCore {
     UsbBridge(UsbBridge),
     UartBridge(UartBridge),
     SpiBridge(SpiBridge),
+    EthernetBridge(EthernetBridge),
 }
 
 #[derive(Clone)]
@@ -51,6 +56,20 @@ pub enum BridgeError {
     Timeout,
 }
 
+impl ::std::fmt::Display for BridgeError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        use BridgeError::*;
+        match self {
+            LengthError(expected, actual) => write!(f, "expected {} bytes, but got {} instead", expected, actual),
+            USBError(e) => write!(f, "libusb error {}", e.strerror()),
+            IoError(e) => write!(f, "io error {}", e),
+            NotConnected => write!(f, "bridge not connected"),
+            WrongResponse => write!(f, "wrong response received"),
+            Timeout => write!(f, "connection timed out"),
+        }
+    }
+}
+
 impl std::convert::From<libusb::Error> for BridgeError {
     fn from(e: libusb::Error) -> BridgeError {
         BridgeError::USBError(e)
@@ -70,6 +89,7 @@ impl Bridge {
             BridgeKind::UartBridge => Ok(Bridge { mutex, core: BridgeCore::UartBridge(UartBridge::new(cfg)?) } ),
             BridgeKind::UsbBridge => Ok(Bridge { mutex, core: BridgeCore::UsbBridge(UsbBridge::new(cfg)?) } ),
             BridgeKind::SpiBridge => Ok(Bridge { mutex, core: BridgeCore::SpiBridge(SpiBridge::new(cfg)?) } ),
+            BridgeKind::EthernetBridge => Ok(Bridge { mutex, core: BridgeCore::EthernetBridge(EthernetBridge::new(cfg)?) } ),
         }
     }
 
@@ -79,6 +99,7 @@ impl Bridge {
             BridgeCore::UsbBridge(b) => b.connect(),
             BridgeCore::UartBridge(b) => b.connect(),
             BridgeCore::SpiBridge(b) => b.connect(),
+            BridgeCore::EthernetBridge(b) => b.connect(),
         }
     }
 
@@ -87,6 +108,7 @@ impl Bridge {
             BridgeCore::UsbBridge(b) => b.mutex(),
             BridgeCore::UartBridge(b) => b.mutex(),
             BridgeCore::SpiBridge(b) => b.mutex(),
+            BridgeCore::EthernetBridge(b) => b.mutex(),
         }
     }
 
@@ -97,6 +119,7 @@ impl Bridge {
                 BridgeCore::UsbBridge(b) => b.peek(addr),
                 BridgeCore::UartBridge(b) => b.peek(addr),
                 BridgeCore::SpiBridge(b) => b.peek(addr),
+                BridgeCore::EthernetBridge(b) => b.peek(addr),
             };
             if result.is_ok() {
                 return result;
@@ -111,6 +134,7 @@ impl Bridge {
                 BridgeCore::UsbBridge(b) => b.poke(addr, value),
                 BridgeCore::UartBridge(b) => b.poke(addr, value),
                 BridgeCore::SpiBridge(b) => b.poke(addr, value),
+                BridgeCore::EthernetBridge(b) => b.poke(addr, value),
             };
             if result.is_ok() {
                 return result;
