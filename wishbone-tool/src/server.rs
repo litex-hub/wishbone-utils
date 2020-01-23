@@ -159,7 +159,14 @@ fn poll_uart(uart_address: u32, bridge: &bridge::Bridge) -> Result<bool, bridge:
 
 pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let cpu = riscv::RiscvCpu::new(&bridge, cfg.debug_offset)?;
-    let messible_address = cfg.messible_address;
+    // Enable messible support, but only if we're not also running a messible or wishbone server.
+    let messible_address = if cfg.server_kind.contains(&ServerKind::Messible)
+        || cfg.server_kind.contains(&ServerKind::Wishbone)
+    {
+        None
+    } else {
+        cfg.messible_address
+    };
     loop {
         let connection = {
             let listener = match TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.gdb_port)) {
@@ -254,7 +261,12 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
 
 pub fn wishbone_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
-    let messible_address = cfg.messible_address;
+    // Enable messible support, but only if we're not also running a messible server.
+    let messible_address = if cfg.server_kind.contains(&ServerKind::Messible) {
+        None
+    } else {
+        cfg.messible_address
+    };
 
     loop {
         if let Err(e) = wishbone.connect() {
@@ -513,19 +525,12 @@ pub fn messible_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
     use std::io::stdout;
     use std::io::Write;
 
-    let messible_status = *cfg
-        .register_mapping
-        .get("messible_status")
-        .unwrap_or(&0xe0008008);
-    let messible_out = *cfg
-        .register_mapping
-        .get("messible_out")
-        .unwrap_or(&0xe0008004);
+    let messible_base = cfg.messible_address.unwrap_or(0xe0008000);
 
     loop {
         let mut char_buffer = vec![];
-        while bridge.peek(messible_status)? & 0x2 == 2 {
-            char_buffer.push(bridge.peek(messible_out)? as u8);
+        while bridge.peek(messible_base + 8)? & 0x2 == 2 {
+            char_buffer.push(bridge.peek(messible_base + 4)? as u8);
         }
         if char_buffer.len() > 0 {
             print!("{}", String::from_utf8_lossy(&char_buffer));
