@@ -10,7 +10,7 @@ task:
     - BUILD_TARGET: freebsd-amd64
     - BUILD_TAG: ${CIRRUS_TAG}-${BUILD_TARGET}
     - PREFIX: /usr/local
-    - GITHUB_TOKEN: ENCRYPTED[cab73721fb7d8e2d377c8b89bf39f8fa253829ed0c8ef63e95103a9b1234ecb31889d7165b4b91abf216712f07ff34e3]
+    - GITHUB_TOKEN: ENCRYPTED[5ab48f218129928fac1d8f9537721ec1946ee3b25d28bebaf29828f44f29636110fb4795e94bd4d10e76f992acf219ec]
   install_script:
     - pkg install -y rust gmake bash
   build_script:
