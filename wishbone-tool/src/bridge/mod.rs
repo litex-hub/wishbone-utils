@@ -8,6 +8,7 @@ use usb::UsbBridge;
 use uart::UartBridge;
 use spi::SpiBridge;
 use ethernet::EthernetBridge;
+use log::debug;
 
 use std::sync::{Arc, Mutex};
 use std::io;
@@ -121,7 +122,17 @@ impl Bridge {
                 BridgeCore::SpiBridge(b) => b.peek(addr),
                 BridgeCore::EthernetBridge(b) => b.peek(addr),
             };
-            if result.is_ok() {
+            if let Err(e) = result {
+                match e {
+                    BridgeError::USBError(libusb::Error::Pipe) => {
+                        debug!("USB device disconnected, forcing early return");
+                        return Err(e)
+                    },
+                    _ => {},
+                }
+                debug!("Peek failed, trying again: {:?}", e);
+            }
+            else {
                 return result;
             }
         }
@@ -136,7 +147,17 @@ impl Bridge {
                 BridgeCore::SpiBridge(b) => b.poke(addr, value),
                 BridgeCore::EthernetBridge(b) => b.poke(addr, value),
             };
-            if result.is_ok() {
+            if let Err(e) = result {
+                match e {
+                    BridgeError::USBError(libusb::Error::Pipe) => {
+                        debug!("USB device disconnected, forcing early return");
+                        return Err(e)
+                    },
+                    _ => {},
+                }
+                debug!("Poke failed, trying again: {:?}", e);
+            }
+            else {
                 return result;
             }
         }
