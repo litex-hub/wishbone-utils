@@ -223,14 +223,16 @@ impl Config {
             None
         };
 
+        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"))?;
+
         let messible_address = if let Some(messible_address) = matches.value_of("messible-address")
         {
             Some(parse_u32(messible_address)?)
+        } else if let Some(base) = register_mapping.get("messible_out") {
+            Some(*base)
         } else {
             None
         };
-
-        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"))?;
 
         let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset") {
             parse_u32(debug_offset)?
