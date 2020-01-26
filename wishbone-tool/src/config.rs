@@ -102,6 +102,7 @@ pub struct Config {
     pub debug_offset: u32,
     pub load_name: Option<String>,
     pub load_addr: Option<u32>,
+    pub terminal_mouse: bool,
 }
 
 impl Config {
@@ -284,6 +285,8 @@ impl Config {
             }
         }
 
+        let terminal_mouse = matches.is_present("terminal-mouse");
+
         Ok(Config {
             usb_pid,
             usb_vid,
@@ -310,6 +313,7 @@ impl Config {
             ethernet_host,
             ethernet_port,
             ethernet_tcp,
+            terminal_mouse,
         })
     }
 

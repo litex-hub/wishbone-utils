@@ -314,6 +314,12 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .display_order(11)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("terminal-mouse")
+                .long("terminal-mouse")
+                .help("capture mouse events for use with terminal server")
+                .takes_value(false)
+        )
 }
 
 fn main() {

@@ -435,21 +435,15 @@ pub fn load_file(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError>
 use terminal::{Action, Event, KeyCode, KeyEvent, KeyModifiers, Retrieved, Terminal, Value};
 struct IOInterface {
     term: Terminal<std::io::Stdout>,
+    capture_mouse: bool,
 }
 
 pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let poll_time = 10;
-    let my_terminal = IOInterface::new();
+    let my_terminal = IOInterface::new(cfg.terminal_mouse);
     use std::io::stdout;
     use std::io::Write;
 
-    // The UART device used to require setting a bit in
-    // the xover_ev_pending register.  This was changed
-    // so the FIFO is auto-advancing.
-    // let xover_pending = *cfg
-    //     .register_mapping
-    //     .get("uart_xover_ev_pending")
-    //     .unwrap_or(&0xe0001828);
     let xover_rxtx = *cfg
         .register_mapping
         .get("uart_xover_rxtx")
@@ -462,9 +456,10 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
     loop {
         if poll_uart(xover_rxempty, &bridge)? {
             let mut char_buffer = vec![];
-            while bridge.peek(xover_rxempty)? == 0 {
+            let mut read_count = 0;
+            while bridge.peek(xover_rxempty)? == 0 && read_count < 100 {
+                read_count = read_count + 1;
                 char_buffer.push(bridge.peek(xover_rxtx)? as u8);
-                // bridge.poke(xover_pending, 2)?;
             }
             print!("{}", String::from_utf8_lossy(&char_buffer));
             stdout().flush().ok();
@@ -474,6 +469,7 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
             .term
             .get(Value::Event(Some(Duration::from_millis(poll_time))))?
         {
+            println!("Got event: {:?}", event);
             match event {
                 Some(Event::Key(KeyEvent {
                     code: KeyCode::Esc, ..
@@ -493,8 +489,8 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
                     code: KeyCode::Char(e),
                     ..
                 })) => bridge.poke(xover_rxtx, e as u32)?,
-                Some(_event) => {
-                    // println!("{:?}\r", event);
+                Some(event) => {
+                    println!("{:?}\r", event);
                 }
                 None => (),
             }
@@ -503,25 +499,32 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
 }
 
 impl IOInterface {
-    pub fn new() -> IOInterface {
+    pub fn new(capture_mouse: bool) -> IOInterface {
         let term = terminal::stdout();
         term.act(Action::EnableRawMode)
             .expect("can't enable raw mode");
-        term.act(Action::EnableMouseCapture)
-            .expect("can't capture mouse");
-        IOInterface { term }
+        if capture_mouse {
+            term.act(Action::EnableMouseCapture)
+                .expect("can't capture mouse");
+        }
+        IOInterface {
+            term,
+            capture_mouse,
+        }
     }
 }
 impl Drop for IOInterface {
     fn drop(&mut self) {
         self.term.act(Action::DisableRawMode).ok();
-        self.term.act(Action::DisableMouseCapture).ok();
+        if self.capture_mouse {
+            self.term.act(Action::DisableMouseCapture).ok();
+        }
     }
 }
 
 pub fn messible_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
     let poll_time = 10;
-    let my_terminal = IOInterface::new();
+    let my_terminal = IOInterface::new(cfg.terminal_mouse);
     use std::io::stdout;
     use std::io::Write;
 
@@ -529,7 +532,9 @@ pub fn messible_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
 
     loop {
         let mut char_buffer = vec![];
-        while bridge.peek(messible_base + 8)? & 0x2 == 2 {
+        let mut read_count = 0;
+        while bridge.peek(messible_base + 8)? & 0x2 == 2 && read_count < 100 {
+            read_count = read_count + 1;
             char_buffer.push(bridge.peek(messible_base + 4)? as u8);
         }
         if char_buffer.len() > 0 {
