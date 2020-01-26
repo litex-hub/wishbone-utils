@@ -179,8 +179,8 @@ pub fn gdb_server(cfg: Config, bridge: bridge::Bridge) -> Result<(), ServerError
 
             // accept connections and process them serially
             info!(
-                "accepting connections on {}:{}",
-                cfg.bind_addr, cfg.bind_port
+                "accepting gdb connections on {}:{}",
+                cfg.bind_addr, cfg.gdb_port
             );
             let (connection, _sockaddr) = match listener.accept() {
                 Ok(o) => o,
