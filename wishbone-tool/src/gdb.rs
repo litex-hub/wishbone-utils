@@ -466,7 +466,7 @@ impl GdbServer {
             Ok(GdbCommand::GetThreadInfo)
         } else if pkt == "vCont?" {
             Ok(GdbCommand::VContQuery)
-        } else if pkt == "vCont;c" {
+        } else if pkt == "vCont;c" || pkt == "vCont;c:0" {
             Ok(GdbCommand::VContContinue)
         } else if pkt.starts_with("vCont;C") {
             //vCont;C04:0;c
