@@ -469,7 +469,6 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
             .term
             .get(Value::Event(Some(Duration::from_millis(poll_time))))?
         {
-            println!("Got event: {:?}", event);
             match event {
                 Some(Event::Key(KeyEvent {
                     code: KeyCode::Esc, ..
@@ -489,8 +488,8 @@ pub fn terminal_client(cfg: Config, bridge: bridge::Bridge) -> Result<(), Server
                     code: KeyCode::Char(e),
                     ..
                 })) => bridge.poke(xover_rxtx, e as u32)?,
-                Some(event) => {
-                    println!("{:?}\r", event);
+                Some(_event) => {
+                    // println!("{:?}\r", event);
                 }
                 None => (),
             }
