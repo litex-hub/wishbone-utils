@@ -324,6 +324,10 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
 
 fn main() {
     flexi_logger::Logger::with_env_or_str("wishbone_tool=info")
+        .format_for_stderr(|write, now, record| {
+            flexi_logger::colored_default_format(write, now, record)?;
+            write!(write, "\r")
+        })
         .start()
         .unwrap();
     let matches = clap_app().get_matches();
