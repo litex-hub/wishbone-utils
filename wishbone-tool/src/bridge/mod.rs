@@ -150,14 +150,16 @@ impl Bridge {
             if let Err(e) = result {
                 match e {
                     BridgeError::USBError(libusb::Error::Pipe) => {
-                        debug!("USB device disconnected, forcing early return");
-                        return Err(e)
-                    },
-                    _ => {},
+                        debug!("USB device disconnected (Windows), forcing early return");
+                        return Err(e);
+                    }
+                    BridgeError::USBError(libusb::Error::Io) => {
+                        debug!("USB device disconnected (Posix), forcing early return")
+                    }
+                    _ => {}
                 }
                 debug!("Poke failed, trying again: {:?}", e);
-            }
-            else {
+            } else {
                 return result;
             }
         }
