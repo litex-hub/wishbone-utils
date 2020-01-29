@@ -1,17 +1,17 @@
+pub mod ethernet;
+pub mod spi;
 pub mod uart;
 pub mod usb;
-pub mod spi;
-pub mod ethernet;
 
 use crate::config::Config;
-use usb::UsbBridge;
-use uart::UartBridge;
-use spi::SpiBridge;
 use ethernet::EthernetBridge;
 use log::debug;
+use spi::SpiBridge;
+use uart::UartBridge;
+use usb::UsbBridge;
 
-use std::sync::{Arc, Mutex};
 use std::io;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub enum BridgeKind {
@@ -61,7 +61,9 @@ impl ::std::fmt::Display for BridgeError {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         use BridgeError::*;
         match self {
-            LengthError(expected, actual) => write!(f, "expected {} bytes, but got {} instead", expected, actual),
+            LengthError(expected, actual) => {
+                write!(f, "expected {} bytes, but got {} instead", expected, actual)
+            }
             USBError(e) => write!(f, "libusb error {}", e.strerror()),
             IoError(e) => write!(f, "io error {}", e),
             NotConnected => write!(f, "bridge not connected"),
@@ -87,16 +89,28 @@ impl Bridge {
     pub fn new(cfg: &Config) -> Result<Bridge, BridgeError> {
         let mutex = Arc::new(Mutex::new(()));
         match cfg.bridge_kind {
-            BridgeKind::UartBridge => Ok(Bridge { mutex, core: BridgeCore::UartBridge(UartBridge::new(cfg)?) } ),
-            BridgeKind::UsbBridge => Ok(Bridge { mutex, core: BridgeCore::UsbBridge(UsbBridge::new(cfg)?) } ),
-            BridgeKind::SpiBridge => Ok(Bridge { mutex, core: BridgeCore::SpiBridge(SpiBridge::new(cfg)?) } ),
-            BridgeKind::EthernetBridge => Ok(Bridge { mutex, core: BridgeCore::EthernetBridge(EthernetBridge::new(cfg)?) } ),
+            BridgeKind::UartBridge => Ok(Bridge {
+                mutex,
+                core: BridgeCore::UartBridge(UartBridge::new(cfg)?),
+            }),
+            BridgeKind::UsbBridge => Ok(Bridge {
+                mutex,
+                core: BridgeCore::UsbBridge(UsbBridge::new(cfg)?),
+            }),
+            BridgeKind::SpiBridge => Ok(Bridge {
+                mutex,
+                core: BridgeCore::SpiBridge(SpiBridge::new(cfg)?),
+            }),
+            BridgeKind::EthernetBridge => Ok(Bridge {
+                mutex,
+                core: BridgeCore::EthernetBridge(EthernetBridge::new(cfg)?),
+            }),
         }
     }
 
     pub fn connect(&self) -> Result<(), BridgeError> {
         let _mtx = self.mutex.lock().unwrap();
-        match &self.core{
+        match &self.core {
             BridgeCore::UsbBridge(b) => b.connect(),
             BridgeCore::UartBridge(b) => b.connect(),
             BridgeCore::SpiBridge(b) => b.connect(),
@@ -126,13 +140,12 @@ impl Bridge {
                 match e {
                     BridgeError::USBError(libusb::Error::Pipe) => {
                         debug!("USB device disconnected, forcing early return");
-                        return Err(e)
-                    },
-                    _ => {},
+                        return Err(e);
+                    }
+                    _ => {}
                 }
                 debug!("Peek failed, trying again: {:?}", e);
-            }
-            else {
+            } else {
                 return result;
             }
         }
