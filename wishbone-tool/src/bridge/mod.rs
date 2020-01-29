@@ -167,7 +167,8 @@ impl Bridge {
                         return Err(e);
                     }
                     BridgeError::USBError(libusb::Error::Io) => {
-                        debug!("USB device disconnected (Posix), forcing early return")
+                        debug!("USB device disconnected (Posix), forcing early return");
+                        return Err(e);
                     }
                     _ => {}
                 }
