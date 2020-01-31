@@ -514,10 +514,10 @@ impl IOInterface {
 }
 impl Drop for IOInterface {
     fn drop(&mut self) {
-        self.term.act(Action::DisableRawMode).ok();
         if self.capture_mouse {
             self.term.act(Action::DisableMouseCapture).ok();
         }
+        self.term.act(Action::DisableRawMode).ok();
     }
 }
 
