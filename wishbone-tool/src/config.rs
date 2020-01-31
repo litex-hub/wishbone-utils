@@ -285,7 +285,7 @@ impl Config {
             }
         }
 
-        let terminal_mouse = matches.is_present("terminal-mouse");
+        let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
 
         Ok(Config {
             usb_pid,
