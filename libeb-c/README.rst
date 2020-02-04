@@ -25,11 +25,11 @@ your PC for development.
 
       static struct eb_connection *eb;
 
-      uint32_t csr_readl(unsigned long addr) {
+      uint32_t csr_read_simple(unsigned long addr) {
           return eb_read32(eb, addr);
       }
 
-      void csr_writel(uint32_t val, unsigned long addr) {
+      void csr_write_simple(uint32_t val, unsigned long addr) {
           eb_write32(eb, val, addr);
       }
 
