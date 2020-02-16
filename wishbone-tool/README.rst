@@ -75,6 +75,47 @@ argument:
 
    $ wishbone-tool --serial COM4: 0
 
+Crossover UART
+--------------
+
+If your bridge is over a UART, then that means your UART is already in use,
+and isn't available for use as a console.  LiteX supports creating a
+"crossover" UART that ``wishbone-tool`` can interact with and present a
+local terminal on.
+
+To add a UART bridge and a crossover UART to your design, instantiate the
+main SoC object with ``uart_name="crossover"`` and add a separate Wishbone
+bridge.
+
+.. code-block:: python
+
+   class MySoC(SoCCore):
+      def __init__(self, platform, sys_clk_freq):
+         SoCCore.__init__(self, platform, sys_clk_freq, uart_name="crossover")
+
+         # Add a bridge with the real UART pins
+         self.submodules.uart_bridge = UARTWishboneBridge(
+               platform.request("serial"),
+               sys_clk_freq,
+               baudrate=115200)
+         self.add_wb_master(self.uart_bridge.wishbone)
+
+Then, to interact with the terminal, run ``wishbone-tool`` and provide it
+with the ``csr.csv`` file from your build, and add the ``-s terminal`` flag:
+
+.. session:: shell-session
+
+   $ wishbone-tool -s terminal --csr-csv build/csr.csv
+
+Note that you can run multiple ``wishbone-tool`` servers at the same time.
+For example, to run the ``gdb`` server as well, run:
+
+.. session:: shell-session
+
+   $ wishbone-tool -s gdb -s terminal --csr-csv build/csr.csv
+
+To exit the session, press ``Ctrl-C``.
+
 Command line Auto-Completion
 ----------------------------
 
