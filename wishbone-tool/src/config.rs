@@ -161,7 +161,9 @@ impl Config {
         };
 
         let load_addr = if let Some(addr) = matches.value_of("load-address") {
-            server_kind.push(ServerKind::MemoryAccess);
+            if load_name.is_none() {
+                server_kind.push(ServerKind::MemoryAccess);
+            }
             Some(parse_u32(addr)?)
         } else {
             None
