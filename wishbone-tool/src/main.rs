@@ -26,6 +26,7 @@ use server::ServerKind;
 
 use std::process;
 use std::time::Duration;
+use std::sync::Arc;
 
 fn list_usb() -> Result<(), libusb::Error> {
     let usb_ctx = libusb::Context::new().unwrap();
@@ -376,22 +377,24 @@ fn main() {
     {
         let bridge = Bridge::new(&cfg).unwrap();
         bridge.connect().unwrap();
+        let cfg = Arc::new(cfg);
         let mut threads = vec![];
-        for server_kind in &cfg.server_kind {
+        for server_kind in cfg.server_kind.iter() {
             use std::thread;
             let bridge = bridge.clone();
             let cfg = cfg.clone();
-            let kind = server_kind.clone();
+            let server_kind = server_kind.clone();
             let thr_handle = thread::spawn(move || {
-                match kind {
-                    ServerKind::GDB => server::gdb_server(cfg, bridge),
-                    ServerKind::Wishbone => server::wishbone_server(cfg, bridge),
-                    ServerKind::RandomTest => server::random_test(cfg, bridge),
-                    ServerKind::LoadFile => server::load_file(cfg, bridge),
-                    ServerKind::Terminal => server::terminal_client(cfg, bridge),
-                    ServerKind::MemoryAccess => server::memory_access(cfg, bridge),
-                    ServerKind::Messible => server::messible_client(cfg, bridge),
-                }
+                match server_kind {
+                    ServerKind::GDB => server::gdb_server(&cfg, bridge),
+                    ServerKind::Wishbone => server::wishbone_server(&cfg, bridge),
+                    ServerKind::RandomTest => server::random_test(&cfg, bridge),
+                    ServerKind::LoadFile => server::load_file(&cfg, bridge),
+                    ServerKind::Terminal => server::terminal_client(&cfg, bridge),
+                    ServerKind::MemoryAccess => server::memory_access(&cfg, bridge),
+                    ServerKind::Messible => server::messible_client(&cfg, bridge),
+                }.expect("couldn't start server");
+                println!("Exited {:?} thread", server_kind);
             });
             threads.push(thr_handle);
         }
