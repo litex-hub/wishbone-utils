@@ -123,7 +123,7 @@ impl UsbBridge {
             while _mtx.is_none() {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
-            match *_mtx {
+            match _mtx.take() {
                 Some(ConnectThreadResponses::OpenedDevice) => return Ok(()),
                 _ => (),
             }
