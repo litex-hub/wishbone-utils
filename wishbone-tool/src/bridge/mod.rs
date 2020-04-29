@@ -137,12 +137,9 @@ impl Bridge {
                 BridgeCore::EthernetBridge(b) => b.peek(addr),
             };
             if let Err(e) = result {
-                match e {
-                    BridgeError::USBError(libusb::Error::Pipe) => {
+                if let BridgeError::USBError(libusb::Error::Pipe) = e {
                         debug!("USB device disconnected, forcing early return");
                         return Err(e);
-                    }
-                    _ => {}
                 }
                 debug!("Peek failed, trying again: {:?}", e);
             } else {
