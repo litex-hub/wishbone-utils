@@ -30,14 +30,14 @@ impl GdbController {
     pub fn gdb_send(&mut self, inp: &[u8]) -> io::Result<()> {
         let mut buffer = [0; 16388];
         let mut checksum: u8 = 0;
-        buffer[0] = '$' as u8;
+        buffer[0] = b'$';
         for i in 0..inp.len() {
             buffer[i + 1] = inp[i];
             checksum = checksum.wrapping_add(inp[i]);
         }
         let checksum_str = &format!("{:02x}", checksum);
         let checksum_bytes = checksum_str.as_bytes();
-        buffer[inp.len() + 1] = '#' as u8;
+        buffer[inp.len() + 1] = b'#';
         buffer[inp.len() + 2] = checksum_bytes[0];
         buffer[inp.len() + 3] = checksum_bytes[1];
         let (to_write, _rest) = buffer.split_at(inp.len() + 4);
@@ -46,7 +46,7 @@ impl GdbController {
             to_write.len(),
             String::from_utf8_lossy(&to_write)
         );
-        self.connection.write(&to_write)?;
+        self.connection.write_all(&to_write)?;
         Ok(())
     }
 
@@ -72,10 +72,10 @@ pub struct GdbServer {
 }
 
 fn swab(src: u32) -> u32 {
-    (src << 24) & 0xff000000
-        | (src << 8) & 0x00ff0000
-        | (src >> 8) & 0x0000ff00
-        | (src >> 24) & 0x000000ff
+    (src << 24) & 0xff00_0000
+        | (src << 8) & 0x00ff_0000
+        | (src >> 8) & 0x0000_ff00
+        | (src >> 24) & 0x0000_00ff
 }
 
 pub fn parse_u32(value: &str) -> Result<u32, GdbServerError> {
@@ -95,7 +95,7 @@ pub fn parse_i32(value: &str) -> Result<i32, GdbServerError> {
 fn gdb_unescape(input: &[u8]) -> Vec<u8> {
     let mut out = input.to_vec();
     out.iter_mut().fold(&mut Vec::new(), |vec_acc, this_u8| {
-        if vec_acc.last() == Some(&('}' as u8)) {
+        if vec_acc.last() == Some(&(b'}')) {
             let len = vec_acc.len();
             vec_acc[len - 1] = *this_u8 ^ 0x20;
         } else {
@@ -338,15 +338,15 @@ impl GdbServer {
             let offset = parse_u32(offsets[0])?;
             let len = parse_u32(offsets[1])?;
             Ok(GdbCommand::ReadThreads(offset, len))
-        } else if pkt.starts_with("Z") {
-            let pkt = pkt.trim_start_matches("Z");
+        } else if pkt.starts_with('Z') {
+            let pkt = pkt.trim_start_matches('Z');
             let fields: Vec<&str> = pkt.split(',').collect();
             let bptype = BreakPointType::from_str(fields[0])?;
             let address = parse_u32(fields[1])?;
             let size = parse_u32(fields[2])?;
             Ok(GdbCommand::AddBreakpoint(bptype, address, size))
-        } else if pkt.starts_with("z") {
-            let pkt = pkt.trim_start_matches("z");
+        } else if pkt.starts_with('z') {
+            let pkt = pkt.trim_start_matches('z');
             let fields: Vec<&str> = pkt.split(',').collect();
             let bptype = BreakPointType::from_str(fields[0])?;
             let address = parse_u32(fields[1])?;
@@ -357,13 +357,13 @@ impl GdbServer {
             let pkt_bytes = pkt.as_bytes();
             let mut tmp1 = Vec::new();
             let mut acc = 0;
-            for i in 0..pkt.len() {
-                let nybble = if pkt_bytes[i] >= 0x30 && pkt_bytes[i] <= 0x39 {
-                    pkt_bytes[i] - 0x30
-                } else if pkt_bytes[i] >= 0x61 && pkt_bytes[i] <= 0x66 {
-                    pkt_bytes[i] + 10 - 0x61
-                } else if pkt_bytes[i] >= 0x41 && pkt_bytes[i] <= 0x46 {
-                    pkt_bytes[i] + 10 - 0x41
+            for (i, pkt_byte) in pkt_bytes.iter().enumerate() {
+                let nybble = if *pkt_byte >= 0x30 && *pkt_byte <= 0x39 {
+                    *pkt_byte - 0x30
+                } else if *pkt_byte >= 0x61 && *pkt_byte <= 0x66 {
+                    *pkt_byte + 10 - 0x61
+                } else if *pkt_byte >= 0x41 && *pkt_byte <= 0x46 {
+                    *pkt_byte + 10 - 0x41
                 } else {
                     0
                 };
@@ -379,8 +379,8 @@ impl GdbServer {
             ))
         } else if pkt == "g" {
             Ok(GdbCommand::GetRegisters)
-        } else if pkt.starts_with("P") {
-            let pkt = pkt.trim_start_matches("P").to_string();
+        } else if pkt.starts_with('P') {
+            let pkt = pkt.trim_start_matches('P').to_string();
             let v: Vec<&str> = pkt.split('=').collect();
             let addr = parse_u32(v[0])?;
             let value = swab(parse_u32(v[1])?);
@@ -389,21 +389,21 @@ impl GdbServer {
             Ok(GdbCommand::Continue)
         } else if pkt == "s" {
             Ok(GdbCommand::Step)
-        } else if pkt.starts_with("m") {
-            let pkt = pkt.trim_start_matches("m").to_string();
+        } else if pkt.starts_with('m') {
+            let pkt = pkt.trim_start_matches('m').to_string();
             let v: Vec<&str> = pkt.split(',').collect();
             let addr = parse_u32(v[0])?;
             let length = parse_u32(v[1])?;
             Ok(GdbCommand::ReadMemory(addr, length))
-        } else if pkt.starts_with("M") {
-            let pkt = pkt.trim_start_matches("M").to_string();
+        } else if pkt.starts_with('M') {
+            let pkt = pkt.trim_start_matches('M').to_string();
             let d: Vec<&str> = pkt.split(':').collect();
             let v: Vec<&str> = d[0].split(',').collect();
             let addr = parse_u32(v[0])?;
             let length = parse_u32(v[1])?;
             let value = swab(parse_u32(d[1])?);
             Ok(GdbCommand::WriteMemory(addr, length, vec![value]))
-        } else if pkt.starts_with("X") {
+        } else if pkt.starts_with('X') {
             let (_opcode, data) = match raw_pkt.split_first() {
                 None => return Err(GdbServerError::ProtocolError),
                 Some(s) => s,
@@ -412,7 +412,7 @@ impl GdbServer {
             // Look for ":"
             let mut delimiter_offset = None;
             for (idx, c) in data.iter().enumerate() {
-                if *c == ':' as u8 {
+                if *c == b':' {
                     delimiter_offset = Some(idx);
                     break;
                 }
@@ -436,7 +436,7 @@ impl GdbServer {
                     values.push(swab(BigEndian::read_u32(&value)));
                 }
                 let remainder = bin_data.chunks_exact(4).remainder();
-                if remainder.len() > 0 {
+                if !remainder.is_empty() {
                     let mut remainder = remainder.to_vec();
                     while remainder.len() < 4 {
                         remainder.insert(0, 0);
@@ -446,9 +446,9 @@ impl GdbServer {
                 }
             }
             Ok(GdbCommand::WriteMemory(addr, length, values))
-        } else if pkt.starts_with("p") {
+        } else if pkt.starts_with('p') {
             Ok(GdbCommand::GetRegister(parse_u32(
-                pkt.trim_start_matches("p"),
+                pkt.trim_start_matches('p'),
             )?))
         } else if pkt.starts_with("Hg") {
             Ok(GdbCommand::SetCurrentThread(parse_u64(
@@ -522,7 +522,7 @@ impl GdbServer {
                         match byte[0] as char {
                             '#' => {
                                 // There's got to be a better way to compare the checksum
-                                self.connection.read(&mut remote_checksum)?;
+                                self.connection.read_exact(&mut remote_checksum)?;
                                 let checksum_str = format!("{:02x}", checksum);
                                 if checksum_str != String::from_utf8_lossy(&remote_checksum) {
                                     info!(
@@ -531,10 +531,8 @@ impl GdbServer {
                                         String::from_utf8_lossy(&remote_checksum)
                                     );
                                     self.gdb_send_nak()?;
-                                } else {
-                                    if !self.no_ack_mode {
-                                        self.gdb_send_ack()?;
-                                    }
+                                } else if !self.no_ack_mode {
+                                    self.gdb_send_ack()?;
                                 }
                                 let (buffer, _remainder) = buffer.split_at(buffer_offset);
                                 // debug!("<  Read packet ${:?}#{:#?}", String::from_utf8_lossy(buffer), String::from_utf8_lossy(&remote_checksum));
@@ -542,7 +540,7 @@ impl GdbServer {
                             }
                             other => {
                                 buffer[buffer_offset] = other as u8;
-                                buffer_offset = buffer_offset + 1;
+                                buffer_offset += 1;
                                 checksum = checksum.wrapping_add(other as u8);
                             }
                         }
@@ -605,7 +603,7 @@ impl GdbServer {
             GdbCommand::CheckIsAttached => self.gdb_send(b"1")?,
             GdbCommand::Disconnect => {
                 cpu.resume(bridge)?;
-                self.gdb_send("OK".as_bytes())?
+                self.gdb_send(b"OK")?
             }
             GdbCommand::GetRegisters => {
                 let mut register_list = String::new();
@@ -620,7 +618,7 @@ impl GdbServer {
                     Ok(val) => format!("{:08x}", swab(val)),
                     Err(e) => {
                         error!("Error reading register: {}", e);
-                        format!("E01")
+                        "E01".to_string()
                     }
                 };
                 self.gdb_send(response.as_bytes())?
@@ -655,7 +653,7 @@ impl GdbServer {
                 } else {
                     for offset in (0..len).step_by(4) {
                         values.push(cpu.read_memory(bridge, addr + offset, 4)?);
-                        if addr + offset >= 0xfffffffc {
+                        if addr + offset >= 0xffff_fffc {
                             break;
                         }
                     }
@@ -678,7 +676,7 @@ impl GdbServer {
                         cpu.write_memory(bridge, addr + (offset as u32 * 4), 4, *value)?;
                     }
                 }
-                self.gdb_send("OK".as_bytes())?
+                self.gdb_send(b"OK")?
             }
             GdbCommand::VContQuery => self.gdb_send(b"vCont;c;C;s;S")?,
             GdbCommand::VContContinue => {
@@ -752,11 +750,11 @@ impl GdbServer {
     }
 
     fn gdb_send_ack(&mut self) -> io::Result<usize> {
-        self.connection.write(&['+' as u8])
+        self.connection.write(&[b'+'])
     }
 
     fn gdb_send_nak(&mut self) -> io::Result<usize> {
-        self.connection.write(&['-' as u8])
+        self.connection.write(&[b'-'])
     }
 
     fn gdb_send_u32(&mut self, vals: Vec<u32>) -> io::Result<()> {
@@ -772,14 +770,14 @@ impl GdbServer {
     fn gdb_send(&mut self, inp: &[u8]) -> io::Result<()> {
         let mut buffer = [0; 16388];
         let mut checksum: u8 = 0;
-        buffer[0] = '$' as u8;
+        buffer[0] = b'$';
         for i in 0..inp.len() {
             buffer[i + 1] = inp[i];
             checksum = checksum.wrapping_add(inp[i]);
         }
         let checksum_str = &format!("{:02x}", checksum);
         let checksum_bytes = checksum_str.as_bytes();
-        buffer[inp.len() + 1] = '#' as u8;
+        buffer[inp.len() + 1] = b'#';
         buffer[inp.len() + 2] = checksum_bytes[0];
         buffer[inp.len() + 3] = checksum_bytes[1];
         let (to_write, _rest) = buffer.split_at(inp.len() + 4);
@@ -788,7 +786,7 @@ impl GdbServer {
         //     to_write.len(),
         //     String::from_utf8_lossy(&to_write)
         // );
-        self.connection.write(&to_write)?;
+        self.connection.write_all(&to_write)?;
         Ok(())
     }
 
@@ -817,9 +815,9 @@ impl GdbServer {
             let mut trimmed_data: Vec<u8> = data.drain(offset..end).collect();
             if trimmed_data.len() >= len {
                 // XXX should this be <= or < ?
-                trimmed_data.insert(0, 'm' as u8);
+                trimmed_data.insert(0, b'm');
             } else {
-                trimmed_data.insert(0, 'l' as u8);
+                trimmed_data.insert(0, b'l');
             }
             self.gdb_send(&trimmed_data)?;
         }

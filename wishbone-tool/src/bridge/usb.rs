@@ -37,8 +37,8 @@ enum ConnectThreadResponses {
 impl Clone for UsbBridge {
     fn clone(&self) -> Self {
         UsbBridge {
-            usb_pid: self.usb_pid.clone(),
-            usb_vid: self.usb_vid.clone(),
+            usb_pid: self.usb_pid,
+            usb_vid: self.usb_vid,
             main_tx: self.main_tx.clone(),
             main_rx: self.main_rx.clone(),
             mutex: self.mutex.clone(),
@@ -53,10 +53,10 @@ impl UsbBridge {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let thr_pid = cfg.usb_pid.clone();
-        let thr_vid = cfg.usb_vid.clone();
-        let thr_bus = cfg.usb_bus.clone();
-        let thr_device = cfg.usb_device.clone();
+        let thr_pid = cfg.usb_pid;
+        let thr_vid = cfg.usb_vid;
+        let thr_bus = cfg.usb_bus;
+        let thr_device = cfg.usb_device;
         let thr_cv = cv.clone();
         let poll_thread = Some(thread::spawn(move || {
             Self::usb_poll_thread(
@@ -65,8 +65,8 @@ impl UsbBridge {
         }));
 
         Ok(UsbBridge {
-            usb_pid: cfg.usb_pid.clone(),
-            usb_vid: cfg.usb_vid.clone(),
+            usb_pid: cfg.usb_pid,
+            usb_vid: cfg.usb_vid,
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
@@ -77,28 +77,28 @@ impl UsbBridge {
     fn device_matches(
         device: &libusb::Device,
         device_desc: &libusb::DeviceDescriptor,
-        usb_pid: &Option<u16>,
-        usb_vid: &Option<u16>,
-        usb_bus: &Option<u8>,
-        usb_device: &Option<u8>,
+        usb_pid: Option<u16>,
+        usb_vid: Option<u16>,
+        usb_bus: Option<u8>,
+        usb_device: Option<u8>,
     ) -> bool {
         if let Some(pid) = usb_pid {
-            if *pid != device_desc.product_id() {
+            if pid != device_desc.product_id() {
                 return false;
             }
         }
         if let Some(vid) = usb_vid {
-            if *vid != device_desc.vendor_id() {
+            if vid != device_desc.vendor_id() {
                 return false;
             }
         }
         if let Some(bus) = usb_bus {
-            if *bus != device.bus_number() {
+            if bus != device.bus_number() {
                 return false;
             }
         }
         if let Some(device_id) = usb_device {
-            if *device_id != device.address() {
+            if device_id != device.address() {
                 return false;
             }
         }
@@ -112,8 +112,8 @@ impl UsbBridge {
     pub fn connect(&self) -> Result<(), BridgeError> {
         self.main_tx
             .send(ConnectThreadRequests::StartPolling(
-                self.usb_pid.clone(),
-                self.usb_vid.clone(),
+                self.usb_pid,
+                self.usb_vid,
             ))
             .unwrap();
         loop {
@@ -123,9 +123,8 @@ impl UsbBridge {
             while _mtx.is_none() {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
-            match _mtx.take() {
-                Some(ConnectThreadResponses::OpenedDevice) => return Ok(()),
-                _ => (),
+            if let Some(ConnectThreadResponses::OpenedDevice) = _mtx.take() {
+                return Ok(())
             }
         }
     }
@@ -149,7 +148,7 @@ impl UsbBridge {
             let devices = usb_ctx.devices().unwrap();
             for device in devices.iter() {
                 let device_desc = device.device_descriptor().unwrap();
-                if Self::device_matches(&device, &device_desc, &pid, &vid, &usb_bus, &usb_device) {
+                if Self::device_matches(&device, &device_desc, pid, vid, usb_bus, usb_device) {
                     let usb = match device.open() {
                         Ok(o) => {
                             info!(
@@ -185,8 +184,8 @@ impl UsbBridge {
                                     return;
                                 }
                                 ConnectThreadRequests::StartPolling(p, v) => {
-                                    pid = p.clone();
-                                    vid = v.clone();
+                                    pid = p;
+                                    vid = v;
                                 }
                                 ConnectThreadRequests::Peek(addr) => {
                                     let result = Self::do_peek(&usb, addr, debug_byte);
@@ -243,8 +242,8 @@ impl UsbBridge {
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::StartPolling(p, v) => {
-                            pid = p.clone();
-                            vid = v.clone();
+                            pid = p;
+                            vid = v;
                         }
                     },
                 }
@@ -259,14 +258,14 @@ impl UsbBridge {
         debug_byte: u8,
     ) -> Result<(), BridgeError> {
         let mut data_val = [0; 4];
-        data_val[0] = ((value >> 0) & 0xff) as u8;
+        data_val[0] = (value & 0xff) as u8;
         data_val[1] = ((value >> 8) & 0xff) as u8;
         data_val[2] = ((value >> 16) & 0xff) as u8;
         data_val[3] = ((value >> 24) & 0xff) as u8;
         match usb.write_control(
             debug_byte,
             0,
-            ((addr >> 0) & 0xffff) as u16,
+            (addr & 0xffff) as u16,
             ((addr >> 16) & 0xffff) as u16,
             &data_val,
             Duration::from_millis(100),
@@ -295,7 +294,7 @@ impl UsbBridge {
         match usb.read_control(
             0x80 | debug_byte,
             0,
-            ((addr >> 0) & 0xffff) as u16,
+            (addr & 0xffff) as u16,
             ((addr >> 16) & 0xffff) as u16,
             &mut data_val,
             Duration::from_millis(500),
@@ -315,7 +314,7 @@ impl UsbBridge {
                     let value = ((data_val[3] as u32) << 24)
                         | ((data_val[2] as u32) << 16)
                         | ((data_val[1] as u32) << 8)
-                        | ((data_val[0] as u32) << 0);
+                        | (data_val[0] as u32);
                     debug!("PEEK @ {:08x} = {:08x}", addr, value);
                     Ok(value)
                 }

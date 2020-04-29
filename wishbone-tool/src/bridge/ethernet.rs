@@ -1,11 +1,11 @@
 extern crate byteorder;
 
-use std::net::{UdpSocket, TcpStream};
+use std::io::{Read, Write};
+use std::net::{TcpStream, UdpSocket};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
-use std::io::{Read, Write};
 
 use log::{debug, error, info};
 
@@ -88,7 +88,7 @@ impl EthernetBridge {
         };
         let port = cfg.ethernet_port;
         let tcp = cfg.ethernet_tcp;
-        let cfg = EthernetConfig { host, port, tcp, };
+        let cfg = EthernetConfig { host, port, tcp };
 
         let thr_cv = cv.clone();
         let thr_cfg = cfg.clone();
@@ -108,7 +108,7 @@ impl EthernetBridge {
     fn ethernet_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        cfg: EthernetConfig
+        cfg: EthernetConfig,
     ) {
         let mut host = cfg.host;
         let mut port = cfg.port;
@@ -116,12 +116,12 @@ impl EthernetBridge {
         let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
-            let mut connection = match cfg.tcp {
-                true => match TcpStream::connect(format!("{}:{}", host, port)) {
+            let mut connection = if cfg.tcp {
+                match TcpStream::connect(format!("{}:{}", host, port)) {
                     Ok(conn) => {
                         info!("Re-opened ethernet host {}:{}", host, port);
                         EthernetConnection::TCP(conn)
-                    },
+                    }
                     Err(e) => {
                         if print_waiting_message {
                             print_waiting_message = false;
@@ -130,12 +130,13 @@ impl EthernetBridge {
                         thread::park_timeout(Duration::from_millis(500));
                         continue;
                     }
-                },
-                false => match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
+                }
+            } else {
+                match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
                     Ok(conn) => {
                         info!("Re-opened ethernet host {}:{}", host, port);
                         EthernetConnection::UDP(conn)
-                    },
+                    }
                     Err(e) => {
                         if print_waiting_message {
                             print_waiting_message = false;
@@ -169,7 +170,7 @@ impl EthernetBridge {
                     Err(_) => {
                         error!("connection closed");
                         return;
-                    },
+                    }
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
                             debug!("ethernet_thread requested exit");
@@ -187,7 +188,8 @@ impl EthernetBridge {
                                 result_error = format!("peek {:?} @ {:08x}", err, addr);
                                 keep_going = false;
                             }
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(result));
+                            *response.lock().unwrap() =
+                                Some(ConnectThreadResponses::PeekResult(result));
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::Poke(addr, val) => {
@@ -196,7 +198,8 @@ impl EthernetBridge {
                                 result_error = format!("poke {:?} @ {:08x}", err, addr);
                                 keep_going = false;
                             }
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(result));
+                            *response.lock().unwrap() =
+                                Some(ConnectThreadResponses::PokeResult(result));
                             cvar.notify_one();
                         }
                     },
@@ -219,17 +222,17 @@ impl EthernetBridge {
                             return;
                         }
                         ConnectThreadRequests::Peek(_addr) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(
+                                Err(BridgeError::NotConnected),
+                            ));
                             cvar.notify_one();
-                        },
+                        }
                         ConnectThreadRequests::Poke(_addr, _val) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(
+                                Err(BridgeError::NotConnected),
+                            ));
                             cvar.notify_one();
-                        },
+                        }
                         ConnectThreadRequests::StartPolling(h, p) => {
                             host = h.clone();
                             port = p;
@@ -258,52 +261,39 @@ impl EthernetBridge {
             while _mtx.is_none() {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
-            match _mtx.take() {
-                Some(ConnectThreadResponses::OpenedDevice) => return Ok(()),
-                _ => (),
+            if let Some(ConnectThreadResponses::OpenedDevice) = _mtx.take() {
+                return Ok(())
             }
         }
     }
 
     fn do_poke(
         connection: &mut EthernetConnection,
-        host: &String,
+        host: &str,
         port: u16,
         addr: u32,
         value: u32,
     ) -> Result<(), BridgeError> {
         debug!("POKE @ {:08x} -> {:08x}", addr, value);
-        let mut buffer: [u8;20] = [
-
+        let mut buffer: [u8; 20] = [
             // 0
-            0x4e,       // Magic byte 0
-            0x6f,       // Magic byte 1
-            0x10,       // Version 1, all other flags 0
-            0x44,       // Address is 32-bits, port is 32-bits
-
+            0x4e, // Magic byte 0
+            0x6f, // Magic byte 1
+            0x10, // Version 1, all other flags 0
+            0x44, // Address is 32-bits, port is 32-bits
             // 4
-            0,          // Padding
-            0,          // Padding
-            0,          // Padding
-            0,          // Padding
-
+            0, // Padding
+            0, // Padding
+            0, // Padding
+            0, // Padding
             // 8 - Record
-            0,          // No Wishbone flags are set (cyc, wca, wff, etc.)
-            0x0f,       // Byte enable
-            1,          // Write count
-            0,          // Read count
-
+            0,    // No Wishbone flags are set (cyc, wca, wff, etc.)
+            0x0f, // Byte enable
+            1,    // Write count
+            0,    // Read count
             // 12 - Address
-            0,
-            0,
-            0,
-            0,
-
-            // 16 - Value
-            0,
-            0,
-            0,
-            0,
+            0, 0, 0, 0, // 16 - Value
+            0, 0, 0, 0,
         ];
         BigEndian::write_u32(&mut buffer[12..16], addr);
         BigEndian::write_u32(&mut buffer[16..20], value);
@@ -314,38 +304,31 @@ impl EthernetBridge {
         Ok(())
     }
 
-    fn do_peek(connection: &mut EthernetConnection, host: &String, port: u16, addr: u32) -> Result<u32, BridgeError> {
-        let mut buffer: [u8;20] = [
-
+    fn do_peek(
+        connection: &mut EthernetConnection,
+        host: &str,
+        port: u16,
+        addr: u32,
+    ) -> Result<u32, BridgeError> {
+        let mut buffer: [u8; 20] = [
             // 0
-            0x4e,       // Magic byte 0
-            0x6f,       // Magic byte 1
-            0x10,       // Version 1, all other flags 0
-            0x44,       // Address is 32-bits, port is 32-bits
-
+            0x4e, // Magic byte 0
+            0x6f, // Magic byte 1
+            0x10, // Version 1, all other flags 0
+            0x44, // Address is 32-bits, port is 32-bits
             // 4
-            0,          // Padding
-            0,          // Padding
-            0,          // Padding
-            0,          // Padding
-
+            0, // Padding
+            0, // Padding
+            0, // Padding
+            0, // Padding
             // 8 - Record
-            0,          // No Wishbone flags are set (cyc, wca, wff, etc.)
-            0x0f,       // Byte enable
-            0,          // Write count
-            1,          // Read count
-
+            0,    // No Wishbone flags are set (cyc, wca, wff, etc.)
+            0x0f, // Byte enable
+            0,    // Write count
+            1,    // Read count
             // 12 - Address
-            0,
-            0,
-            0,
-            0,
-
-            // 16 - Value
-            0,
-            0,
-            0,
-            0,
+            0, 0, 0, 0, // 16 - Value
+            0, 0, 0, 0,
         ];
         BigEndian::write_u32(&mut buffer[16..20], addr);
         let amt = match connection {
@@ -353,10 +336,11 @@ impl EthernetBridge {
                 u.send_to(&buffer, format!("{}:{}", host, port))?;
                 let (amt, _src) = u.recv_from(&mut buffer)?;
                 amt
-            },
+            }
             EthernetConnection::TCP(t) => {
-                t.write(&buffer)?;
-                t.read(&mut buffer)?
+                t.write_all(&buffer)?;
+                t.read_exact(&mut buffer)?;
+                buffer.len()
             }
         };
         if amt != buffer.len() {

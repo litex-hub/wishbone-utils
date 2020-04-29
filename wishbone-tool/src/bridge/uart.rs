@@ -27,7 +27,7 @@ impl Clone for UartBridge {
     fn clone(&self) -> Self {
         UartBridge {
             path: self.path.clone(),
-            baudrate: self.baudrate.clone(),
+            baudrate: self.baudrate,
             main_tx: self.main_tx.clone(),
             main_rx: self.main_rx.clone(),
             mutex: self.mutex.clone(),
@@ -221,9 +221,8 @@ impl UartBridge {
             while _mtx.is_none() {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
-            match _mtx.take() {
-                Some(ConnectThreadResponses::OpenedDevice) => return Ok(()),
-                _ => (),
+            if let Some(ConnectThreadResponses::OpenedDevice) = _mtx.take() {
+                return Ok(());
             }
         }
     }
@@ -235,7 +234,7 @@ impl UartBridge {
     ) -> Result<(), BridgeError> {
         debug!("POKE @ {:08x} -> {:08x}", addr, value);
         // WRITE, 1 word
-        serial.write(&[0x01, 0x01])?;
+        serial.write_all(&[0x01, 0x01])?;
 
         // LiteX ignores the bottom two Wishbone bits, so shift it by
         // two when writing the address.
@@ -246,7 +245,7 @@ impl UartBridge {
     fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
         // READ, 1 word
         debug!("Peeking @ {:08x}", addr);
-        serial.write(&[0x02, 0x01])?;
+        serial.write_all(&[0x02, 0x01])?;
 
         // LiteX ignores the bottom two Wishbone bits, so shift it by
         // two when writing the address.

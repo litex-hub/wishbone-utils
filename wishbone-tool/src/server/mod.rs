@@ -108,7 +108,7 @@ impl ServerKind {
 /// Return `true` if there is still data to be read
 /// after returning.
 fn poll_messible(
-    messible_address: &Option<u32>,
+    messible_address: Option<u32>,
     bridge: &bridge::Bridge,
     gdb_controller: &mut gdb::GdbController,
 ) -> bool {
@@ -225,7 +225,7 @@ pub fn gdb_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerErro
                         // If there's a messible available, poll it.
                         if running {
                             do_pause = !poll_messible(
-                                &messible_address,
+                                messible_address,
                                 &poll_bridge,
                                 &mut gdb_controller,
                             );
@@ -333,7 +333,7 @@ pub fn random_test(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerErr
     let mut loop_counter: u32 = 0;
     let random_addr = match cfg.random_address {
         Some(s) => s,
-        None => 0x10000000 + 8192,
+        None => 0x1000_0000 + 8192,
     };
     let random_range = match cfg.random_range {
         Some(s) => s,
@@ -447,18 +447,18 @@ pub fn terminal_client(cfg: &Config, bridge: bridge::Bridge) -> Result<(), Serve
     let xover_rxtx = *cfg
         .register_mapping
         .get("uart_xover_rxtx")
-        .unwrap_or(&0xe0001818);
+        .unwrap_or(&0xe000_1818);
     let xover_rxempty = *cfg
         .register_mapping
         .get("uart_xover_rxempty")
-        .unwrap_or(&0xe0001820);
+        .unwrap_or(&0xe000_1820);
 
     loop {
         if poll_uart(xover_rxempty, &bridge)? {
             let mut char_buffer = vec![];
             let mut read_count = 0;
             while bridge.peek(xover_rxempty)? == 0 && read_count < 100 {
-                read_count = read_count + 1;
+                read_count += 1;
                 char_buffer.push(bridge.peek(xover_rxtx)? as u8);
             }
             print!("{}", String::from_utf8_lossy(&char_buffer));
@@ -527,16 +527,16 @@ pub fn messible_client(cfg: &Config, bridge: bridge::Bridge) -> Result<(), Serve
     use std::io::stdout;
     use std::io::Write;
 
-    let messible_base = cfg.messible_address.unwrap_or(0xe0008000);
+    let messible_base = cfg.messible_address.unwrap_or(0xe000_8000);
 
     loop {
         let mut char_buffer = vec![];
         let mut read_count = 0;
         while bridge.peek(messible_base + 8)? & 0x2 == 2 && read_count < 100 {
-            read_count = read_count + 1;
+            read_count += 1;
             char_buffer.push(bridge.peek(messible_base + 4)? as u8);
         }
-        if char_buffer.len() > 0 {
+        if !char_buffer.is_empty() {
             print!("{}", String::from_utf8_lossy(&char_buffer));
             stdout().flush().ok();
         }

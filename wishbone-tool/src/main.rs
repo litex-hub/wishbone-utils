@@ -343,10 +343,7 @@ fn main() {
     if let Some(shell_str) = matches.value_of("completion") {
         use std::io;
         use std::str::FromStr;
-        let shell = match Shell::from_str(shell_str) {
-            Ok(s) => s,
-            Err(_) => panic!("Unrecognized shell"),
-        };
+        let shell = Shell::from_str(shell_str).expect("unrecognized shell");
         clap_app().gen_completions_to(
             "wishbone-tool",
             shell,
@@ -383,7 +380,7 @@ fn main() {
             use std::thread;
             let bridge = bridge.clone();
             let cfg = cfg.clone();
-            let server_kind = server_kind.clone();
+            let server_kind = *server_kind;
             let thr_handle = thread::spawn(move || {
                 match server_kind {
                     ServerKind::GDB => server::gdb_server(&cfg, bridge),

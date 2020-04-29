@@ -16,7 +16,7 @@ pub struct SpiPins {
 
 impl SpiPins {
     pub fn from_string(spec: &str) -> Result<Self, ConfigError> {
-        let chars: Vec<&str> = spec.split(",").collect();
+        let chars: Vec<&str> = spec.split(',').collect();
 
         let (mosi, miso, clk, cs) = match chars.len() {
             2 => {

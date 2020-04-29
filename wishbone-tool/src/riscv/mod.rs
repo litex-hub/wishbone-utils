@@ -6,13 +6,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod exception;
 use exception::RiscvException;
 
 bitflags! {
     struct VexRiscvFlags: u32 {
-        const RESET = 1 << 0;
+        const RESET = 1;
         const HALT = 1 << 1;
         const PIP_BUSY = 1 << 2;
         const HALTED_BY_BREAK = 1 << 3;
@@ -276,7 +277,7 @@ pub struct RiscvCpu {
     has_mmu: bool,
 
     /// "true" if the MMU is currently enabled
-    mmu_enabled: Arc<Mutex<bool>>,
+    mmu_enabled: Arc<AtomicBool>,
 
     /// The last exception, if any
     last_exception: Arc<Mutex<Option<RiscvException>>>,
@@ -296,7 +297,7 @@ pub struct RiscvCpuController {
     has_mmu: bool,
 
     /// "true" if the MMU is currently enabled
-    mmu_enabled: Arc<Mutex<bool>>,
+    mmu_enabled: Arc<AtomicBool>,
 
     /// The last exception, if any
     last_exception: Arc<Mutex<Option<RiscvException>>>,
@@ -311,7 +312,7 @@ impl RiscvCpu {
         let cached_values = Arc::new(Mutex::new(HashMap::new()));
         let last_exception = Arc::new(Mutex::new(None));
 
-        let mmu_enabled = Arc::new(Mutex::new(false));
+        let mmu_enabled = Arc::new(AtomicBool::new(false));
         let mut controller = RiscvCpuController {
             cpu_state: cpu_state.clone(),
             cached_values: cached_values.clone(),
@@ -337,7 +338,7 @@ impl RiscvCpu {
             controller.write_register(bridge, &satp_register, old_satp)?;
             controller.has_mmu = true;
             Self::insert_register(&mut gdb_register_map, satp_register);
-            *mmu_enabled.lock().unwrap() = (old_satp & 0x80000000) == 0x80000000;
+            mmu_enabled.store((old_satp & 0x8000_0000) == 0x8000_0000, Ordering::Relaxed);
         }
         if was_running {
             controller.perform_resume(bridge, false)?;
@@ -555,7 +556,7 @@ impl RiscvCpu {
     }
 
     fn make_target_xml(registers: &HashMap<u32, RiscvRegister>) -> String {
-        let mut reg_indexes: Vec<u32> = registers.keys().map(|x| *x).collect();
+        let mut reg_indexes: Vec<u32> = registers.keys().copied().collect();
         reg_indexes.sort();
         let mut target_xml = "<?xml version=\"1.0\"?>\n<!DOCTYPE target SYSTEM \"gdb-target.dtd\">\n<target version=\"1.0\">\n".to_string();
 
@@ -709,7 +710,7 @@ impl RiscvCpu {
         // Since we're resetting the CPU, invalidate all cached registers
         self.cached_values.lock().unwrap().drain();
         self.flush_cache(bridge)?;
-        *self.mmu_enabled.lock().unwrap() = false;
+        self.mmu_enabled.store(false, Ordering::Relaxed);
         *self.last_exception.lock().unwrap() = None;
 
         self.controller
@@ -809,11 +810,7 @@ impl RiscvCpu {
             self.set_cached_reg(reg, value);
             Ok(())
         } else if reg.gdb_index == RiscvRegister::satp().gdb_index {
-            if value & 0x80000000 == 0x80000000 {
-                *self.mmu_enabled.lock().unwrap() = true;
-            } else {
-                *self.mmu_enabled.lock().unwrap() = false;
-            }
+            self.mmu_enabled.store(value & 0x8000_0000 == 0x8000_0000, Ordering::Relaxed);
             self.set_cached_reg(reg, value);
             Ok(())
         } else {
@@ -937,13 +934,11 @@ impl RiscvCpuController {
         if self.has_mmu {
             let satp = RiscvRegister::satp();
             let satp_value = self.read_register(bridge, &satp)?;
-            if satp_value & 0x80000000 == 0x80000000 {
+            self.mmu_enabled.store(satp_value & 0x8000_0000 == 0x8000_0000, Ordering::Relaxed);
+            if satp_value & 0x8000_0000 == 0x8000_0000 {
                 debug!("cpu has an mmu that is enabled -=  disabling it while in debug mode");
-                *self.mmu_enabled.lock().unwrap() = true;
                 self.set_cached_reg(&satp, satp_value);
-                self.write_register(bridge, &satp, satp_value & !0x80000000)?;
-            } else {
-                *self.mmu_enabled.lock().unwrap() = false;
+                self.write_register(bridge, &satp, satp_value & !0x8000_0000)?;
             }
         }
         Ok(())
@@ -1083,6 +1078,7 @@ impl RiscvCpuController {
             2 => (1 << 20) | (2 << 15) | (0x1 << 12) | 0x23,
 
             //SB x1,0(x2)
+            #[allow(clippy::identity_op)]
             1 => (1 << 20) | (2 << 15) | (0x0 << 12) | 0x23,
 
             x => panic!("Unrecognized memory size: {}", x),
@@ -1115,6 +1111,7 @@ impl RiscvCpuController {
                 // Perform a CSRRW which does a Read/Write.  If rs1 is $x0, then the write
                 // is ignored and side-effect free.  Set rd to $x1 to make the read
                 // not side-effect free.
+                #[allow(clippy::identity_op)]
                 self.write_instruction(
                     bridge,
                     0
@@ -1198,6 +1195,7 @@ impl RiscvCpuController {
                 // d: rd (destination register)
                 // o: opcode - 0x73
                 self.write_register(bridge, &RiscvRegister::x1(), value)?;
+                #[allow(clippy::identity_op)]
                 self.write_instruction(
                     bridge,
                     0
@@ -1212,8 +1210,8 @@ impl RiscvCpuController {
     }
 
     fn flush_cache(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-        for opcode in vec![4111, 19, 19, 19] {
-            self.write_instruction(bridge, opcode)?;
+        for opcode in &[4111, 19, 19, 19] {
+            self.write_instruction(bridge, *opcode)?;
         }
         Ok(())
     }

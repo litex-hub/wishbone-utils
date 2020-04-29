@@ -1,11 +1,11 @@
 extern crate byteorder;
 
 use std::io;
-use std::io::{Read, Write, Cursor};
+use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use super::Config;
 use super::bridge::{Bridge, BridgeError};
+use super::Config;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 /* The network protocol looks like this:
@@ -19,13 +19,13 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
     wb_buffer[5] = 0;           // Padding
     wb_buffer[6] = 0;           // Padding
     wb_buffer[7] = 0;           // Padding
-    
+
     // Record header:
     wb_buffer[8] = 0;           // No wishbone flags supported (cyc, wca, wff, etc.)
     wb_buffer[9] = 0x0f;        // Byte enable flag
     wb_buffer[10] = ?;          // Number of write packets
     wb_buffer[11] = ?;          // Numer of read frames
-    
+
     // Write data or read address
     wb_buffer[12] = byte0;
     wb_buffer[13] = byte1;
@@ -106,7 +106,7 @@ impl WishboneServer {
                 return Err(WishboneServerError::ConnectionClosed);
             }
             header[offset] = byte[0];
-            offset = offset + 1;
+            offset += 1;
         }
 
         // Validate signature matches
@@ -116,7 +116,7 @@ impl WishboneServer {
 
         let wcount = header[10];
         let rcount = header[11];
-        let buffer_len:usize = (rcount*4 + wcount*4) as usize;
+        let buffer_len: usize = (rcount * 4 + wcount * 4) as usize;
         let mut buffer = vec![0; buffer_len];
 
         // XXX Replace this with a BufReader for performance
@@ -127,7 +127,7 @@ impl WishboneServer {
                 return Err(WishboneServerError::ConnectionClosed);
             }
             buffer[offset] = byte[0];
-            offset = offset + 1;
+            offset += 1;
         }
 
         // Figure out if it's a read or a write
@@ -138,15 +138,19 @@ impl WishboneServer {
             let mut count = 0;
 
             while count < wcount {
-                let mut value_vec = Cursor::new(vec![buffer[(4*count+0) as usize], buffer[(4*count+1) as usize], buffer[(4*count+2) as usize], buffer[(4*count+3) as usize]]);
+                let mut value_vec = Cursor::new(vec![
+                    buffer[(4 * count) as usize],
+                    buffer[(4 * count + 1) as usize],
+                    buffer[(4 * count + 2) as usize],
+                    buffer[(4 * count + 3) as usize],
+                ]);
                 let value = value_vec.read_u32::<BigEndian>()?;
                 bridge.poke(addr, value)?;
-                count=count+1;
-                addr=addr+4;
+                count += 1;
+                addr += 4;
             }
             Ok(())
-        }
-        else if rcount > 0 {
+        } else if rcount > 0 {
             // Read
             let mut addr_vec = Cursor::new(vec![buffer[0], buffer[1], buffer[2], buffer[3]]);
             let mut addr = addr_vec.read_u32::<BigEndian>()?;
@@ -156,24 +160,23 @@ impl WishboneServer {
                 let mut value_vec = vec![];
                 value_vec.write_u32::<BigEndian>(value)?;
 
-                buffer[(count*4+0) as usize] = value_vec[0];
-                buffer[(count*4+1) as usize] = value_vec[1];
-                buffer[(count*4+2) as usize] = value_vec[2];
-                buffer[(count*4+3) as usize] = value_vec[3];
+                buffer[(count * 4) as usize] = value_vec[0];
+                buffer[(count * 4 + 1) as usize] = value_vec[1];
+                buffer[(count * 4 + 2) as usize] = value_vec[2];
+                buffer[(count * 4 + 3) as usize] = value_vec[3];
 
-                count=count+1;
-                addr=addr+4;
+                count += 1;
+                addr += 4;
             }
 
             // Response goes back as a write
             header[10] = header[11];
             header[11] = 0;
-            connection.write(&header)?;
-            connection.write(&buffer)?;
+            connection.write_all(&header)?;
+            connection.write_all(&buffer)?;
             Ok(())
-        }
-        else {
-            return Err(WishboneServerError::UnsupportedOperation);
+        } else {
+            Err(WishboneServerError::UnsupportedOperation)
         }
     }
 }

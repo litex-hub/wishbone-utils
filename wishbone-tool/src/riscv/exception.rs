@@ -139,22 +139,22 @@ impl RiscvException {
         }
 
         match mcause {
-            0x80000000 => UserSoftwareInterrupt(mepc),
-            0x80000001 => SupervisorSoftwareInterrupt(mepc),
+            0x8000_0000 => UserSoftwareInterrupt(mepc),
+            0x8000_0001 => SupervisorSoftwareInterrupt(mepc),
             // --reserved--
-            0x80000003 => MachineSoftwareInterrupt(mepc),
-            0x80000004 => UserTimerInterrupt(mepc),
-            0x80000005 => SupervisorTimerInterrupt(mepc),
+            0x8000_0003 => MachineSoftwareInterrupt(mepc),
+            0x8000_0004 => UserTimerInterrupt(mepc),
+            0x8000_0005 => SupervisorTimerInterrupt(mepc),
             // --reserved--
-            0x80000007 => MachineTimerInterrupt(mepc),
-            0x80000008 => UserExternalInterrupt(mepc),
-            0x80000009 => SupervisorExternalInterrupt(mepc),
+            0x8000_0007 => MachineTimerInterrupt(mepc),
+            0x8000_0008 => UserExternalInterrupt(mepc),
+            0x8000_0009 => SupervisorExternalInterrupt(mepc),
             // --reserved--
-            0x8000000b => MachineExternalInterrupt(mepc),
-            x @ 0x80000002 |
-            x @ 0x80000006 |
-            x @ 0x8000000a |
-            x @ 0x8000000c ..= 0xffffffff => ReservedInterrupt(x & 0x7fffffff, mepc),
+            0x8000_000b => MachineExternalInterrupt(mepc),
+            x @ 0x8000_0002 |
+            x @ 0x8000_0006 |
+            x @ 0x8000_000a |
+            x @ 0x8000_000c ..= 0xffff_ffff => ReservedInterrupt(x & 0x7fff_ffff, mepc),
 
             0 => InstructionAddressMisaligned(mepc, mtval),
             1 => InstructionAccessFault(mepc, mtval),
@@ -174,7 +174,7 @@ impl RiscvException {
             15 => StorePageFault(mepc, mtval),
             x @ 10 |
             x @ 14 |
-            x @ 16 ..= 0x7fffffff => ReservedFault(x, mepc, mtval),
+            x @ 16 ..= 0x7fff_ffff => ReservedFault(x, mepc, mtval),
         }
     }
 }

@@ -44,8 +44,8 @@ pub fn get_base(value: &str) -> (&str, u32) {
         (value.trim_start_matches("0b"), 2)
     } else if value.starts_with("0B") {
         (value.trim_start_matches("0B"), 2)
-    } else if value.starts_with("0") && value != "0" {
-        (value.trim_start_matches("0"), 8)
+    } else if value.starts_with('0') && value != "0" {
+        (value.trim_start_matches('0'), 8)
     } else {
         (value, 10)
     }
@@ -138,7 +138,7 @@ impl Config {
         let serial_port = if let Some(port) = matches.value_of("serial") {
             bridge_kind = BridgeKind::UartBridge;
             // Strip off the trailing ":" on Windows, since it's confusing
-            if cfg!(windows) && port.ends_with(":") {
+            if cfg!(windows) && port.ends_with(':') {
                 Some(port.get(0..port.len()-1).unwrap_or("").to_owned())
             }
             else {
@@ -239,12 +239,10 @@ impl Config {
 
         let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset") {
             parse_u32(debug_offset)?
+        } else if let Some(debug_offset) = register_mapping.get("vexriscv_debug") {
+            *debug_offset
         } else {
-            if let Some(debug_offset) = register_mapping.get("vexriscv_debug") {
-                *debug_offset
-            } else {
-                0xf00f0000
-            }
+            0xf00f_0000
         };
 
 
@@ -258,7 +256,7 @@ impl Config {
             None
         };
 
-        if server_kind.len() == 0 {
+        if server_kind.is_empty() {
             if memory_address.is_none() {
                 return Err(ConfigError::NoOperationSpecified);
             }
