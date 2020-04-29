@@ -274,6 +274,8 @@ impl Config {
                         "GDB specified but no vexriscv address present in csv file".to_owned(),
                     ));
                 }
+            }
+            if server_kind.contains(&ServerKind::Terminal) {
                 // You asked for --server terminal but no uart is found in the csr.csv file it should complain.
                 if !(register_mapping.contains_key("uart_xover_rxtx")
                     && register_mapping.contains_key("uart_xover_rxempty")
