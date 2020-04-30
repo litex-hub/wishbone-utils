@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
+use std::path::PathBuf;
 
-use crate::bridge::spi::SpiPins;
 use crate::bridge::BridgeKind;
+use crate::bridge::SpiPins;
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use csv;
@@ -87,6 +88,7 @@ pub struct Config {
     pub bridge_kind: BridgeKind,
     pub serial_port: Option<String>,
     pub serial_baud: Option<usize>,
+    pub pcie_path: Option<PathBuf>,
     pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
     pub bind_port: u16,
@@ -139,9 +141,8 @@ impl Config {
             bridge_kind = BridgeKind::UartBridge;
             // Strip off the trailing ":" on Windows, since it's confusing
             if cfg!(windows) && port.ends_with(':') {
-                Some(port.get(0..port.len()-1).unwrap_or("").to_owned())
-            }
-            else {
+                Some(port.get(0..port.len() - 1).unwrap_or("").to_owned())
+            } else {
                 Some(port.to_owned())
             }
         } else {
@@ -195,6 +196,11 @@ impl Config {
 
         let ethernet_tcp = matches.is_present("ethernet-tcp");
 
+        let pcie_path = matches.value_of("pcie-bar").map(|path| {
+            bridge_kind = BridgeKind::PCIeBridge;
+            PathBuf::from(path)
+        });
+
         let spi_pins = if let Some(pins) = matches.value_of("spi-pins") {
             bridge_kind = BridgeKind::SpiBridge;
             Some(SpiPins::from_string(pins)?)
@@ -244,7 +250,6 @@ impl Config {
         } else {
             0xf00f_0000
         };
-
 
         let memory_address = if let Some(addr) = matches.value_of("address") {
             if let Some(addr) = register_mapping.get(&addr.to_lowercase()) {
@@ -297,6 +302,7 @@ impl Config {
             serial_port,
             serial_baud,
             spi_pins,
+            pcie_path,
             memory_address,
             memory_value,
             server_kind,
@@ -354,7 +360,7 @@ impl Config {
                                 }
                             }
                         }
-                    },
+                    }
                     "memory_region" => {
                         let region = &r[1];
                         let base_addr = parse_u32(&r[2])?;

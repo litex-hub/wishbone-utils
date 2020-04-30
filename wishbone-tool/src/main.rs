@@ -9,7 +9,7 @@ extern crate rand;
 
 extern crate flexi_logger;
 extern crate log;
-use log::error;
+use log::{error, debug};
 
 mod bridge;
 mod config;
@@ -183,6 +183,13 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .long("ethernet-tcp")
                 .help("Connect using TCP, for example when using an external wishbone bridge")
                 .display_order(6)
+        )
+        .arg(
+            Arg::with_name("pcie-bar")
+                .long("pcie-bar")
+                .help("Connect using PCIe using the specified BAR")
+                .display_order(6)
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("spi-pins")
@@ -391,7 +398,7 @@ fn main() {
                     ServerKind::MemoryAccess => server::memory_access(&cfg, bridge),
                     ServerKind::Messible => server::messible_client(&cfg, bridge),
                 }.expect("couldn't start server");
-                println!("Exited {:?} thread", server_kind);
+                debug!("Exited {:?} thread", server_kind);
             });
             threads.push(thr_handle);
         }
