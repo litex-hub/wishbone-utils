@@ -42,17 +42,15 @@ jobs:
     - env: TARGET=arm-unknown-linux-musleabi
     - env: TARGET=armv7-unknown-linux-musleabihf
     - env: TARGET=i686-unknown-linux-musl
-    # - env: TARGET=i686-unknown-linux-musl
-    - env: TARGET=mips-unknown-linux-musl
-    - env: TARGET=mips64-unknown-linux-muslabi64
-    - env: TARGET=mips64el-unknown-linux-muslabi64
-    - env: TARGET=mipsel-unknown-linux-musl
-    - env: TARGET=powerpc-unknown-linux-musl
-    - env: TARGET=powerpc64-unknown-linux-musl
-    - env: TARGET=powerpc64le-unknown-linux-musl DISABLE_TESTS=1
-    - env: TARGET=s390x-unknown-linux-musl DISABLE_TESTS=1
+    - env: TARGET=mips-unknown-linux-gnu
+    - env: TARGET=mips64-unknown-linux-gnuabi64
+    - env: TARGET=mips64el-unknown-linux-gnuabi64
+    - env: TARGET=mipsel-unknown-linux-gnu
+    - env: TARGET=powerpc-unknown-linux-gnu
+    - env: TARGET=powerpc64-unknown-linux-gnu
+    - env: TARGET=powerpc64le-unknown-linux-gnu DISABLE_TESTS=1
+    - env: TARGET=s390x-unknown-linux-gnu DISABLE_TESTS=1
     - env: TARGET=x86_64-unknown-linux-musl
-    # - env: TARGET=x86_64-unknown-linux-musl
 
     # OSX
     # Apple stopped shipping compilers for i686-apple-darwin, and so
@@ -73,16 +71,8 @@ jobs:
     - env: TARGET=x86_64-pc-windows-gnu EXTENSION=.exe
     # - env: TARGET=i686-pc-windows-gnu EXTENSION=.exe
 
-    # Bare metal
-    # These targets don't support std and as such are likely not suitable for
-    # most crates.
-    # - env: TARGET=thumbv6m-none-eabi
-    # - env: TARGET=thumbv7em-none-eabi
-    # - env: TARGET=thumbv7em-none-eabihf
-    # - env: TARGET=thumbv7m-none-eabi
-
     # Testing other channels
-    - env: TARGET=x86_64-unknown-linux-gnu
+    - env: TARGET=x86_64-unknown-linux-musl
       rust: nightly
     # - env: TARGET=x86_64-apple-darwin
     #   os: osx
