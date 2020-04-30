@@ -55,12 +55,11 @@ matrix:
     # - env: TARGET=x86_64-unknown-linux-musl
 
     # OSX
-#    - env: TARGET=i686-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.7
-#      os: osx
+   - env: TARGET=i686-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.7
+     os: osx
 #      osx_image: xcode8
     - env: TARGET=x86_64-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.7
       os: osx
-      osx_image: xcode8
 
     # *BSD
     # - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
@@ -69,6 +68,7 @@ matrix:
 
     # Windows
     - env: TARGET=x86_64-pc-windows-gnu EXTENSION=.exe
+    - env: TARGET=i686-pc-windows-gnu EXTENSION=.exe
 
     # Bare metal
     # These targets don't support std and as such are likely not suitable for
