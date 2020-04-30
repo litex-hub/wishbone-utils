@@ -55,8 +55,12 @@ jobs:
     # - env: TARGET=x86_64-unknown-linux-musl
 
     # OSX
-    - env: TARGET=i686-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.7
-      os: osx
+    # Apple stopped shipping compilers for i686-apple-darwin, and so
+    # the Rust project demoted this to a "Tier 3" target, meaning
+    # libstd is no longer built.  This means we can no longer generate
+    # binaries for this platform.
+    # - env: TARGET=i686-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.7
+    #   os: osx
     - env: TARGET=x86_64-apple-darwin MACOSX_DEPLOYMENT_TARGET=10.7
       os: osx
 

@@ -11,7 +11,7 @@ main() {
     fi
 
     # Builds for iOS are done on OSX, but require the specific target to be
-    # installed.  Additionally, i686 is deprecated, so install it separately.
+    # installed.
     case $TARGET in
         aarch64-apple-ios)
             rustup target install aarch64-apple-ios
@@ -27,9 +27,6 @@ main() {
             ;;
         x86_64-apple-ios)
             rustup target install x86_64-apple-ios
-            ;;
-        i686-apple-darwin)
-            rustup target install i686-apple-darwin
             ;;
     esac
 
