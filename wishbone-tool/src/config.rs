@@ -348,6 +348,7 @@ impl Config {
                                 map.insert(reg_name.to_string().to_lowercase(), base_addr);
                             }
                             n => {
+                                map.insert(reg_name.to_string().to_lowercase(), base_addr);
                                 for offset in 0..n {
                                     map.insert(
                                         format!(
