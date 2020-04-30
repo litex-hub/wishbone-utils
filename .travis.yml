@@ -2,9 +2,9 @@
 # https://github.com/japaric/trust/tree/v0.1.2
 
 dist: bionic
-os: linux
 language: rust
 services: docker
+sudo: required
 
 # TODO Rust builds on stable by default, this can be
 # overridden on a case by case basis down below.
@@ -14,7 +14,7 @@ env:
     # TODO Update this to match the name of your project.
     - CRATE_NAME=wishbone-tool
 
-jobs:
+matrix:
   # TODO These are all the build jobs. Adjust as necessary. Comment out what you
   # don't need
   include:
@@ -95,7 +95,7 @@ before_deploy:
   - sh ci/before_deploy.sh
 
 deploy:
-  token:
+  api_key:
     secure: "e2HtPHKvA3zywqwLaUkU8Vo43nUh7cQFsvKYbUKO/suk/kFhXVIQpq/Tij/Wg1es/ni1V1PCEIBTH693QYrBp54Kbes0BjMq49hqR998WKswFOZuhTkHkh2wovbs3cImOrc55F48gdArAmokjxjgrvdzOQ8cLr5HeL2yyOjAuOvaXRF5mRuJ3P9FXdH60i+XCCKteeQ2UzmJ+JAlxT+KVS7+VnwAXKzL+aNi6foFoOBAaIDDxZPuQMRgWNMpYR71uwcN8pDCHDr3EgZ60d+n339Sf9IDIoy8dvqPoXDynL+gCm8VNRW+6MLWBxkSxTGUnSQsSJob3N+tp5cyMk0Au3yqk9+Me6MhksBwAU7CBm6aEL+Q6VjpfcFEKs+L4TatASG9BsuA81tKDfmivDna/8Qfxq4AdQ04WwZ5HLwV2sDxbqfco85RF4SeM7Z25xYUODx/Ca+4b0IJQJvQeGs7KETsKzRPtaFcapHG9zGdFgawW2xC2z64uHIE488oqGEPOFHrDeBkEK1m1BV8m54/JmmS/7gyn0FVT+FyP1Sm3DXVLrIFHCzj104/he4VZu4ynGwcIMiqvORxIzkvpMdskcFZX+gW9AHdVLTDGsRsDLeVcn2NnLgGTjjhTJsjkv67oBbFZ5DdSLT38EKFxHNUIWhiO+g6JaTRe0KDg0TpCFU="
   file_glob: true
   file: wishbone-tool/$CRATE_NAME-$TRAVIS_TAG-$TARGET.*
@@ -107,6 +107,7 @@ deploy:
     condition: $TRAVIS_RUST_VERSION = stable
     tags: true
   provider: releases
+  skip_cleanup: true
 
 cache: cargo
 before_cache:
