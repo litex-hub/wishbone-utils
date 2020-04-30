@@ -28,7 +28,7 @@ rand = "0"
 log = "0"
 flexi_logger = { version = "0", features = ["colors"] }
 
-serial = "0.4"
+serialport = "3.3"
 
 # Support reading csr.csv
 csv = "1.1"

@@ -1,15 +1,12 @@
-extern crate byteorder;
-extern crate serial;
-
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use log::{debug, error, info};
 
-use serial::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use serialport::prelude::*;
 
 use super::BridgeError;
 use crate::config::Config;
@@ -82,7 +79,7 @@ impl UartBridge {
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
         path: String,
-        baud: usize
+        baud: usize,
     ) {
         let mut path = path;
         let mut baud = baud;
@@ -90,7 +87,7 @@ impl UartBridge {
         let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
-            let mut port = match serial::open(&path) {
+            let mut port = match serialport::open(&path) {
                 Ok(port) => {
                     info!("Re-opened serial device {}", path);
                     if first_run {
@@ -100,26 +97,29 @@ impl UartBridge {
                     }
                     print_waiting_message = true;
                     port
-                },
+                }
                 Err(e) => {
                     if print_waiting_message {
                         print_waiting_message = false;
-                        error!("unable to open serial device, will wait for it to appear again: {}", e);
+                        error!(
+                            "unable to open serial device, will wait for it to appear again: {}",
+                            e
+                        );
                     }
                     thread::park_timeout(Duration::from_millis(500));
                     continue;
                 }
             };
-            if let Err(e) = port.reconfigure(&|settings| {
-                    settings.set_baud_rate(serial::BaudRate::from_speed(baud))?;
-                    settings.set_char_size(serial::Bits8);
-                    settings.set_parity(serial::ParityNone);
-                    settings.set_stop_bits(serial::Stop1);
-                    settings.set_flow_control(serial::FlowNone);
-                    Ok(())
-            }) {
-                error!("unable to reconfigure serial port {} -- connection may not work", e);
-            }
+            port.set_baud_rate(baud as _)
+                .unwrap_or_else(|e| error!("unable to set serial port speed: {}", e));
+            port.set_data_bits(DataBits::Eight)
+                .unwrap_or_else(|e| error!("unable to set data bits: {}", e));
+            port.set_parity(Parity::None)
+                .unwrap_or_else(|e| error!("unable to set parity: {}", e));
+            port.set_stop_bits(StopBits::One)
+                .unwrap_or_else(|e| error!("unable to set stop bits: {}", e));
+            port.set_flow_control(FlowControl::None)
+                .unwrap_or_else(|e| error!("unable to set flow control: {}", e));
             if let Err(e) = port.set_timeout(Duration::from_millis(1000)) {
                 error!("unable to set port duration timeout: {}", e);
             }
@@ -132,7 +132,7 @@ impl UartBridge {
                     Err(_) => {
                         error!("connection closed");
                         return;
-                    },
+                    }
                     Ok(o) => match o {
                         ConnectThreadRequests::Exit => {
                             debug!("serial_connect_thread requested exit");
@@ -150,7 +150,8 @@ impl UartBridge {
                                 result_error = format!("peek {:?} @ {:08x}", err, addr);
                                 keep_going = false;
                             }
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(result));
+                            *response.lock().unwrap() =
+                                Some(ConnectThreadResponses::PeekResult(result));
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::Poke(addr, val) => {
@@ -159,7 +160,8 @@ impl UartBridge {
                                 result_error = format!("poke {:?} @ {:08x}", err, addr);
                                 keep_going = false;
                             }
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(result));
+                            *response.lock().unwrap() =
+                                Some(ConnectThreadResponses::PokeResult(result));
                             cvar.notify_one();
                         }
                     },
@@ -182,17 +184,17 @@ impl UartBridge {
                             return;
                         }
                         ConnectThreadRequests::Peek(_addr) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::PeekResult(
+                                Err(BridgeError::NotConnected),
+                            ));
                             cvar.notify_one();
-                        },
+                        }
                         ConnectThreadRequests::Poke(_addr, _val) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(
+                                Err(BridgeError::NotConnected),
+                            ));
                             cvar.notify_one();
-                        },
+                        }
                         ConnectThreadRequests::StartPolling(p, v) => {
                             path = p.clone();
                             baud = v;
@@ -227,11 +229,7 @@ impl UartBridge {
         }
     }
 
-    fn do_poke<T: SerialPort>(
-        serial: &mut T,
-        addr: u32,
-        value: u32,
-    ) -> Result<(), BridgeError> {
+    fn do_poke(serial: &mut std::boxed::Box<dyn serialport::SerialPort>, addr: u32, value: u32) -> Result<(), BridgeError> {
         debug!("POKE @ {:08x} -> {:08x}", addr, value);
         // WRITE, 1 word
         serial.write_all(&[0x01, 0x01])?;
@@ -244,7 +242,7 @@ impl UartBridge {
         Ok(())
     }
 
-    fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
+    fn do_peek(serial: &mut std::boxed::Box<dyn serialport::SerialPort>, addr: u32) -> Result<u32, BridgeError> {
         // READ, 1 word
         debug!("Peeking @ {:08x}", addr);
         serial.write_all(&[0x02, 0x01])?;
