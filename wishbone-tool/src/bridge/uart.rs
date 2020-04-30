@@ -239,7 +239,9 @@ impl UartBridge {
         // LiteX ignores the bottom two Wishbone bits, so shift it by
         // two when writing the address.
         serial.write_u32::<BigEndian>(addr >> 2)?;
-        Ok(serial.write_u32::<BigEndian>(value)?)
+        serial.write_u32::<BigEndian>(value)?;
+        serial.flush()?;
+        Ok(())
     }
 
     fn do_peek<T: SerialPort>(serial: &mut T, addr: u32) -> Result<u32, BridgeError> {
