@@ -308,6 +308,13 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("csr-csv-offset")
+                .long("csr-csv-offset")
+                .help("apply an offset to csr.csv contents, e.g. to specify PCIe BAR offset")
+                .display_order(9)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("random-address")
                 .long("random-address")
                 .help("address to write to when doing a random-test")

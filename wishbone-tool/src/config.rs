@@ -232,7 +232,10 @@ impl Config {
             None
         };
 
-        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"))?;
+        let register_mapping = Self::parse_csr_csv(
+            matches.value_of("csr-csv"),
+            matches.value_of("csr-csv-offset"),
+        )?;
 
         let messible_address = if let Some(messible_address) = matches.value_of("messible-address")
         {
@@ -325,19 +328,27 @@ impl Config {
         })
     }
 
-    fn parse_csr_csv(filename: Option<&str>) -> Result<HashMap<String, u32>, ConfigError> {
+    fn parse_csr_csv(
+        filename: Option<&str>,
+        offset: Option<&str>,
+    ) -> Result<HashMap<String, u32>, ConfigError> {
         let mut map = HashMap::new();
         let file = match filename {
             None => return Ok(map),
             Some(s) => File::open(s)?,
         };
+        let offset = match offset {
+            None => 0,
+            Some(s) => parse_u32(s)?,
+        };
+
         let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(file);
         for result in rdr.records() {
             if let Ok(r) = result {
                 match &r[0] {
                     "csr_register" => {
                         let reg_name = &r[1];
-                        let base_addr = parse_u32(&r[2])?;
+                        let base_addr = parse_u32(&r[2])? + offset;
                         let num_regs = parse_u32(&r[3])?;
 
                         // If there's only one register, add it to the map.
@@ -364,7 +375,7 @@ impl Config {
                     }
                     "memory_region" => {
                         let region = &r[1];
-                        let base_addr = parse_u32(&r[2])?;
+                        let base_addr = parse_u32(&r[2])? + offset;
                         map.insert(region.to_string().to_lowercase(), base_addr);
                     }
                     _ => (),
