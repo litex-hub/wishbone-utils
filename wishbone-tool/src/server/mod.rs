@@ -55,6 +55,9 @@ pub enum ServerError {
         u32, /* observed */
     ),
     TerminalError(terminal::error::ErrorKind),
+
+    /// The specified address was not in mappable range
+    UnmappableAddress(String),
 }
 
 impl std::convert::From<io::Error> for ServerError {
@@ -224,11 +227,8 @@ pub fn gdb_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerErro
                         had_error = false;
                         // If there's a messible available, poll it.
                         if running {
-                            do_pause = !poll_messible(
-                                messible_address,
-                                &poll_bridge,
-                                &mut gdb_controller,
-                            );
+                            do_pause =
+                                !poll_messible(messible_address, &poll_bridge, &mut gdb_controller);
                         }
                     }
                 }
@@ -444,14 +444,20 @@ pub fn terminal_client(cfg: &Config, bridge: bridge::Bridge) -> Result<(), Serve
     use std::io::stdout;
     use std::io::Write;
 
-    let xover_rxtx = *cfg
+    let xover_rxtx = cfg
         .register_mapping
         .get("uart_xover_rxtx")
-        .unwrap_or(&0xe000_1818);
-    let xover_rxempty = *cfg
-        .register_mapping
-        .get("uart_xover_rxempty")
-        .unwrap_or(&0xe000_1820);
+        .map_or(Ok(0xe000_1818), |e| {
+            e.ok_or(ServerError::UnmappableAddress("uart_xover_rxtx".to_owned()))
+        })?;
+    let xover_rxempty =
+        cfg.register_mapping
+            .get("uart_xover_rxempty")
+            .map_or(Ok(0xe000_1820), |e| {
+                e.ok_or(ServerError::UnmappableAddress(
+                    "uart_xover_rxempty".to_owned(),
+                ))
+            })?;
 
     loop {
         if poll_uart(xover_rxempty, &bridge)? {

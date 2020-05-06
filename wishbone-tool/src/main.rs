@@ -308,9 +308,10 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("csr-csv-offset")
-                .long("csr-csv-offset")
-                .help("apply an offset to csr.csv contents, e.g. to specify PCIe BAR offset")
+            Arg::with_name("register-offset")
+                .long("register-offset")
+                .alias("csr-csv-offset")
+                .help("apply an offset to addresses, e.g. to specify PCIe BAR offset")
                 .display_order(9)
                 .takes_value(true),
         )
@@ -380,6 +381,7 @@ fn main() {
                 config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
                 config::ConfigError::IoError(s) => error!("file error: {}", s),
                 config::ConfigError::InvalidConfig(s) => error!("invalid configuration: {}", s),
+                config::ConfigError::AddressOutOfRange(s) => error!("address was not in mappable range: {}", s),
             }
             process::exit(1);
         }

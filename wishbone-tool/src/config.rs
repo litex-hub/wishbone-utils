@@ -28,6 +28,9 @@ pub enum ConfigError {
 
     /// The configuration doesn't make sense
     InvalidConfig(String),
+
+    /// The specified address is outside of legal memory
+    AddressOutOfRange(String),
 }
 
 impl std::convert::From<io::Error> for ConfigError {
@@ -76,6 +79,19 @@ pub fn parse_u32(value: &str) -> Result<u32, ConfigError> {
     }
 }
 
+pub fn parse_u32_address(value: &str, offset: u32) -> Result<Option<u32>, ConfigError> {
+    let (value, base) = get_base(value);
+    u32::from_str_radix(value, base)
+        .map(|n| {
+            if n >= offset {
+                Some(n - offset)
+            } else {
+                None
+            }
+        })
+        .or_else(|e| Err(ConfigError::NumberParseError(value.to_owned(), e)))
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub usb_pid: Option<u16>,
@@ -100,7 +116,7 @@ pub struct Config {
     pub random_address: Option<u32>,
     pub random_range: Option<u32>,
     pub messible_address: Option<u32>,
-    pub register_mapping: HashMap<String, u32>,
+    pub register_mapping: HashMap<String, Option<u32>>,
     pub debug_offset: u32,
     pub load_name: Option<String>,
     pub load_addr: Option<u32>,
@@ -108,6 +124,7 @@ pub struct Config {
 }
 
 impl Config {
+    #[allow(clippy::cognitive_complexity)]
     pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
         let mut bridge_kind = BridgeKind::UsbBridge;
         let mut server_kind = vec![];
@@ -232,33 +249,35 @@ impl Config {
             None
         };
 
-        let register_mapping = Self::parse_csr_csv(
-            matches.value_of("csr-csv"),
-            matches.value_of("csr-csv-offset"),
-        )?;
+        let offset = match matches.value_of("register-offset") {
+            None => 0,
+            Some(s) => parse_u32(s)?,
+        };
+
+        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"), offset)?;
 
         let messible_address = if let Some(messible_address) = matches.value_of("messible-address")
         {
-            Some(parse_u32(messible_address)?)
+            Some(parse_u32_address(messible_address, offset)?.ok_or_else(|| ConfigError::AddressOutOfRange(messible_address.to_owned()))?)
         } else if let Some(base) = register_mapping.get("messible_out") {
-            Some(*base)
+            Some((*base).ok_or_else(|| ConfigError::AddressOutOfRange("messible_out".to_owned()))?)
         } else {
             None
         };
 
         let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset") {
-            parse_u32(debug_offset)?
+            parse_u32_address(debug_offset, offset)?.ok_or_else(|| ConfigError::AddressOutOfRange(debug_offset.to_owned()))?
         } else if let Some(debug_offset) = register_mapping.get("vexriscv_debug") {
-            *debug_offset
+            (*debug_offset).ok_or_else(|| ConfigError::AddressOutOfRange("vexriscv_debug".to_owned()))?
         } else {
             0xf00f_0000
         };
 
         let memory_address = if let Some(addr) = matches.value_of("address") {
-            if let Some(addr) = register_mapping.get(&addr.to_lowercase()) {
-                Some(*addr)
+            if let Some(mapped_addr) = register_mapping.get(&addr.to_lowercase()) {
+                Some((*mapped_addr).ok_or_else(|| ConfigError::AddressOutOfRange(addr.to_owned()))?)
             } else {
-                Some(parse_u32(addr)?)
+                Some(parse_u32_address(addr, offset)?.ok_or_else(|| ConfigError::AddressOutOfRange(addr.to_owned()))?)
             }
         } else {
             None
@@ -330,16 +349,12 @@ impl Config {
 
     fn parse_csr_csv(
         filename: Option<&str>,
-        offset: Option<&str>,
-    ) -> Result<HashMap<String, u32>, ConfigError> {
+        offset: u32,
+    ) -> Result<HashMap<String, Option<u32>>, ConfigError> {
         let mut map = HashMap::new();
         let file = match filename {
             None => return Ok(map),
             Some(s) => File::open(s)?,
-        };
-        let offset = match offset {
-            None => 0,
-            Some(s) => parse_u32(s)?,
         };
 
         let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(file);
@@ -348,7 +363,14 @@ impl Config {
                 match &r[0] {
                     "csr_register" => {
                         let reg_name = &r[1];
-                        let base_addr = parse_u32(&r[2])? + offset;
+                        let base_addr = parse_u32(&r[2])?;
+                        // If there's an offset and it's outside of the range of
+                        // this CSR, just ignore the CSR.
+                        let base_addr = if base_addr < offset {
+                            None
+                        } else {
+                            Some(base_addr - offset)
+                        };
                         let num_regs = parse_u32(&r[3])?;
 
                         // If there's only one register, add it to the map.
@@ -367,7 +389,7 @@ impl Config {
                                             reg_name.to_string().to_lowercase(),
                                             n - offset - 1
                                         ),
-                                        base_addr + (offset * 4),
+                                        base_addr.map(|a| a + (offset * 4)),
                                     );
                                 }
                             }
@@ -375,7 +397,12 @@ impl Config {
                     }
                     "memory_region" => {
                         let region = &r[1];
-                        let base_addr = parse_u32(&r[2])? + offset;
+                        let base_addr = parse_u32(&r[2])?;
+                        let base_addr = if base_addr < offset {
+                            None
+                        } else {
+                            Some(base_addr - offset)
+                        };
                         map.insert(region.to_string().to_lowercase(), base_addr);
                     }
                     _ => (),
