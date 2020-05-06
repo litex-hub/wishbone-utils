@@ -224,7 +224,7 @@ pub const LIBUSB_TRANSFER_STALL:      c_int = 4;
 pub const LIBUSB_TRANSFER_NO_DEVICE:  c_int = 5;
 pub const LIBUSB_TRANSFER_OVERFLOW:   c_int = 6;
 
-pub const LIBUSB_TRANSFER_SHORT_NOT_OK:    u8 = 1<<0;
+pub const LIBUSB_TRANSFER_SHORT_NOT_OK:    u8 = 1;
 pub const LIBUSB_TRANSFER_FREE_BUFFER :    u8 = 1<<1;
 pub const LIBUSB_TRANSFER_FREE_TRANSFER :  u8 = 1<<2;
 pub const LIBUSB_TRANSFER_ADD_ZERO_PACKET: u8 = 1<<3;
@@ -244,7 +244,7 @@ pub const LIBUSB_LOG_LEVEL_INFO:    c_int = 3;
 pub const LIBUSB_LOG_LEVEL_DEBUG:   c_int = 4;
 
 //// libusb_log_cb_mode
-pub const LIBUSB_LOG_CG_GLOBAL:    u8 = 1 << 0;
+pub const LIBUSB_LOG_CG_GLOBAL:    u8 = 1;
 pub const LIBUSB_LOG_CG_CONTEXT:   u8 = 1 << 1;
 
 
@@ -359,7 +359,7 @@ pub type libusb_hotplug_callback_fn = extern "C" fn(ctx: *mut libusb_context, de
 
 pub type libusb_hotplug_flag = c_int;
 pub const LIBUSB_HOTPLUG_NO_FLAGS: libusb_hotplug_flag = 0;
-pub const LIBUSB_HOTPLUG_ENUMERATE: libusb_hotplug_flag = 1<<0;
+pub const LIBUSB_HOTPLUG_ENUMERATE: libusb_hotplug_flag = 1;
 
 pub type libusb_hotplug_event = c_int;
 pub const LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED: libusb_hotplug_event = 0x01;
@@ -480,7 +480,9 @@ extern "C" {
     pub fn libusb_hotplug_deregister_callback(ctx: *mut libusb_context, callback_handle: libusb_hotplug_callback_handle);}
 
 
-// defined as static inline in libusb.h
+/// # Safety
+///
+/// This is a raw C call, and care should be taken that `libusb_device_handle` is valid before calling.
 pub unsafe fn libusb_get_string_descriptor(dev_handle: *mut libusb_device_handle, desc_index: u8, langid: u16, data: *mut c_uchar, length: c_int) -> c_int
 {
     libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_IN, LIBUSB_REQUEST_GET_DESCRIPTOR, (LIBUSB_DT_STRING as u16) << 8 | desc_index as u16, langid, data, length as u16, 1000)

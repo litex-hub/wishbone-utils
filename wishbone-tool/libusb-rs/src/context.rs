@@ -108,7 +108,7 @@ impl Context {
     ///
     /// Returns a device handle for the first device found matching `vendor_id` and `product_id`.
     /// On error, or if the device could not be found, it returns `None`.
-    pub fn open_device_with_vid_pid<'a>(&'a self, vendor_id: u16, product_id: u16) -> Option<DeviceHandle<'a>> {
+    pub fn open_device_with_vid_pid(&self, vendor_id: u16, product_id: u16) -> Option<DeviceHandle> {
         let handle = unsafe { libusb_open_device_with_vid_pid(self.context, vendor_id, product_id) };
 
         if handle.is_null() {
@@ -179,7 +179,7 @@ extern "C" fn hotplug_callback(_ctx: *mut libusb_context, device: *mut libusb_de
 			_ => (),
 		}
 	}
-	return 0;
+	0
 }
 
 /// Library logging levels.

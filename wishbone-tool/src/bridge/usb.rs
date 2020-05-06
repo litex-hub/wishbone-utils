@@ -129,6 +129,7 @@ impl UsbBridge {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn usb_poll_thread(
         usb_ctx: libusb::Context,
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,

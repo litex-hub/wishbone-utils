@@ -106,7 +106,7 @@ pub fn from_libusb(err: c_int) -> Error {
         LIBUSB_ERROR_INTERRUPTED   => Error::Interrupted,
         LIBUSB_ERROR_NO_MEM        => Error::NoMem,
         LIBUSB_ERROR_NOT_SUPPORTED => Error::NotSupported,
-        LIBUSB_ERROR_OTHER | _     => Error::Other,
+        _                               => Error::Other,
     }
 }
 

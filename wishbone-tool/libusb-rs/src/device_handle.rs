@@ -496,7 +496,7 @@ impl<'a> DeviceHandle<'a> {
 pub unsafe fn from_libusb<'a>(context: PhantomData<&'a Context>, handle: *mut libusb_device_handle) -> DeviceHandle<'a> {
     DeviceHandle {
         _context: context,
-        handle: handle,
+        handle,
         interfaces: BitSet::with_capacity(u8::max_value() as usize + 1),
     }
 }

@@ -1,5 +1,4 @@
 use std::fmt;
-use std::mem;
 use std::slice;
 
 use libusb::*;
@@ -86,7 +85,7 @@ impl fmt::Debug for ConfigDescriptor {
         let mut debug = fmt.debug_struct("ConfigDescriptor");
 
         let descriptor: &libusb_config_descriptor = unsafe {
-            mem::transmute(self.descriptor)
+            &*self.descriptor
         };
 
         debug.field("bLength", &descriptor.bLength);

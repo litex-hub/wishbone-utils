@@ -24,7 +24,7 @@ impl<'a> EndpointDescriptor<'a> {
     pub fn direction(&self) -> Direction {
         match self.descriptor.bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK {
             LIBUSB_ENDPOINT_OUT    => Direction::Out,
-            LIBUSB_ENDPOINT_IN | _ => Direction::In,
+            _                          => Direction::In,
         }
     }
 
@@ -34,7 +34,7 @@ impl<'a> EndpointDescriptor<'a> {
             LIBUSB_TRANSFER_TYPE_CONTROL       => TransferType::Control,
             LIBUSB_TRANSFER_TYPE_ISOCHRONOUS   => TransferType::Isochronous,
             LIBUSB_TRANSFER_TYPE_BULK          => TransferType::Bulk,
-            LIBUSB_TRANSFER_TYPE_INTERRUPT | _ => TransferType::Interrupt,
+            _                                      => TransferType::Interrupt,
         }
     }
 
@@ -46,7 +46,7 @@ impl<'a> EndpointDescriptor<'a> {
             LIBUSB_ISO_SYNC_TYPE_NONE     => SyncType::NoSync,
             LIBUSB_ISO_SYNC_TYPE_ASYNC    => SyncType::Asynchronous,
             LIBUSB_ISO_SYNC_TYPE_ADAPTIVE => SyncType::Adaptive,
-            LIBUSB_ISO_SYNC_TYPE_SYNC | _ => SyncType::Synchronous,
+            _                                 => SyncType::Synchronous,
         }
     }
 

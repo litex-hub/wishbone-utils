@@ -303,6 +303,7 @@ impl GdbServer {
         })
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn packet_to_command(&self, raw_pkt: &[u8]) -> Result<GdbCommand, GdbServerError> {
         let pkt = String::from_utf8_lossy(raw_pkt).to_string();
         debug!("Raw GDB packet: {}", pkt);
@@ -554,6 +555,7 @@ impl GdbServer {
         }
     }
 
+    #[allow(clippy::cognitive_complexity)]
     pub fn process(
         &mut self,
         cmd: GdbCommand,
