@@ -82,13 +82,7 @@ pub fn parse_u32(value: &str) -> Result<u32, ConfigError> {
 pub fn parse_u32_address(value: &str, offset: u32) -> Result<Option<u32>, ConfigError> {
     let (value, base) = get_base(value);
     u32::from_str_radix(value, base)
-        .map(|n| {
-            if n >= offset {
-                Some(n - offset)
-            } else {
-                None
-            }
-        })
+        .map(|n| if n >= offset { Some(n - offset) } else { None })
         .or_else(|e| Err(ConfigError::NumberParseError(value.to_owned(), e)))
 }
 
@@ -249,16 +243,17 @@ impl Config {
             None
         };
 
-        let offset = match matches.value_of("register-offset") {
-            None => 0,
-            Some(s) => parse_u32(s)?,
-        };
-
-        let register_mapping = Self::parse_csr_csv(matches.value_of("csr-csv"), offset)?;
+        let (register_mapping, offset) = Self::parse_csr_csv(
+            matches.value_of("csr-csv"),
+            matches.value_of("register-offset"),
+        )?;
 
         let messible_address = if let Some(messible_address) = matches.value_of("messible-address")
         {
-            Some(parse_u32_address(messible_address, offset)?.ok_or_else(|| ConfigError::AddressOutOfRange(messible_address.to_owned()))?)
+            Some(
+                parse_u32_address(messible_address, offset)?
+                    .ok_or_else(|| ConfigError::AddressOutOfRange(messible_address.to_owned()))?,
+            )
         } else if let Some(base) = register_mapping.get("messible_out") {
             Some((*base).ok_or_else(|| ConfigError::AddressOutOfRange("messible_out".to_owned()))?)
         } else {
@@ -266,18 +261,26 @@ impl Config {
         };
 
         let debug_offset = if let Some(debug_offset) = matches.value_of("debug-offset") {
-            parse_u32_address(debug_offset, offset)?.ok_or_else(|| ConfigError::AddressOutOfRange(debug_offset.to_owned()))?
+            parse_u32_address(debug_offset, offset)?
+                .ok_or_else(|| ConfigError::AddressOutOfRange(debug_offset.to_owned()))?
         } else if let Some(debug_offset) = register_mapping.get("vexriscv_debug") {
-            (*debug_offset).ok_or_else(|| ConfigError::AddressOutOfRange("vexriscv_debug".to_owned()))?
+            (*debug_offset)
+                .ok_or_else(|| ConfigError::AddressOutOfRange("vexriscv_debug".to_owned()))?
         } else {
             0xf00f_0000
         };
 
         let memory_address = if let Some(addr) = matches.value_of("address") {
             if let Some(mapped_addr) = register_mapping.get(&addr.to_lowercase()) {
-                Some((*mapped_addr).ok_or_else(|| ConfigError::AddressOutOfRange(addr.to_owned()))?)
+                Some(
+                    (*mapped_addr)
+                        .ok_or_else(|| ConfigError::AddressOutOfRange(addr.to_owned()))?,
+                )
             } else {
-                Some(parse_u32_address(addr, offset)?.ok_or_else(|| ConfigError::AddressOutOfRange(addr.to_owned()))?)
+                Some(
+                    parse_u32_address(addr, offset)?
+                        .ok_or_else(|| ConfigError::AddressOutOfRange(addr.to_owned()))?,
+                )
             }
         } else {
             None
@@ -349,13 +352,21 @@ impl Config {
 
     fn parse_csr_csv(
         filename: Option<&str>,
-        offset: u32,
-    ) -> Result<HashMap<String, Option<u32>>, ConfigError> {
+        offset_str: Option<&str>,
+    ) -> Result<(HashMap<String, Option<u32>>, u32), ConfigError> {
         let mut map = HashMap::new();
         let file = match filename {
-            None => return Ok(map),
+            None => {
+                if let Some(offset_str) = offset_str {
+                    return Ok((map, parse_u32(offset_str)?));
+                } else {
+                    return Ok((map, 0));
+                }
+            }
             Some(s) => File::open(s)?,
         };
+
+        let mut offset = 0;
 
         let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(file);
         for result in rdr.records() {
@@ -364,13 +375,6 @@ impl Config {
                     "csr_register" => {
                         let reg_name = &r[1];
                         let base_addr = parse_u32(&r[2])?;
-                        // If there's an offset and it's outside of the range of
-                        // this CSR, just ignore the CSR.
-                        let base_addr = if base_addr < offset {
-                            None
-                        } else {
-                            Some(base_addr - offset)
-                        };
                         let num_regs = parse_u32(&r[3])?;
 
                         // If there's only one register, add it to the map.
@@ -378,18 +382,18 @@ impl Config {
                         // If this is the case, create indexed offsets for those registers.
                         match num_regs {
                             1 => {
-                                map.insert(reg_name.to_string().to_lowercase(), base_addr);
+                                map.insert(reg_name.to_string().to_lowercase(), Some(base_addr));
                             }
                             n => {
-                                map.insert(reg_name.to_string().to_lowercase(), base_addr);
-                                for offset in 0..n {
+                                map.insert(reg_name.to_string().to_lowercase(), Some(base_addr));
+                                for logical_reg in 0..n {
                                     map.insert(
                                         format!(
                                             "{}{}",
                                             reg_name.to_string().to_lowercase(),
-                                            n - offset - 1
+                                            n - logical_reg - 1
                                         ),
-                                        base_addr.map(|a| a + (offset * 4)),
+                                        Some(base_addr + logical_reg * 4),
                                     );
                                 }
                             }
@@ -398,17 +402,32 @@ impl Config {
                     "memory_region" => {
                         let region = &r[1];
                         let base_addr = parse_u32(&r[2])?;
-                        let base_addr = if base_addr < offset {
-                            None
-                        } else {
-                            Some(base_addr - offset)
-                        };
-                        map.insert(region.to_string().to_lowercase(), base_addr);
+                        map.insert(region.to_string().to_lowercase(), Some(base_addr));
                     }
                     _ => (),
                 };
             }
         }
-        Ok(map)
+
+        // Now that we have everything loaded into the hashmap, see if we need to offset values.
+        if let Some(offset_str) = offset_str {
+            if let Some(offset_value) = map.get(offset_str) {
+                // All values in the map should be non-None now, since we haven't updated the offsets yet.
+                offset =
+                    offset_value.expect("offset_value was None even though it was in the array");
+            } else {
+                offset = parse_u32(offset_str)?;
+            }
+            for (_key, val) in map.iter_mut() {
+                // If there's an offset and it's outside of the range of
+                // this CSR, just ignore the CSR.
+                if val.expect("val was None") < offset {
+                    *val = None;
+                } else {
+                    *val.as_mut().unwrap() -= offset;
+                }
+            }
+        }
+        Ok((map, offset))
     }
 }
