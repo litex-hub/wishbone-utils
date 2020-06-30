@@ -39,17 +39,20 @@ To build `wishbone-tool`:
 The `wishbone-tool` binary will be located under `target/debug/` or
 `target/release/`.
 
-Usage
------
+## Usage
 
 By default, `wishbone-tool` will communicate via USB, attempting to
-open a device with PID `0x5bf0`. It will wait until it finds such a
-device. To use a serial device instead, specify
-`wishbone-tool --serial /dev/ttyUSB0`.
+open a device with PID `0x5bf0`. It will also run the `peek/poke` server
+by default.
 
+### USB Bridge
+
+Simply run `wishbone-tool [ADDRESS]` to peek at a particular address.
+To specify a particular vendor ID, pass `--vid [ID]`, for example `--vid 0xb0f1`.
 To read from an area of memory (such as 0x10000000), run:
 
 ```
+$ # Read from address 0x10000000 via USB
 $ wishbone-tool 0x10000000
 INFO [wishbone_tool::usb_bridge] waiting for target device
 INFO [wishbone_tool::usb_bridge] opened USB device device 019 on bus 001
@@ -67,6 +70,7 @@ INFO [wishbone_tool::usb_bridge] opened USB device device 019 on bus 001
 Value at 00000000: 12345678
 $
 ```
+
 
 ### Serial Bridge
 
@@ -146,6 +150,11 @@ $ wishbone-tool -s gdb -s terminal --csr-csv build/csr.csv
 ```
 
 To exit the session, press `Ctrl-C`.
+
+## GDB Server
+
+If your softcore has a Vexriscv CPU in it, you can enable debug mode
+and use `wishbone-tool` to act as a gdbserver.
 
 ## Command line Auto-Completion
 
