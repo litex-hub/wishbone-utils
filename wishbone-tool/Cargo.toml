@@ -1,6 +1,6 @@
 [package]
 name = "wishbone-tool"
-version = "0.7.1"
+version = "0.7.2"
 authors = ["Sean Cross <sean@xobs.io>"]
 edition = "2018"
 repository = "https://github.com/litex-hub/wishbone-utils"
