@@ -190,7 +190,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .short("g")
                 .long("spi-pins")
                 .value_delimiter("PINS")
-                .help("GPIO pins to use for MISO,MOSI,CLK,CS_N (e.g. 2,3,4,18)")
+                .help("GPIO pins to use for COPI,CIPO,CLK,CS_N (e.g. 2,3,4,18)")
                 .display_order(6)
                 .takes_value(true),
         )

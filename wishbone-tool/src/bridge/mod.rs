@@ -7,12 +7,10 @@ mod usb;
 use crate::config::Config;
 
 pub use ethernet::{EthernetBridge, EthernetBridgeConfig, EthernetBridgeProtocol};
-use pcie::PCIeBridge;
-use spi::SpiBridge;
+pub use pcie::PCIeBridge;
+pub use spi::{SpiBridge, SpiBridgeConfig};
 pub use uart::{UartBridge, UartBridgeConfig};
 pub use usb::{UsbBridge, UsbBridgeConfig};
-
-pub use spi::SpiPins;
 
 use log::debug;
 
@@ -25,7 +23,7 @@ pub enum BridgeKind {
     None,
     EthernetBridge(EthernetBridgeConfig),
     PCIeBridge(PathBuf),
-    SpiBridge,
+    SpiBridge(SpiBridgeConfig),
     UartBridge(UartBridgeConfig),
     UsbBridge(UsbBridgeConfig),
 }
@@ -65,6 +63,10 @@ pub enum BridgeError {
     /// We got something weird back from the bridge
     WrongResponse,
 
+    /// Requested protocol is not supported on this platform
+    #[allow(dead_code)]
+    ProtocolNotSupported,
+
     /// We got nothing back from the bridge
     #[allow(dead_code)]
     Timeout,
@@ -82,6 +84,7 @@ impl ::std::fmt::Display for BridgeError {
             NoBridgeSpecified => write!(f, "no bridge was specified"),
             NotConnected => write!(f, "bridge not connected"),
             WrongResponse => write!(f, "wrong response received"),
+            ProtocolNotSupported => write!(f, "protocol not supported on this platform"),
             Timeout => write!(f, "connection timed out"),
         }
     }
@@ -112,9 +115,9 @@ impl Bridge {
                 mutex,
                 core: BridgeCore::PCIeBridge(PCIeBridge::new(bridge_cfg)?),
             }),
-            BridgeKind::SpiBridge => Ok(Bridge {
+            BridgeKind::SpiBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::SpiBridge(SpiBridge::new(cfg)?),
+                core: BridgeCore::SpiBridge(SpiBridge::new(bridge_cfg)?),
             }),
             BridgeKind::UartBridge(bridge_cfg) => Ok(Bridge {
                 mutex,

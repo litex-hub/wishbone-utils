@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
-use crate::bridge::{BridgeKind, UsbBridgeConfig, UartBridgeConfig, SpiPins, EthernetBridgeConfig, EthernetBridgeProtocol};
+use crate::bridge::{BridgeKind, UsbBridgeConfig, UartBridgeConfig, SpiBridgeConfig, EthernetBridgeConfig, EthernetBridgeProtocol};
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use csv;
@@ -91,7 +91,6 @@ pub struct Config {
     pub memory_value: Option<u32>,
     pub server_kind: Vec<ServerKind>,
     pub bridge_kind: BridgeKind,
-    pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
     pub bind_port: u16,
     pub gdb_port: u16,
@@ -113,7 +112,6 @@ impl Default for Config {
             memory_value: None,
             server_kind: vec![],
             bridge_kind: BridgeKind::None,
-            spi_pins: None,
             bind_addr: "127.0.0.1".to_owned(),
             bind_port: 1234,
             gdb_port: 3333,
@@ -229,12 +227,9 @@ impl Config {
             bridge_kind = BridgeKind::PCIeBridge(PathBuf::from(path));
         });
 
-        let spi_pins = if let Some(pins) = matches.value_of("spi-pins") {
-            bridge_kind = BridgeKind::SpiBridge;
-            Some(SpiPins::from_string(pins)?)
-        } else {
-            None
-        };
+        if let Some(pins) = matches.value_of("spi-pins") {
+            bridge_kind = BridgeKind::SpiBridge(SpiBridgeConfig::from_string(pins)?)
+        }
 
         if let Some(server_kinds) = matches.values_of("server-kind") {
             for sk in server_kinds {
@@ -337,7 +332,6 @@ impl Config {
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
 
         Ok(Config {
-            spi_pins,
             memory_address,
             memory_value,
             server_kind,

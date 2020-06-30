@@ -13,27 +13,26 @@ use rppal::gpio::{Gpio, IoPin};
 use rppal::gpio::Mode::{Input, Output};
 // use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::bridge::BridgeError;
-use crate::config::Config;
+use crate::bridge::{BridgeError, SpiBridgeConfig};
 
 const TIMEOUT_COUNT: u32 = 20000;
 
 struct SpiPins {
-    mosi: IoPin,
-    miso: Option<IoPin>,
+    copi: IoPin,
+    cipo: Option<IoPin>,
     clk: IoPin,
     cs: Option<IoPin>,
-    mosi_is_input: bool,
+    copi_is_input: bool,
     delay: Duration,
 }
 
 impl fmt::Display for SpiPins {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let mosi = format!("MOSI:{}", self.mosi.pin());
-        let miso = if let Some(ref p) = self.miso { format!("MISO:{}", p.pin()) } else { "none".to_owned() };
+        let copi = format!("COPI:{}", self.copi.pin());
+        let cipo = if let Some(ref p) = self.cipo { format!("CIPO:{}", p.pin()) } else { "none".to_owned() };
         let clk = format!("CLK:{}", self.clk.pin());
         let cs = if let Some(ref p) = self.cs { format!("CS:{}", p.pin()) } else { "none".to_owned() };
-        fmt.write_str(&format!("{} {} {} {}", mosi, miso, clk, cs))
+        fmt.write_str(&format!("{} {} {} {}", copi, cipo, clk, cs))
     }
 }
 
@@ -58,22 +57,19 @@ enum ConnectThreadResponses {
 }
 
 impl SpiBridge {
-    pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
+    pub fn new(cfg: &SpiBridgeConfig) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let pins = match &cfg.spi_pins {
-            Some(s) => s.clone(),
-            None => panic!("no serial port path was found"),
-        };
+        let pins = cfg.clone();
         let baudrate = 0;
 
         // Try to open them first, just to make sure we can.
         {
             let gpio = Gpio::new().expect("unable to get gpio ports");
-            let _mosi = gpio.get(pins.mosi).expect("unable to get spi mosi pin");
-            if let Some(miso) = pins.miso {
-                let _miso = Some(gpio.get(miso).expect("unable to get spi miso pin"));
+            let _copi = gpio.get(pins.copi).expect("unable to get spi copi pin");
+            if let Some(cipo) = pins.cipo {
+                let _cipo = Some(gpio.get(cipo).expect("unable to get spi cipo pin"));
             }
             let _clk = gpio.get(pins.clk).expect("unable to get spi clk pin");
             if let Some(cs) = pins.cs {
@@ -82,12 +78,12 @@ impl SpiBridge {
         }
 
         let thr_cv = cv.clone();
-        let thr_mosi = pins.mosi.clone();
-        let thr_miso = pins.miso.clone();
+        let thr_copi = pins.copi.clone();
+        let thr_cipo = pins.cipo.clone();
         let thr_clk = pins.clk.clone();
         let thr_cs = pins.cs.clone();
         thread::spawn(move || {
-            Self::spi_connect_thread(thr_cv, thread_rx, thr_mosi, thr_miso, thr_clk, thr_cs)
+            Self::spi_connect_thread(thr_cv, thread_rx, thr_copi, thr_cipo, thr_clk, thr_cs)
         });
 
         Ok(SpiBridge {
@@ -101,8 +97,8 @@ impl SpiBridge {
     fn spi_connect_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        mosi: u8,
-        miso: Option<u8>,
+        copi: u8,
+        cipo: Option<u8>,
         clk: u8,
         cs: Option<u8>
     ) {
@@ -111,10 +107,10 @@ impl SpiBridge {
         let &(ref response, ref cvar) = &*tx;
         loop {
             let gpio = Gpio::new().expect("unable to get gpio ports");
-            let mut mosi_pin = gpio.get(mosi).expect("unable to get spi mosi pin").into_io(Output);
-            mosi_pin.set_high();
-            let miso_pin = if let Some(miso) = miso {
-                Some(gpio.get(miso).expect("unable to get spi miso pin").into_io(Input))
+            let mut copi_pin = gpio.get(copi).expect("unable to get spi copi pin").into_io(Output);
+            copi_pin.set_high();
+            let cipo_pin = if let Some(cipo) = cipo {
+                Some(gpio.get(cipo).expect("unable to get spi cipo pin").into_io(Input))
             } else {
                 None
             };
@@ -127,7 +123,7 @@ impl SpiBridge {
             } else {
                 None
             };
-            let mut pins = SpiPins { mosi: mosi_pin, miso: miso_pin, clk: clk_pin, cs: cs_pin, mosi_is_input: false, delay: Duration::from_nanos(333) };
+            let mut pins = SpiPins { copi: copi_pin, cipo: cipo_pin, clk: clk_pin, cs: cs_pin, copi_is_input: false, delay: Duration::from_nanos(333) };
             info!("re-initialized spi device with pins {}", pins);
 
             let mut keep_going = true;
@@ -198,40 +194,40 @@ impl SpiBridge {
         Ok(())
     }
 
-    /// Get the appropriate input pin.  If MOSI is the input, ensure that
+    /// Get the appropriate input pin.  If COPI is the input, ensure that
     /// it is set as an Input.
     fn get_input(pins: &mut SpiPins) -> (&mut IoPin, &mut IoPin, &Duration) {
-        // If there's a MISO pin, use that.
-        // Otherwise, turn MOSI into an output if necessary.
-        if let Some(ref mut pin) = pins.miso {
+        // If there's a CIPO pin, use that.
+        // Otherwise, turn COPI into an output if necessary.
+        if let Some(ref mut pin) = pins.cipo {
             (pin, &mut pins.clk, &pins.delay)
         } else {
-            if ! pins.mosi_is_input {
-                pins.mosi.set_mode(Input);
-                pins.mosi_is_input = true;
+            if ! pins.copi_is_input {
+                pins.copi.set_mode(Input);
+                pins.copi_is_input = true;
             }
-            (&mut pins.mosi, &mut pins.clk, &pins.delay)
+            (&mut pins.copi, &mut pins.clk, &pins.delay)
         }
     }
 
-    /// Get the appropriate output pin.  If MOSI is the output, ensure that
+    /// Get the appropriate output pin.  If COPI is the output, ensure that
     /// it is set as an Output.
     fn get_output(pins: &mut SpiPins) -> (&mut IoPin, &mut IoPin, &Duration) {
         // If we're running with less than four wires, change the
-        // MOSI pin to an output if necessary
-        if pins.miso.is_none() && pins.mosi_is_input {
-            pins.mosi.set_mode(Output);
-            pins.mosi_is_input = false;
+        // COPI pin to an output if necessary
+        if pins.cipo.is_none() && pins.copi_is_input {
+            pins.copi.set_mode(Output);
+            pins.copi_is_input = false;
         }
-        (&mut pins.mosi, &mut pins.clk, &pins.delay)
+        (&mut pins.copi, &mut pins.clk, &pins.delay)
     }
 
     fn do_start(pins: &mut SpiPins) {
         pins.clk.set_low();
-        if pins.miso.is_none() && pins.mosi_is_input {
-            pins.mosi.set_mode(Output);
+        if pins.cipo.is_none() && pins.copi_is_input {
+            pins.copi.set_mode(Output);
         }
-        pins.mosi.set_low();
+        pins.copi.set_low();
         if let Some(cs) = &mut pins.cs {
             cs.set_low();
         } else {
@@ -243,10 +239,10 @@ impl SpiBridge {
         if let Some(cs) = &mut pins.cs {
             cs.set_high();
         }
-        if pins.miso.is_none() && pins.mosi_is_input {
-            pins.mosi.set_mode(Output);
+        if pins.cipo.is_none() && pins.copi_is_input {
+            pins.copi.set_mode(Output);
         }
-        pins.mosi.set_low();
+        pins.copi.set_low();
         pins.clk.set_low();
     }
 
@@ -269,7 +265,7 @@ impl SpiBridge {
         let mut val = 0;
 
         // If running with less than four wires, use the
-        // mosi pin in INPUT mode.
+        // copi pin in INPUT mode.
         let (pin, clk, delay) = Self::get_input(pins);
         
         for i in &[7, 6, 5, 4, 3, 2, 1, 0] {

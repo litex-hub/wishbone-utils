@@ -3,22 +3,22 @@ use crate::config::ConfigError::SpiParseError;
 use crate::config::parse_u32;
 
 #[derive(Clone)]
-pub struct SpiPins {
+pub struct SpiBridgeConfig {
     #[allow(dead_code)]
-    mosi: u8,
+    copi: u8,
     #[allow(dead_code)]
-    miso: Option<u8>,
+    cipo: Option<u8>,
     #[allow(dead_code)]
     clk: u8,
     #[allow(dead_code)]
     cs: Option<u8>,
 }
 
-impl SpiPins {
+impl SpiBridgeConfig {
     pub fn from_string(spec: &str) -> Result<Self, ConfigError> {
         let chars: Vec<&str> = spec.split(',').collect();
 
-        let (mosi, miso, clk, cs) = match chars.len() {
+        let (copi, cipo, clk, cs) = match chars.len() {
             2 => {
                 (
                     parse_u32(chars[0])? as u8,
@@ -43,10 +43,10 @@ impl SpiPins {
                     Some(parse_u32(chars[3])? as u8),
                 )
             }
-            _ => return Err(SpiParseError(format!("{} is not a valid pin spec -- must be MOSI,MISO,CLK,CS (e.g. \"2,3,4,18\")", spec)))
+            _ => return Err(SpiParseError(format!("{} is not a valid pin spec -- must be COPI,CIPO,CLK,CS (e.g. \"2,3,4,18\")", spec)))
         };
 
-        Ok(SpiPins { mosi, miso, clk, cs})
+        Ok(SpiBridgeConfig { copi, cipo, clk, cs})
     }
 }
 
