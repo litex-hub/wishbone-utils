@@ -9,7 +9,7 @@ use crate::config::Config;
 use ethernet::EthernetBridge;
 use pcie::PCIeBridge;
 use spi::SpiBridge;
-use uart::UartBridge;
+pub use uart::{UartBridge, UartBridgeConfig};
 pub use usb::{UsbBridge, UsbBridgeConfig};
 
 pub use spi::SpiPins;
@@ -25,7 +25,7 @@ pub enum BridgeKind {
     EthernetBridge,
     PCIeBridge,
     SpiBridge,
-    UartBridge,
+    UartBridge(UartBridgeConfig),
     UsbBridge(UsbBridgeConfig),
 }
 
@@ -119,9 +119,9 @@ impl Bridge {
                 mutex,
                 core: BridgeCore::SpiBridge(SpiBridge::new(cfg)?),
             }),
-            BridgeKind::UartBridge => Ok(Bridge {
+            BridgeKind::UartBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::UartBridge(UartBridge::new(cfg)?),
+                core: BridgeCore::UartBridge(UartBridge::new(bridge_cfg)?),
             }),
             BridgeKind::UsbBridge(bridge_cfg) => Ok(Bridge {
                 mutex,

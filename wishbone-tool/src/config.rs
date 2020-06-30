@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
-use crate::bridge::{BridgeKind, UsbBridgeConfig, SpiPins};
+use crate::bridge::{BridgeKind, UsbBridgeConfig, UartBridgeConfig, SpiPins};
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use csv;
@@ -91,8 +91,6 @@ pub struct Config {
     pub memory_value: Option<u32>,
     pub server_kind: Vec<ServerKind>,
     pub bridge_kind: BridgeKind,
-    pub serial_port: Option<String>,
-    pub serial_baud: Option<usize>,
     pub pcie_path: Option<PathBuf>,
     pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
@@ -119,8 +117,6 @@ impl Default for Config {
             memory_value: None,
             server_kind: vec![],
             bridge_kind: BridgeKind::None,
-            serial_port: None,
-            serial_baud: Some(115200),
             pcie_path: None,
             spi_pins: None,
             bind_addr: "127.0.0.1".to_owned(),
@@ -175,23 +171,24 @@ impl Config {
         });
         // TODO: add parsing for bus and address here
 
-        let serial_port = if let Some(port) = matches.value_of("serial") {
-            bridge_kind = BridgeKind::UartBridge;
+        if let Some(port) = matches.value_of("serial") {
             // Strip off the trailing ":" on Windows, since it's confusing
-            if cfg!(windows) && port.ends_with(':') {
-                Some(port.get(0..port.len() - 1).unwrap_or("").to_owned())
+            let serial_port = if cfg!(windows) && port.ends_with(':') {
+                port.get(0..port.len() - 1).unwrap_or("").to_owned()
             } else {
-                Some(port.to_owned())
-            }
-        } else {
-            None
-        };
+                port.to_owned()
+            };
+            let baud = if let Some(baud) = matches.value_of("baud") {
+                parse_u32(baud)? as usize
+            } else {
+                115200
+            };
 
-        let serial_baud = if let Some(baud) = matches.value_of("baud") {
-            Some(parse_u32(baud)? as usize)
-        } else {
-            None
-        };
+            bridge_kind = BridgeKind::UartBridge(UartBridgeConfig {
+                serial_port, baud,
+            });
+        }
+
 
         let load_name = if let Some(n) = matches.value_of("load-name") {
             Some(n.to_owned())
@@ -347,8 +344,6 @@ impl Config {
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
 
         Ok(Config {
-            serial_port,
-            serial_baud,
             spi_pins,
             pcie_path,
             memory_address,

@@ -9,7 +9,12 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serialport::prelude::*;
 
 use super::BridgeError;
-use crate::config::Config;
+
+#[derive(Clone)]
+pub struct UartBridgeConfig {
+    pub serial_port: String,
+    pub baud: usize,
+}
 
 pub struct UartBridge {
     path: String,
@@ -49,15 +54,12 @@ enum ConnectThreadResponses {
 }
 
 impl UartBridge {
-    pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
+    pub fn new(cfg: &UartBridgeConfig) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let path = match &cfg.serial_port {
-            Some(s) => s.clone(),
-            None => panic!("no serial port path was found"),
-        };
-        let baudrate = cfg.serial_baud.expect("no serial port baudrate was found");
+        let path = cfg.serial_port.clone();
+        let baudrate = cfg.baud;
 
         let thr_cv = cv.clone();
         let thr_path = path.clone();
