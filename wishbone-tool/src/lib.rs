@@ -16,4 +16,4 @@ pub mod server;
 pub mod wishbone;
 
 pub use config::Config;
-pub use bridge::{Bridge, BridgeError, BridgeKind};
+pub use bridge::*;

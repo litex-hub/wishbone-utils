@@ -7,7 +7,7 @@ use log::{debug, error, info};
 
 use super::BridgeError;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct UsbBridgeConfig {
     pub pid: Option<u16>,
     pub vid: Option<u16>,
