@@ -7,8 +7,8 @@ main() {
 
     export CI_FREEBSD_HEADERS=/usr/include/freebsd
     cd wishbone-tool
-    cross build --target $TARGET
-    cross build --target $TARGET --release
+    cross build --verbose --target $TARGET
+    cross build --verbose --target $TARGET --release
 
     if [ ! -z $DISABLE_TESTS ]; then
         return
