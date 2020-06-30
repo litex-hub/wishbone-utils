@@ -1,9 +1,9 @@
 [package]
 
-name = "libusb-sys"
+name = "libusb-sys-wishbone-tool"
 version = "0.2.6"
 authors = ["David Cuddeback <david.cuddeback@gmail.com>"]
-description = "FFI bindings for libusb."
+description = "Vendored copy of FFI bindings for libusb."
 license = "MIT"
 homepage = "https://github.com/dcuddeback/libusb-sys"
 repository = "https://github.com/dcuddeback/libusb-sys.git"

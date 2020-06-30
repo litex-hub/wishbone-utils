@@ -2,13 +2,7 @@
 extern crate bitflags;
 #[macro_use]
 extern crate clap;
-extern crate csv;
-extern crate terminal;
-extern crate libusb;
-extern crate rand;
 
-extern crate flexi_logger;
-extern crate log;
 use log::{error, debug};
 
 mod bridge;
@@ -28,8 +22,8 @@ use std::process;
 use std::time::Duration;
 use std::sync::Arc;
 
-fn list_usb() -> Result<(), libusb::Error> {
-    let usb_ctx = libusb::Context::new().unwrap();
+fn list_usb() -> Result<(), libusb_wishbone_tool::Error> {
+    let usb_ctx = libusb_wishbone_tool::Context::new().unwrap();
     let devices = usb_ctx.devices().unwrap();
     println!("devices:");
     for device in devices.iter() {

@@ -1,8 +1,8 @@
 [package]
-name = "libusb"
+name = "libusb-wishbone-tool"
 version = "0.3.1"
 authors = ["David Cuddeback <david.cuddeback@gmail.com>"]
-description = "Rust library for accessing USB devices."
+description = "Vendored copy of a Rust library for accessing USB devices."
 license = "MIT"
 homepage = "https://github.com/dcuddeback/libusb-rs"
 repository = "https://github.com/dcuddeback/libusb-rs.git"
@@ -13,7 +13,7 @@ keywords = ["usb", "libusb", "hardware", "bindings"]
 [dependencies]
 bit-set = "0.4.0"
 # libusb-sys = "0.3.0"{ git = "https://github.com/paritytech/libusb-sys" }
-libusb-sys = { version = "0.2.5", path = "../libusb-sys" }
+libusb-sys-wishbone-tool = { version = "0.2.5", path = "../libusb-sys" }
 libc = "0.2"
 
 [dev-dependencies]

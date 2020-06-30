@@ -49,7 +49,7 @@ pub enum BridgeError {
     LengthError(usize, usize),
 
     /// USB subsystem returned an error
-    USBError(libusb::Error),
+    USBError(libusb_wishbone_tool::Error),
 
     /// std::io error
     IoError(io::Error),
@@ -85,8 +85,8 @@ impl ::std::fmt::Display for BridgeError {
     }
 }
 
-impl std::convert::From<libusb::Error> for BridgeError {
-    fn from(e: libusb::Error) -> BridgeError {
+impl std::convert::From<libusb_wishbone_tool::Error> for BridgeError {
+    fn from(e: libusb_wishbone_tool::Error) -> BridgeError {
         BridgeError::USBError(e)
     }
 }
@@ -156,7 +156,7 @@ impl Bridge {
                 BridgeCore::UsbBridge(b) => b.peek(addr),
             };
             if let Err(e) = result {
-                if let BridgeError::USBError(libusb::Error::Pipe) = e {
+                if let BridgeError::USBError(libusb_wishbone_tool::Error::Pipe) = e {
                     debug!("USB device disconnected, forcing early return");
                     return Err(e);
                 }
@@ -179,11 +179,11 @@ impl Bridge {
             };
             if let Err(e) = result {
                 match e {
-                    BridgeError::USBError(libusb::Error::Pipe) => {
+                    BridgeError::USBError(libusb_wishbone_tool::Error::Pipe) => {
                         debug!("USB device disconnected (Windows), forcing early return");
                         return Err(e);
                     }
-                    BridgeError::USBError(libusb::Error::Io) => {
+                    BridgeError::USBError(libusb_wishbone_tool::Error::Io) => {
                         debug!("USB device disconnected (Posix), forcing early return");
                         return Err(e);
                     }

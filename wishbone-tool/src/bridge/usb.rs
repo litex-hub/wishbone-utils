@@ -1,5 +1,3 @@
-extern crate libusb;
-
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -49,7 +47,7 @@ impl Clone for UsbBridge {
 
 impl UsbBridge {
     pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
-        let usb_ctx = libusb::Context::new()?;
+        let usb_ctx = libusb_wishbone_tool::Context::new()?;
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
@@ -75,8 +73,8 @@ impl UsbBridge {
     }
 
     fn device_matches(
-        device: &libusb::Device,
-        device_desc: &libusb::DeviceDescriptor,
+        device: &libusb_wishbone_tool::Device,
+        device_desc: &libusb_wishbone_tool::DeviceDescriptor,
         usb_pid: Option<u16>,
         usb_vid: Option<u16>,
         usb_bus: Option<u8>,
@@ -131,7 +129,7 @@ impl UsbBridge {
 
     #[allow(clippy::too_many_arguments)]
     fn usb_poll_thread(
-        usb_ctx: libusb::Context,
+        usb_ctx: libusb_wishbone_tool::Context,
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
         pid: Option<u16>,
@@ -253,7 +251,7 @@ impl UsbBridge {
     }
 
     fn do_poke(
-        usb: &libusb::DeviceHandle,
+        usb: &libusb_wishbone_tool::DeviceHandle,
         addr: u32,
         value: u32,
         debug_byte: u8,
@@ -290,7 +288,7 @@ impl UsbBridge {
         }
     }
 
-    fn do_peek(usb: &libusb::DeviceHandle, addr: u32, debug_byte: u8) -> Result<u32, BridgeError> {
+    fn do_peek(usb: &libusb_wishbone_tool::DeviceHandle, addr: u32, debug_byte: u8) -> Result<u32, BridgeError> {
         let mut data_val = [0; 512];
         match usb.read_control(
             0x80 | debug_byte,

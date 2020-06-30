@@ -244,20 +244,20 @@ version = "0.2.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "libusb"
-version = "0.3.1"
-dependencies = [
- "bit-set 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
- "libusb-sys 0.2.6",
-]
-
-[[package]]
-name = "libusb-sys"
+name = "libusb-sys-wishbone-tool"
 version = "0.2.6"
 dependencies = [
  "cc 1.0.35 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "libusb-wishbone-tool"
+version = "0.3.1"
+dependencies = [
+ "bit-set 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libusb-sys-wishbone-tool 0.2.6",
 ]
 
 [[package]]
@@ -740,8 +740,8 @@ dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "flexi_logger 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "libusb 0.3.1",
- "libusb-sys 0.2.6",
+ "libusb-sys-wishbone-tool 0.2.6",
+ "libusb-wishbone-tool 0.3.1",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "memmap 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",

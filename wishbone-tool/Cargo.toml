@@ -19,9 +19,9 @@ memmap = "0.7"
 terminal = "0.2.0"
 
 # git = "https://github.com/paritytech/libusb-rs.git"
-libusb-sys = { path="libusb-sys", version = "0.2.6" }
+libusb-sys-wishbone-tool = { path="libusb-sys", version = "0.2.6" }
 # git = "https://github.com/paritytech/libusb-rs.git"
-libusb = { path = "libusb-rs", version = "0.3.1" }
+libusb-wishbone-tool = { path = "libusb-rs", version = "0.3.1" }
 
 rand = "0"
 
