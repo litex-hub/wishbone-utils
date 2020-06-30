@@ -5,6 +5,7 @@ authors = ["Sean Cross <sean@xobs.io>"]
 edition = "2018"
 repository = "https://github.com/litex-hub/wishbone-utils"
 keywords = [ "litex", "wishbone" ]
+description = "A library and command line program to control a Wishbone bus of an embedded device"
 license = "APACHE-2.0"
 
 [badges]
