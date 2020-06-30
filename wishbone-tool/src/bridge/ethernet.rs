@@ -259,7 +259,7 @@ impl EthernetBridge {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
             if let Some(ConnectThreadResponses::OpenedDevice) = _mtx.take() {
-                return Ok(())
+                return Ok(());
             }
         }
     }

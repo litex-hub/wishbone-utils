@@ -3,7 +3,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate clap;
 
-use log::{error, debug};
+use log::{debug, error};
 
 mod bridge;
 mod config;
@@ -19,8 +19,8 @@ use config::Config;
 use server::ServerKind;
 
 use std::process;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 
 fn list_usb() -> Result<(), libusb_wishbone_tool::Error> {
     let usb_ctx = libusb_wishbone_tool::Context::new().unwrap();
@@ -353,11 +353,7 @@ fn main() {
         use std::io;
         use std::str::FromStr;
         let shell = Shell::from_str(shell_str).expect("unrecognized shell");
-        clap_app().gen_completions_to(
-            "wishbone-tool",
-            shell,
-            &mut io::stdout()
-        );
+        clap_app().gen_completions_to("wishbone-tool", shell, &mut io::stdout());
         return;
     }
 
@@ -375,7 +371,9 @@ fn main() {
                 config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
                 config::ConfigError::IoError(s) => error!("file error: {}", s),
                 config::ConfigError::InvalidConfig(s) => error!("invalid configuration: {}", s),
-                config::ConfigError::AddressOutOfRange(s) => error!("address was not in mappable range: {}", s),
+                config::ConfigError::AddressOutOfRange(s) => {
+                    error!("address was not in mappable range: {}", s)
+                }
             }
             process::exit(1);
         }
@@ -400,7 +398,8 @@ fn main() {
                     ServerKind::Terminal => server::terminal_client(&cfg, bridge),
                     ServerKind::MemoryAccess => server::memory_access(&cfg, bridge),
                     ServerKind::Messible => server::messible_client(&cfg, bridge),
-                }.expect("couldn't start server");
+                }
+                .expect("couldn't start server");
                 debug!("Exited {:?} thread", server_kind);
             });
             threads.push(thr_handle);

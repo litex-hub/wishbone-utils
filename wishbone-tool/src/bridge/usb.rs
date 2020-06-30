@@ -129,7 +129,7 @@ impl UsbBridge {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
             if let Some(ConnectThreadResponses::OpenedDevice) = _mtx.take() {
-                return Ok(())
+                return Ok(());
             }
         }
     }
@@ -295,7 +295,11 @@ impl UsbBridge {
         }
     }
 
-    fn do_peek(usb: &libusb_wishbone_tool::DeviceHandle, addr: u32, debug_byte: u8) -> Result<u32, BridgeError> {
+    fn do_peek(
+        usb: &libusb_wishbone_tool::DeviceHandle,
+        addr: u32,
+        debug_byte: u8,
+    ) -> Result<u32, BridgeError> {
         let mut data_val = [0; 512];
         match usb.read_control(
             0x80 | debug_byte,

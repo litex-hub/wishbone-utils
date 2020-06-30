@@ -1,16 +1,16 @@
 extern crate rppal;
 extern crate spin_sleep;
 
+use std::fmt;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
-use std::fmt;
 
 use log::{debug, error, info};
 
-use rppal::gpio::{Gpio, IoPin};
 use rppal::gpio::Mode::{Input, Output};
+use rppal::gpio::{Gpio, IoPin};
 // use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::bridge::{BridgeError, SpiBridgeConfig};
@@ -29,9 +29,17 @@ struct SpiPins {
 impl fmt::Display for SpiPins {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let copi = format!("COPI:{}", self.copi.pin());
-        let cipo = if let Some(ref p) = self.cipo { format!("CIPO:{}", p.pin()) } else { "none".to_owned() };
+        let cipo = if let Some(ref p) = self.cipo {
+            format!("CIPO:{}", p.pin())
+        } else {
+            "none".to_owned()
+        };
         let clk = format!("CLK:{}", self.clk.pin());
-        let cs = if let Some(ref p) = self.cs { format!("CS:{}", p.pin()) } else { "none".to_owned() };
+        let cs = if let Some(ref p) = self.cs {
+            format!("CS:{}", p.pin())
+        } else {
+            "none".to_owned()
+        };
         fmt.write_str(&format!("{} {} {} {}", copi, cipo, clk, cs))
     }
 }
@@ -100,30 +108,50 @@ impl SpiBridge {
         copi: u8,
         cipo: Option<u8>,
         clk: u8,
-        cs: Option<u8>
+        cs: Option<u8>,
     ) {
         use ConnectThreadRequests::*;
         use ConnectThreadResponses::*;
         let &(ref response, ref cvar) = &*tx;
         loop {
             let gpio = Gpio::new().expect("unable to get gpio ports");
-            let mut copi_pin = gpio.get(copi).expect("unable to get spi copi pin").into_io(Output);
+            let mut copi_pin = gpio
+                .get(copi)
+                .expect("unable to get spi copi pin")
+                .into_io(Output);
             copi_pin.set_high();
             let cipo_pin = if let Some(cipo) = cipo {
-                Some(gpio.get(cipo).expect("unable to get spi cipo pin").into_io(Input))
+                Some(
+                    gpio.get(cipo)
+                        .expect("unable to get spi cipo pin")
+                        .into_io(Input),
+                )
             } else {
                 None
             };
-            let mut clk_pin = gpio.get(clk).expect("unable to get spi clk pin").into_io(Output);
+            let mut clk_pin = gpio
+                .get(clk)
+                .expect("unable to get spi clk pin")
+                .into_io(Output);
             clk_pin.set_low();
             let cs_pin = if let Some(cs) = cs {
-                let mut pin = gpio.get(cs).expect("unable to get spi cs pin").into_io(Output);
+                let mut pin = gpio
+                    .get(cs)
+                    .expect("unable to get spi cs pin")
+                    .into_io(Output);
                 pin.set_high();
                 Some(pin)
             } else {
                 None
             };
-            let mut pins = SpiPins { copi: copi_pin, cipo: cipo_pin, clk: clk_pin, cs: cs_pin, copi_is_input: false, delay: Duration::from_nanos(333) };
+            let mut pins = SpiPins {
+                copi: copi_pin,
+                cipo: cipo_pin,
+                clk: clk_pin,
+                cs: cs_pin,
+                copi_is_input: false,
+                delay: Duration::from_nanos(333),
+            };
             info!("re-initialized spi device with pins {}", pins);
 
             let mut keep_going = true;
@@ -133,7 +161,7 @@ impl SpiBridge {
                     Err(_) => {
                         error!("connection closed");
                         return;
-                    },
+                    }
                     Ok(o) => match o {
                         Exit => {
                             debug!("spi_connect_thread requested exit");
@@ -169,17 +197,15 @@ impl SpiBridge {
                             return;
                         }
                         Peek(_addr) => {
-                            *response.lock().unwrap() = Some(PeekResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() =
+                                Some(PeekResult(Err(BridgeError::NotConnected)));
                             cvar.notify_one();
-                        },
+                        }
                         Poke(_addr, _val) => {
-                            *response.lock().unwrap() = Some(PokeResult(Err(
-                                BridgeError::NotConnected,
-                            )));
+                            *response.lock().unwrap() =
+                                Some(PokeResult(Err(BridgeError::NotConnected)));
                             cvar.notify_one();
-                        },
+                        }
                     },
                 }
             }
@@ -202,7 +228,7 @@ impl SpiBridge {
         if let Some(ref mut pin) = pins.cipo {
             (pin, &mut pins.clk, &pins.delay)
         } else {
-            if ! pins.copi_is_input {
+            if !pins.copi_is_input {
                 pins.copi.set_mode(Input);
                 pins.copi_is_input = true;
             }
@@ -267,7 +293,7 @@ impl SpiBridge {
         // If running with less than four wires, use the
         // copi pin in INPUT mode.
         let (pin, clk, delay) = Self::get_input(pins);
-        
+
         for i in &[7, 6, 5, 4, 3, 2, 1, 0] {
             clk.set_low();
             spin_sleep::sleep(*delay);
@@ -280,11 +306,7 @@ impl SpiBridge {
         val
     }
 
-    fn do_poke(
-        pins: &mut SpiPins,
-        addr: u32,
-        value: u32,
-    ) -> Result<(), BridgeError> {
+    fn do_poke(pins: &mut SpiPins, addr: u32, value: u32) -> Result<(), BridgeError> {
         debug!("poke: writing 0x{:08x} to 0x{:08x}", value, addr);
         let write_cmd = 0;
 

@@ -231,7 +231,11 @@ impl UartBridge {
         }
     }
 
-    fn do_poke(serial: &mut std::boxed::Box<dyn serialport::SerialPort>, addr: u32, value: u32) -> Result<(), BridgeError> {
+    fn do_poke(
+        serial: &mut std::boxed::Box<dyn serialport::SerialPort>,
+        addr: u32,
+        value: u32,
+    ) -> Result<(), BridgeError> {
         debug!("POKE @ {:08x} -> {:08x}", addr, value);
         // WRITE, 1 word
         serial.write_all(&[0x01, 0x01])?;
@@ -244,7 +248,10 @@ impl UartBridge {
         Ok(())
     }
 
-    fn do_peek(serial: &mut std::boxed::Box<dyn serialport::SerialPort>, addr: u32) -> Result<u32, BridgeError> {
+    fn do_peek(
+        serial: &mut std::boxed::Box<dyn serialport::SerialPort>,
+        addr: u32,
+    ) -> Result<u32, BridgeError> {
         // READ, 1 word
         debug!("Peeking @ {:08x}", addr);
         serial.write_all(&[0x02, 0x01])?;

@@ -12,7 +12,6 @@ pub enum RiscvException {
     SupervisorSoftwareInterrupt(u32 /* mepc */),
 
     // [reserved]
-
     /// 1 3
     MachineSoftwareInterrupt(u32 /* mepc */),
 
@@ -23,7 +22,6 @@ pub enum RiscvException {
     SupervisorTimerInterrupt(u32 /* mepc */),
 
     // [reserved]
-
     /// 1 7
     MachineTimerInterrupt(u32 /* mepc */),
 
@@ -34,7 +32,6 @@ pub enum RiscvException {
     SupervisorExternalInterrupt(u32 /* mepc */),
 
     // [reserved]
-
     /// 1 11
     MachineExternalInterrupt(u32 /* mepc */),
 
@@ -71,7 +68,6 @@ pub enum RiscvException {
     CallFromSMode(u32 /* mepc */),
 
     // [reserved]
-
     /// 0 11
     CallFromMMode(u32 /* mepc */),
 
@@ -82,11 +78,14 @@ pub enum RiscvException {
     LoadPageFault(u32 /* mepc */, u32 /* target address */),
 
     // [reserved]
-
     /// 0 15
     StorePageFault(u32 /* mepc */, u32 /* target address */),
 
-    ReservedFault(u32 /* unknown cause number */, u32 /* mepc */, u32 /* mtval */),
+    ReservedFault(
+        u32, /* unknown cause number */
+        u32, /* mepc */
+        u32, /* mtval */
+    ),
 }
 
 impl fmt::Display for RiscvException {
@@ -99,36 +98,77 @@ impl fmt::Display for RiscvException {
             // --reserved--
             MachineSoftwareInterrupt(epc) => write!(f, "Machine swi at 0x{:08x}", epc),
             UserTimerInterrupt(epc) => write!(f, "User timer interrupt at 0x{:08x}", epc),
-            SupervisorTimerInterrupt(epc) => write!(f, "Supervisor timer interrupt at 0x{:08x}", epc),
+            SupervisorTimerInterrupt(epc) => {
+                write!(f, "Supervisor timer interrupt at 0x{:08x}", epc)
+            }
             // --reserved--
             MachineTimerInterrupt(epc) => write!(f, "Machine timer interrupt at 0x{:08x}", epc),
             UserExternalInterrupt(epc) => write!(f, "User external interrupt at 0x{:08x}", epc),
-            SupervisorExternalInterrupt(epc) => write!(f, "Machine external interrupt at 0x{:08x}", epc),
+            SupervisorExternalInterrupt(epc) => {
+                write!(f, "Machine external interrupt at 0x{:08x}", epc)
+            }
             // --reserved--
-            MachineExternalInterrupt(epc) => write!(f, "Supervisor external interrupt at 0x{:08x}", epc),
-            ReservedInterrupt(code, epc) => write!(f, "Reserved interrupt 0x{:08x} at 0x{:08x}", code, epc),
+            MachineExternalInterrupt(epc) => {
+                write!(f, "Supervisor external interrupt at 0x{:08x}", epc)
+            }
+            ReservedInterrupt(code, epc) => {
+                write!(f, "Reserved interrupt 0x{:08x} at 0x{:08x}", code, epc)
+            }
 
-            InstructionAddressMisaligned(epc, mtval) => write!(f, "Misaligned address instruction 0x{:08x} at 0x{:08x}", mtval, epc),
-            InstructionAccessFault(epc, mtval) => write!(f, "Instruction access fault to 0x{:08x} at 0x{:08x}", mtval, epc),
-            IllegalInstruction(epc, mtval) => write!(f, "Illegal instruction 0x{:08x} at 0x{:08x}", mtval, epc),
+            InstructionAddressMisaligned(epc, mtval) => write!(
+                f,
+                "Misaligned address instruction 0x{:08x} at 0x{:08x}",
+                mtval, epc
+            ),
+            InstructionAccessFault(epc, mtval) => write!(
+                f,
+                "Instruction access fault to 0x{:08x} at 0x{:08x}",
+                mtval, epc
+            ),
+            IllegalInstruction(epc, mtval) => {
+                write!(f, "Illegal instruction 0x{:08x} at 0x{:08x}", mtval, epc)
+            }
             Breakpoint(epc) => write!(f, "Breakpoint at 0x{:08x}", epc),
-            LoadAddressMisaligned(epc, mtval) => write!(f, "Misaligned load address of 0x{:08x} at 0x{:08x}", mtval, epc),
-            LoadAccessFault(epc, mtval) => write!(f, "Load access fault from 0x{:08x} at 0x{:08x}", mtval, epc),
-            StoreAddressMisaligned(epc, mtval) => write!(f, "Misaligned store address of 0x{:08x} at 0x{:08x}", mtval, epc),
-            StoreAccessFault(epc, mtval) => write!(f, "Store access fault to 0x{:08x} at 0x{:08x}", mtval, epc),
+            LoadAddressMisaligned(epc, mtval) => write!(
+                f,
+                "Misaligned load address of 0x{:08x} at 0x{:08x}",
+                mtval, epc
+            ),
+            LoadAccessFault(epc, mtval) => {
+                write!(f, "Load access fault from 0x{:08x} at 0x{:08x}", mtval, epc)
+            }
+            StoreAddressMisaligned(epc, mtval) => write!(
+                f,
+                "Misaligned store address of 0x{:08x} at 0x{:08x}",
+                mtval, epc
+            ),
+            StoreAccessFault(epc, mtval) => {
+                write!(f, "Store access fault to 0x{:08x} at 0x{:08x}", mtval, epc)
+            }
             CallFromUMode(epc) => write!(f, "Call from User mode at 0x{:08x}", epc),
             CallFromSMode(epc) => write!(f, "Call from Supervisor mode at 0x{:08x}", epc),
             // --reserved--
             CallFromMMode(epc) => write!(f, "Call from Machine mode at 0x{:08x}", epc),
-            InstructionPageFault(epc, mtval) => write!(f, "Instruction page fault of 0x{:08x} at 0x{:08x}", mtval, epc),
-            LoadPageFault(epc, mtval) => write!(f, "Load page fault of 0x{:08x} at 0x{:08x}", mtval, epc),
+            InstructionPageFault(epc, mtval) => write!(
+                f,
+                "Instruction page fault of 0x{:08x} at 0x{:08x}",
+                mtval, epc
+            ),
+            LoadPageFault(epc, mtval) => {
+                write!(f, "Load page fault of 0x{:08x} at 0x{:08x}", mtval, epc)
+            }
             // --reserved--
-            StorePageFault(epc, mtval) => write!(f, "Load page fault of 0x{:08x} at 0x{:08x}", mtval, epc),
-            ReservedFault(code, epc, mtval) => write!(f, "Reserved interrupt 0x{:08x} with cause 0x{:08x} at 0x{:08x}", code, mtval, epc),
+            StorePageFault(epc, mtval) => {
+                write!(f, "Load page fault of 0x{:08x} at 0x{:08x}", mtval, epc)
+            }
+            ReservedFault(code, epc, mtval) => write!(
+                f,
+                "Reserved interrupt 0x{:08x} with cause 0x{:08x} at 0x{:08x}",
+                code, mtval, epc
+            ),
         }
     }
 }
-
 
 impl RiscvException {
     pub fn from_regs(mcause: u32, mepc: u32, mtval: u32) -> RiscvException {
@@ -151,10 +191,9 @@ impl RiscvException {
             0x8000_0009 => SupervisorExternalInterrupt(mepc),
             // --reserved--
             0x8000_000b => MachineExternalInterrupt(mepc),
-            x @ 0x8000_0002 |
-            x @ 0x8000_0006 |
-            x @ 0x8000_000a |
-            x @ 0x8000_000c ..= 0xffff_ffff => ReservedInterrupt(x & 0x7fff_ffff, mepc),
+            x @ 0x8000_0002 | x @ 0x8000_0006 | x @ 0x8000_000a | x @ 0x8000_000c..=0xffff_ffff => {
+                ReservedInterrupt(x & 0x7fff_ffff, mepc)
+            }
 
             0 => InstructionAddressMisaligned(mepc, mtval),
             1 => InstructionAccessFault(mepc, mtval),
@@ -172,9 +211,7 @@ impl RiscvException {
             13 => LoadPageFault(mepc, mtval),
             // --reserved--
             15 => StorePageFault(mepc, mtval),
-            x @ 10 |
-            x @ 14 |
-            x @ 16 ..= 0x7fff_ffff => ReservedFault(x, mepc, mtval),
+            x @ 10 | x @ 14 | x @ 16..=0x7fff_ffff => ReservedFault(x, mepc, mtval),
         }
     }
 }

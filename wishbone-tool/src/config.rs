@@ -3,7 +3,10 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
-use crate::bridge::{BridgeKind, UsbBridgeConfig, UartBridgeConfig, SpiBridgeConfig, EthernetBridgeConfig, EthernetBridgeProtocol};
+use crate::bridge::{
+    BridgeKind, EthernetBridgeConfig, EthernetBridgeProtocol, SpiBridgeConfig, UartBridgeConfig,
+    UsbBridgeConfig,
+};
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use csv;
@@ -157,7 +160,10 @@ impl Config {
             None
         };
         let mut bridge_kind = BridgeKind::UsbBridge(UsbBridgeConfig {
-            vid, pid, bus, device,
+            vid,
+            pid,
+            bus,
+            device,
         });
         // TODO: add parsing for bus and address here
 
@@ -174,11 +180,8 @@ impl Config {
                 115200
             };
 
-            bridge_kind = BridgeKind::UartBridge(UartBridgeConfig {
-                serial_port, baud,
-            });
+            bridge_kind = BridgeKind::UartBridge(UartBridgeConfig { serial_port, baud });
         }
-
 
         let load_name = if let Some(n) = matches.value_of("load-name") {
             Some(n.to_owned())
@@ -217,11 +220,14 @@ impl Config {
         if let Some(host) = matches.value_of("ethernet-host") {
             bridge_kind = BridgeKind::EthernetBridge(EthernetBridgeConfig {
                 host: host.to_owned(),
-                protocol: if ethernet_tcp { EthernetBridgeProtocol::TCP } else {EthernetBridgeProtocol::UDP},
+                protocol: if ethernet_tcp {
+                    EthernetBridgeProtocol::TCP
+                } else {
+                    EthernetBridgeProtocol::UDP
+                },
                 port: ethernet_port,
             });
         }
-
 
         matches.value_of("pcie-bar").map(|path| {
             bridge_kind = BridgeKind::PCIeBridge(PathBuf::from(path));

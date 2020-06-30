@@ -50,7 +50,6 @@ impl GdbController {
         Ok(())
     }
 
-
     pub fn print_string(&mut self, msg: &str) -> io::Result<()> {
         debug!("Printing string {} to GDB", msg);
         let mut strs: Vec<String> = msg

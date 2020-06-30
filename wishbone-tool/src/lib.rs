@@ -15,5 +15,5 @@ pub mod riscv;
 pub mod server;
 pub mod wishbone;
 
-pub use config::Config;
 pub use bridge::*;
+pub use config::Config;
