@@ -2,7 +2,7 @@
 
 name = "libusb-sys-wishbone-tool"
 version = "0.2.6"
-authors = ["David Cuddeback <david.cuddeback@gmail.com>"]
+authors = ["Sean Cross <sean@xobs.io>", "David Cuddeback <david.cuddeback@gmail.com>"]
 description = "Vendored copy of FFI bindings for libusb."
 license = "MIT"
 homepage = "https://github.com/dcuddeback/libusb-sys"
