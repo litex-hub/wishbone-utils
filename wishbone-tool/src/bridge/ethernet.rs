@@ -12,7 +12,19 @@ use log::{debug, error, info};
 use byteorder::{BigEndian, ByteOrder};
 
 use super::BridgeError;
-use crate::config::Config;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum EthernetBridgeProtocol {
+    TCP,
+    UDP,
+}
+
+#[derive(Clone)]
+pub struct EthernetBridgeConfig {
+    pub protocol: EthernetBridgeProtocol,
+    pub host: String,
+    pub port: u16,
+}
 
 enum EthernetConnection {
     UDP(UdpSocket),
@@ -35,15 +47,8 @@ impl EthernetConnection {
     }
 }
 
-#[derive(Clone)]
-struct EthernetConfig {
-    host: String,
-    port: u16,
-    tcp: bool,
-}
-
 pub struct EthernetBridge {
-    cfg: EthernetConfig,
+    cfg: EthernetBridgeConfig,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
@@ -78,17 +83,9 @@ impl Clone for EthernetBridge {
 }
 
 impl EthernetBridge {
-    pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
+    pub fn new(cfg: &EthernetBridgeConfig) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
-
-        let host = match &cfg.ethernet_host {
-            Some(h) => h.clone(),
-            None => panic!("no ethernet hostname path was found"),
-        };
-        let port = cfg.ethernet_port;
-        let tcp = cfg.ethernet_tcp;
-        let cfg = EthernetConfig { host, port, tcp };
 
         let thr_cv = cv.clone();
         let thr_cfg = cfg.clone();
@@ -97,7 +94,7 @@ impl EthernetBridge {
         }));
 
         Ok(EthernetBridge {
-            cfg,
+            cfg: cfg.clone(),
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
@@ -108,7 +105,7 @@ impl EthernetBridge {
     fn ethernet_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        cfg: EthernetConfig,
+        cfg: EthernetBridgeConfig,
     ) {
         let mut host = cfg.host;
         let mut port = cfg.port;
@@ -116,7 +113,7 @@ impl EthernetBridge {
         let mut first_run = true;
         let &(ref response, ref cvar) = &*tx;
         loop {
-            let mut connection = if cfg.tcp {
+            let mut connection = if cfg.protocol == EthernetBridgeProtocol::TCP {
                 match TcpStream::connect(format!("{}:{}", host, port)) {
                     Ok(conn) => {
                         info!("Re-opened ethernet host {}:{}", host, port);

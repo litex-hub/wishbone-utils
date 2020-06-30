@@ -6,7 +6,7 @@ mod usb;
 
 use crate::config::Config;
 
-use ethernet::EthernetBridge;
+pub use ethernet::{EthernetBridge, EthernetBridgeConfig, EthernetBridgeProtocol};
 use pcie::PCIeBridge;
 use spi::SpiBridge;
 pub use uart::{UartBridge, UartBridgeConfig};
@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 pub enum BridgeKind {
     None,
-    EthernetBridge,
+    EthernetBridge(EthernetBridgeConfig),
     PCIeBridge,
     SpiBridge,
     UartBridge(UartBridgeConfig),
@@ -107,9 +107,9 @@ impl Bridge {
         let mutex = Arc::new(Mutex::new(()));
         match &cfg.bridge_kind {
             BridgeKind::None => Err(BridgeError::NoBridgeSpecified),
-            BridgeKind::EthernetBridge => Ok(Bridge {
+            BridgeKind::EthernetBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::EthernetBridge(EthernetBridge::new(cfg)?),
+                core: BridgeCore::EthernetBridge(EthernetBridge::new(bridge_cfg)?),
             }),
             BridgeKind::PCIeBridge => Ok(Bridge {
                 mutex,

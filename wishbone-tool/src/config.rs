@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
-use crate::bridge::{BridgeKind, UsbBridgeConfig, UartBridgeConfig, SpiPins};
+use crate::bridge::{BridgeKind, UsbBridgeConfig, UartBridgeConfig, SpiPins, EthernetBridgeConfig, EthernetBridgeProtocol};
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use csv;
@@ -96,9 +96,6 @@ pub struct Config {
     pub bind_addr: String,
     pub bind_port: u16,
     pub gdb_port: u16,
-    pub ethernet_host: Option<String>,
-    pub ethernet_port: u16,
-    pub ethernet_tcp: bool,
     pub random_loops: Option<u32>,
     pub random_address: Option<u32>,
     pub random_range: Option<u32>,
@@ -122,9 +119,6 @@ impl Default for Config {
             bind_addr: "127.0.0.1".to_owned(),
             bind_port: 1234,
             gdb_port: 3333,
-            ethernet_host: None,
-            ethernet_port: 1234,
-            ethernet_tcp: false,
             random_loops: None,
             random_address: None,
             random_range: None,
@@ -222,14 +216,16 @@ impl Config {
             "127.0.0.1".to_owned()
         };
 
-        let ethernet_host = if let Some(host) = matches.value_of("ethernet-host") {
-            bridge_kind = BridgeKind::EthernetBridge;
-            Some(host.to_owned())
-        } else {
-            None
-        };
-
         let ethernet_tcp = matches.is_present("ethernet-tcp");
+
+        if let Some(host) = matches.value_of("ethernet-host") {
+            bridge_kind = BridgeKind::EthernetBridge(EthernetBridgeConfig {
+                host: host.to_owned(),
+                protocol: if ethernet_tcp { EthernetBridgeProtocol::TCP } else {EthernetBridgeProtocol::UDP},
+                port: ethernet_port,
+            });
+        }
+
 
         let pcie_path = matches.value_of("pcie-bar").map(|path| {
             bridge_kind = BridgeKind::PCIeBridge;
@@ -361,9 +357,6 @@ impl Config {
             debug_offset,
             load_name,
             load_addr,
-            ethernet_host,
-            ethernet_port,
-            ethernet_tcp,
             terminal_mouse,
         })
     }
