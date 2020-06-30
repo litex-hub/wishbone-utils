@@ -117,6 +117,40 @@ pub struct Config {
     pub terminal_mouse: bool,
 }
 
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            usb_pid: Some(0x5bf0),
+            usb_vid: None,
+            usb_bus: None,
+            usb_device: None,
+            memory_address: None,
+            memory_value: None,
+            server_kind: vec![],
+            bridge_kind: BridgeKind::UsbBridge,
+            serial_port: None,
+            serial_baud: Some(115200),
+            pcie_path: None,
+            spi_pins: None,
+            bind_addr: "127.0.0.1".to_owned(),
+            bind_port: 1234,
+            gdb_port: 3333,
+            ethernet_host: None,
+            ethernet_port: 1234,
+            ethernet_tcp: false,
+            random_loops: None,
+            random_address: None,
+            random_range: None,
+            messible_address: None,
+            register_mapping: HashMap::new(),
+            debug_offset: 0,
+            load_name: None,
+            load_addr: None,
+            terminal_mouse: false,
+        }
+    }
+}
+
 impl Config {
     #[allow(clippy::cognitive_complexity)]
     pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
