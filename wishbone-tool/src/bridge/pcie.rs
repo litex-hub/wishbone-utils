@@ -9,7 +9,6 @@ use std::time::Duration;
 use log::{debug, error};
 
 use super::BridgeError;
-use crate::config::Config;
 
 pub struct PCIeBridge {
     path: PathBuf,
@@ -60,11 +59,11 @@ impl Clone for PCIeBridge {
 }
 
 impl PCIeBridge {
-    pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
+    pub fn new(cfg: &PathBuf) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let path = cfg.pcie_path.as_ref().ok_or(BridgeError::MissingFile)?.to_path_buf();
+        let path = cfg.clone();
 
         let thr_cv = cv.clone();
         let thr_path = path.clone();

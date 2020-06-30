@@ -91,7 +91,6 @@ pub struct Config {
     pub memory_value: Option<u32>,
     pub server_kind: Vec<ServerKind>,
     pub bridge_kind: BridgeKind,
-    pub pcie_path: Option<PathBuf>,
     pub spi_pins: Option<SpiPins>,
     pub bind_addr: String,
     pub bind_port: u16,
@@ -114,7 +113,6 @@ impl Default for Config {
             memory_value: None,
             server_kind: vec![],
             bridge_kind: BridgeKind::None,
-            pcie_path: None,
             spi_pins: None,
             bind_addr: "127.0.0.1".to_owned(),
             bind_port: 1234,
@@ -227,9 +225,8 @@ impl Config {
         }
 
 
-        let pcie_path = matches.value_of("pcie-bar").map(|path| {
-            bridge_kind = BridgeKind::PCIeBridge;
-            PathBuf::from(path)
+        matches.value_of("pcie-bar").map(|path| {
+            bridge_kind = BridgeKind::PCIeBridge(PathBuf::from(path));
         });
 
         let spi_pins = if let Some(pins) = matches.value_of("spi-pins") {
@@ -341,7 +338,6 @@ impl Config {
 
         Ok(Config {
             spi_pins,
-            pcie_path,
             memory_address,
             memory_value,
             server_kind,

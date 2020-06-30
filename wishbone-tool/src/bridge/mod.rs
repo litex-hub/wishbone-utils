@@ -17,13 +17,14 @@ pub use spi::SpiPins;
 use log::debug;
 
 use std::io;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub enum BridgeKind {
     None,
     EthernetBridge(EthernetBridgeConfig),
-    PCIeBridge,
+    PCIeBridge(PathBuf),
     SpiBridge,
     UartBridge(UartBridgeConfig),
     UsbBridge(UsbBridgeConfig),
@@ -64,9 +65,6 @@ pub enum BridgeError {
     /// We got something weird back from the bridge
     WrongResponse,
 
-    /// No file was specified
-    MissingFile,
-
     /// We got nothing back from the bridge
     #[allow(dead_code)]
     Timeout,
@@ -84,7 +82,6 @@ impl ::std::fmt::Display for BridgeError {
             NoBridgeSpecified => write!(f, "no bridge was specified"),
             NotConnected => write!(f, "bridge not connected"),
             WrongResponse => write!(f, "wrong response received"),
-            MissingFile => write!(f, "missing a required file"),
             Timeout => write!(f, "connection timed out"),
         }
     }
@@ -111,9 +108,9 @@ impl Bridge {
                 mutex,
                 core: BridgeCore::EthernetBridge(EthernetBridge::new(bridge_cfg)?),
             }),
-            BridgeKind::PCIeBridge => Ok(Bridge {
+            BridgeKind::PCIeBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::PCIeBridge(PCIeBridge::new(cfg)?),
+                core: BridgeCore::PCIeBridge(PCIeBridge::new(bridge_cfg)?),
             }),
             BridgeKind::SpiBridge => Ok(Bridge {
                 mutex,
