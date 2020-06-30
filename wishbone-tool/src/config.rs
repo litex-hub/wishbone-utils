@@ -3,8 +3,7 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
-use crate::bridge::BridgeKind;
-use crate::bridge::SpiPins;
+use crate::bridge::{BridgeKind, UsbBridgeConfig, SpiPins};
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use csv;
@@ -88,10 +87,6 @@ pub fn parse_u32_address(value: &str, offset: u32) -> Result<Option<u32>, Config
 
 #[derive(Clone)]
 pub struct Config {
-    pub usb_pid: Option<u16>,
-    pub usb_vid: Option<u16>,
-    pub usb_bus: Option<u8>,
-    pub usb_device: Option<u8>,
     pub memory_address: Option<u32>,
     pub memory_value: Option<u32>,
     pub server_kind: Vec<ServerKind>,
@@ -120,14 +115,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            usb_pid: Some(0x5bf0),
-            usb_vid: None,
-            usb_bus: None,
-            usb_device: None,
             memory_address: None,
             memory_value: None,
             server_kind: vec![],
-            bridge_kind: BridgeKind::UsbBridge,
+            bridge_kind: BridgeKind::None,
             serial_port: None,
             serial_baud: Some(115200),
             pcie_path: None,
@@ -154,32 +145,34 @@ impl Default for Config {
 impl Config {
     #[allow(clippy::cognitive_complexity)]
     pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
-        let mut bridge_kind = BridgeKind::UsbBridge;
         let mut server_kind = vec![];
 
-        let usb_vid = if let Some(vid) = matches.value_of("vid") {
+        let vid = if let Some(vid) = matches.value_of("vid") {
             Some(parse_u16(vid)?)
         } else {
             None
         };
 
-        let usb_pid = if let Some(pid) = matches.value_of("pid") {
+        let pid = if let Some(pid) = matches.value_of("pid") {
             Some(parse_u16(pid)?)
         } else {
             None
         };
 
-        let usb_bus = if let Some(bus) = matches.value_of("bus") {
+        let bus = if let Some(bus) = matches.value_of("bus") {
             Some(parse_u8(bus)?)
         } else {
             None
         };
 
-        let usb_device = if let Some(device) = matches.value_of("device") {
+        let device = if let Some(device) = matches.value_of("device") {
             Some(parse_u8(device)?)
         } else {
             None
         };
+        let mut bridge_kind = BridgeKind::UsbBridge(UsbBridgeConfig {
+            vid, pid, bus, device,
+        });
         // TODO: add parsing for bus and address here
 
         let serial_port = if let Some(port) = matches.value_of("serial") {
@@ -354,10 +347,6 @@ impl Config {
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
 
         Ok(Config {
-            usb_pid,
-            usb_vid,
-            usb_bus,
-            usb_device,
             serial_port,
             serial_baud,
             spi_pins,

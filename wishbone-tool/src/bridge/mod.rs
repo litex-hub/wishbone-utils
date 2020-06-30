@@ -10,7 +10,7 @@ use ethernet::EthernetBridge;
 use pcie::PCIeBridge;
 use spi::SpiBridge;
 use uart::UartBridge;
-use usb::UsbBridge;
+pub use usb::{UsbBridge, UsbBridgeConfig};
 
 pub use spi::SpiPins;
 
@@ -21,11 +21,12 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub enum BridgeKind {
+    None,
     EthernetBridge,
     PCIeBridge,
     SpiBridge,
     UartBridge,
-    UsbBridge,
+    UsbBridge(UsbBridgeConfig),
 }
 
 #[derive(Clone)]
@@ -45,6 +46,9 @@ pub struct Bridge {
 
 #[derive(Debug)]
 pub enum BridgeError {
+    /// No bridge was specified (i.e. it was None)
+    NoBridgeSpecified,
+
     /// Expected one size, but got another
     LengthError(usize, usize),
 
@@ -77,6 +81,7 @@ impl ::std::fmt::Display for BridgeError {
             }
             USBError(e) => write!(f, "libusb error {}", e.strerror()),
             IoError(e) => write!(f, "io error {}", e),
+            NoBridgeSpecified => write!(f, "no bridge was specified"),
             NotConnected => write!(f, "bridge not connected"),
             WrongResponse => write!(f, "wrong response received"),
             MissingFile => write!(f, "missing a required file"),
@@ -100,7 +105,8 @@ impl std::convert::From<io::Error> for BridgeError {
 impl Bridge {
     pub fn new(cfg: &Config) -> Result<Bridge, BridgeError> {
         let mutex = Arc::new(Mutex::new(()));
-        match cfg.bridge_kind {
+        match &cfg.bridge_kind {
+            BridgeKind::None => Err(BridgeError::NoBridgeSpecified),
             BridgeKind::EthernetBridge => Ok(Bridge {
                 mutex,
                 core: BridgeCore::EthernetBridge(EthernetBridge::new(cfg)?),
@@ -117,9 +123,9 @@ impl Bridge {
                 mutex,
                 core: BridgeCore::UartBridge(UartBridge::new(cfg)?),
             }),
-            BridgeKind::UsbBridge => Ok(Bridge {
+            BridgeKind::UsbBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::UsbBridge(UsbBridge::new(cfg)?),
+                core: BridgeCore::UsbBridge(UsbBridge::new(bridge_cfg)?),
             }),
         }
     }

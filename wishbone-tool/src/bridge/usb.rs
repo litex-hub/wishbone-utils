@@ -6,7 +6,14 @@ use std::time::Duration;
 use log::{debug, error, info};
 
 use super::BridgeError;
-use crate::config::Config;
+
+#[derive(Clone)]
+pub struct UsbBridgeConfig {
+    pub pid: Option<u16>,
+    pub vid: Option<u16>,
+    pub bus: Option<u8>,
+    pub device: Option<u8>,
+}
 
 pub struct UsbBridge {
     usb_pid: Option<u16>,
@@ -46,15 +53,15 @@ impl Clone for UsbBridge {
 }
 
 impl UsbBridge {
-    pub fn new(cfg: &Config) -> Result<Self, BridgeError> {
+    pub fn new(cfg: &UsbBridgeConfig) -> Result<Self, BridgeError> {
         let usb_ctx = libusb_wishbone_tool::Context::new()?;
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let thr_pid = cfg.usb_pid;
-        let thr_vid = cfg.usb_vid;
-        let thr_bus = cfg.usb_bus;
-        let thr_device = cfg.usb_device;
+        let thr_pid = cfg.pid;
+        let thr_vid = cfg.vid;
+        let thr_bus = cfg.bus;
+        let thr_device = cfg.device;
         let thr_cv = cv.clone();
         let poll_thread = Some(thread::spawn(move || {
             Self::usb_poll_thread(
@@ -63,8 +70,8 @@ impl UsbBridge {
         }));
 
         Ok(UsbBridge {
-            usb_pid: cfg.usb_pid,
-            usb_vid: cfg.usb_vid,
+            usb_pid: cfg.pid,
+            usb_vid: cfg.vid,
             main_tx,
             main_rx: cv,
             mutex: Arc::new(Mutex::new(())),
