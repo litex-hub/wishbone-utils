@@ -4,7 +4,6 @@ use std::io;
 
 use crate::server::ServerKind;
 use clap::ArgMatches;
-use csv;
 use wishbone_bridge::{
     BridgeConfig, EthernetBridgeConfig, EthernetBridgeProtocol, PCIeBridgeConfig, SpiBridgeConfig,
     UartBridgeConfig, UsbBridgeConfig,
