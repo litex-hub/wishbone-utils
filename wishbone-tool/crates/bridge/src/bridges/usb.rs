@@ -58,14 +58,11 @@ impl UsbBridge {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let thr_pid = cfg.pid;
-        let thr_vid = cfg.vid;
-        let thr_bus = cfg.bus;
-        let thr_device = cfg.device;
+        let thr_cfg = cfg.clone();
         let thr_cv = cv.clone();
         let poll_thread = Some(thread::spawn(move || {
             Self::usb_poll_thread(
-                usb_ctx, thr_cv, thread_rx, thr_pid, thr_vid, thr_bus, thr_device, 0x43,
+                usb_ctx, thr_cv, thread_rx, thr_cfg, 0x43,
             )
         }));
 
@@ -82,27 +79,24 @@ impl UsbBridge {
     fn device_matches(
         device: &libusb_wishbone_tool::Device,
         device_desc: &libusb_wishbone_tool::DeviceDescriptor,
-        usb_pid: Option<u16>,
-        usb_vid: Option<u16>,
-        usb_bus: Option<u8>,
-        usb_device: Option<u8>,
+        cfg: &UsbBridgeConfig,
     ) -> bool {
-        if let Some(pid) = usb_pid {
+        if let Some(pid) = cfg.pid {
             if pid != device_desc.product_id() {
                 return false;
             }
         }
-        if let Some(vid) = usb_vid {
+        if let Some(vid) = cfg.vid {
             if vid != device_desc.vendor_id() {
                 return false;
             }
         }
-        if let Some(bus) = usb_bus {
+        if let Some(bus) = cfg.bus {
             if bus != device.bus_number() {
                 return false;
             }
         }
-        if let Some(device_id) = usb_device {
+        if let Some(device_id) = cfg.device {
             if device_id != device.address() {
                 return false;
             }
@@ -134,19 +128,13 @@ impl UsbBridge {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn usb_poll_thread(
         usb_ctx: libusb_wishbone_tool::Context,
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        pid: Option<u16>,
-        vid: Option<u16>,
-        usb_bus: Option<u8>,
-        usb_device: Option<u8>,
+        mut cfg: UsbBridgeConfig,
         debug_byte: u8,
     ) {
-        let mut pid = pid;
-        let mut vid = vid;
         let mut print_waiting_message = true;
         let mut first_open = true;
         let &(ref response, ref cvar) = &*tx;
@@ -154,7 +142,7 @@ impl UsbBridge {
             let devices = usb_ctx.devices().unwrap();
             for device in devices.iter() {
                 let device_desc = device.device_descriptor().unwrap();
-                if Self::device_matches(&device, &device_desc, pid, vid, usb_bus, usb_device) {
+                if Self::device_matches(&device, &device_desc, &cfg) {
                     let usb = match device.open() {
                         Ok(o) => {
                             info!(
@@ -190,8 +178,8 @@ impl UsbBridge {
                                     return;
                                 }
                                 ConnectThreadRequests::StartPolling(p, v) => {
-                                    pid = p;
-                                    vid = v;
+                                    cfg.pid = p;
+                                    cfg.vid = v;
                                 }
                                 ConnectThreadRequests::Peek(addr) => {
                                     let result = Self::do_peek(&usb, addr, debug_byte);
@@ -248,8 +236,8 @@ impl UsbBridge {
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::StartPolling(p, v) => {
-                            pid = p;
-                            vid = v;
+                            cfg.pid = p;
+                            cfg.vid = v;
                         }
                     },
                 }
