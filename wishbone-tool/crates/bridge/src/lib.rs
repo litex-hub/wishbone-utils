@@ -1,10 +1,34 @@
-mod bridges;
+//! # Wishbone Bridges
+//!
+//! Wishbone is an internal bus that runs on-chip. It provides memory-based
+//! interconnect between various hardware modules. Wishbone buses frequently
+//! contain memories such as RAM and ROM, as well as memory-mapped peripherals.
+//!
+//! By accessing these memories remotely, a target device may be examined or
+//! tested by a host.
+//!
+//! Wishbone may be bridged from a target to a host using a variety of protocols.
+//! This library supports different protocols depending on what features are
+//! enabled. By default, all supported protocols are enabled.
 
-pub use bridges::ethernet::{EthernetBridge, EthernetBridgeConfig, EthernetBridgeProtocol};
-pub use bridges::pcie::{PCIeBridge, PCIeBridgeConfig};
-pub use bridges::spi::{SpiBridge, SpiBridgeConfig};
-pub use bridges::uart::{UartBridge, UartBridgeConfig};
-pub use bridges::usb::{UsbBridge, UsbBridgeConfig};
+pub(crate) mod bridges;
+
+#[doc(hidden)]
+pub use bridges::ethernet::EthernetBridge;
+#[doc(hidden)]
+pub use bridges::pcie::PCIeBridge;
+#[doc(hidden)]
+pub use bridges::spi::SpiBridge;
+#[doc(hideen)]
+pub use bridges::uart::UartBridge;
+#[doc(hidden)]
+pub use bridges::usb::UsbBridge;
+
+pub use bridges::ethernet::{EthernetBridgeConfig, EthernetBridgeProtocol};
+pub use bridges::pcie::PCIeBridgeConfig;
+pub use bridges::spi::SpiBridgeConfig;
+pub use bridges::uart::UartBridgeConfig;
+pub use bridges::usb::UsbBridgeConfig;
 
 use log::debug;
 
@@ -145,7 +169,8 @@ impl std::convert::From<io::Error> for BridgeError {
 }
 
 impl Bridge {
-    /// Create a new 
+    /// Create a new Bridge with the specified configuration. The new bridge
+    /// starts out in a Disconnected state, so you must call `connect()`.
     pub fn new(bridge_cfg: &BridgeConfig) -> Result<Bridge, BridgeError> {
         let mutex = Arc::new(Mutex::new(()));
         match bridge_cfg {
