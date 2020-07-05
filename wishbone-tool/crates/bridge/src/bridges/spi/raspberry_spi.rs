@@ -11,9 +11,8 @@ use log::{debug, error, info};
 
 use rppal::gpio::Mode::{Input, Output};
 use rppal::gpio::{Gpio, IoPin};
-// use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::bridge::{BridgeError, SpiBridgeConfig};
+use crate::{BridgeError, SpiBridgeConfig};
 
 const TIMEOUT_COUNT: u32 = 20000;
 

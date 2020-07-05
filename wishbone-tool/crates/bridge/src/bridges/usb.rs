@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use log::{debug, error, info};
 
-use super::BridgeError;
+use crate::BridgeError;
 
 #[derive(Clone, Default)]
 pub struct UsbBridgeConfig {

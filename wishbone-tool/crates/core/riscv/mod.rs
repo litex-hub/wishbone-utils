@@ -1,5 +1,5 @@
-use wishbone_bridge::{Bridge, BridgeError};
 use super::gdb::GdbController;
+use wishbone_bridge::{Bridge, BridgeError};
 
 use log::{debug, info};
 use std::cell::RefCell;

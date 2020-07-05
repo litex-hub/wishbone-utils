@@ -1,4 +1,3 @@
-
 use crate::config::{Config, ConfigError};
 use crate::gdb;
 use crate::riscv;
@@ -8,7 +7,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use log::{error, info};
 use rand::prelude::*;
 use wishbone_bridge::{Bridge, BridgeError};
-
 
 use std::fs::File;
 use std::io;

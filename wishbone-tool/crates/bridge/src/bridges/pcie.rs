@@ -8,7 +8,18 @@ use std::time::Duration;
 
 use log::{debug, error};
 
-use super::BridgeError;
+use crate::BridgeError;
+
+#[derive(Clone)]
+pub struct PCIeBridgeConfig {
+    path: PathBuf,
+}
+
+impl From<&str> for PCIeBridgeConfig {
+    fn from(f: &str) -> Self {
+        PCIeBridgeConfig { path: PathBuf::from(f) }
+    }
+}
 
 pub struct PCIeBridge {
     path: PathBuf,
@@ -59,11 +70,11 @@ impl Clone for PCIeBridge {
 }
 
 impl PCIeBridge {
-    pub fn new(cfg: &PathBuf) -> Result<Self, BridgeError> {
+    pub fn new(cfg: &PCIeBridgeConfig) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
-        let path = cfg.clone();
+        let path = cfg.path.clone();
 
         let thr_cv = cv.clone();
         let thr_path = path.clone();

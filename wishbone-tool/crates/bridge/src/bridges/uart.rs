@@ -8,7 +8,7 @@ use log::{debug, error, info};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serialport::prelude::*;
 
-use super::BridgeError;
+use crate::BridgeError;
 
 #[derive(Clone)]
 pub struct UartBridgeConfig {

@@ -11,7 +11,7 @@ use log::{debug, error, info};
 
 use byteorder::{BigEndian, ByteOrder};
 
-use super::BridgeError;
+use crate::BridgeError;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum EthernetBridgeProtocol {

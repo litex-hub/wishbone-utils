@@ -315,7 +315,7 @@ fn main() {
     };
 
     {
-        let bridge = Bridge::new(&cfg.bridge_kind).unwrap();
+        let bridge = Bridge::new(&cfg.bridge_config).unwrap();
         bridge.connect().unwrap();
         let cfg = Arc::new(cfg);
         let mut threads = vec![];

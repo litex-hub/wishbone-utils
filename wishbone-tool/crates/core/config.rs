@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
-use std::path::PathBuf;
 
-use wishbone_bridge::{
-    BridgeKind, EthernetBridgeConfig, EthernetBridgeProtocol, SpiBridgeConfig, UartBridgeConfig,
-    UsbBridgeConfig,
-};
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use csv;
+use wishbone_bridge::{
+    BridgeConfig, EthernetBridgeConfig, EthernetBridgeProtocol, PCIeBridgeConfig, SpiBridgeConfig,
+    UartBridgeConfig, UsbBridgeConfig,
+};
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -93,7 +92,7 @@ pub struct Config {
     pub memory_address: Option<u32>,
     pub memory_value: Option<u32>,
     pub server_kind: Vec<ServerKind>,
-    pub bridge_kind: BridgeKind,
+    pub bridge_config: BridgeConfig,
     pub bind_addr: String,
     pub bind_port: u16,
     pub gdb_port: u16,
@@ -114,7 +113,7 @@ impl Default for Config {
             memory_address: None,
             memory_value: None,
             server_kind: vec![],
-            bridge_kind: BridgeKind::None,
+            bridge_config: BridgeConfig::None,
             bind_addr: "127.0.0.1".to_owned(),
             bind_port: 1234,
             gdb_port: 3333,
@@ -159,7 +158,7 @@ impl Config {
         } else {
             None
         };
-        let mut bridge_kind = BridgeKind::UsbBridge(UsbBridgeConfig {
+        let mut bridge_config = BridgeConfig::UsbBridge(UsbBridgeConfig {
             vid,
             pid,
             bus,
@@ -180,7 +179,7 @@ impl Config {
                 115200
             };
 
-            bridge_kind = BridgeKind::UartBridge(UartBridgeConfig { serial_port, baud });
+            bridge_config = BridgeConfig::UartBridge(UartBridgeConfig { serial_port, baud });
         }
 
         let load_name = if let Some(n) = matches.value_of("load-name") {
@@ -218,7 +217,7 @@ impl Config {
         let ethernet_tcp = matches.is_present("ethernet-tcp");
 
         if let Some(host) = matches.value_of("ethernet-host") {
-            bridge_kind = BridgeKind::EthernetBridge(EthernetBridgeConfig {
+            bridge_config = BridgeConfig::EthernetBridge(EthernetBridgeConfig {
                 host: host.to_owned(),
                 protocol: if ethernet_tcp {
                     EthernetBridgeProtocol::TCP
@@ -230,11 +229,11 @@ impl Config {
         }
 
         matches.value_of("pcie-bar").map(|path| {
-            bridge_kind = BridgeKind::PCIeBridge(PathBuf::from(path));
+            bridge_config = PCIeBridgeConfig::from(path).into();
         });
 
         if let Some(pins) = matches.value_of("spi-pins") {
-            bridge_kind = BridgeKind::SpiBridge(
+            bridge_config = BridgeConfig::SpiBridge(
                 SpiBridgeConfig::from_string(pins)
                     .or_else(|e| Err(ConfigError::SpiParseError(e)))?,
             )
@@ -344,7 +343,7 @@ impl Config {
             memory_address,
             memory_value,
             server_kind,
-            bridge_kind,
+            bridge_config,
             bind_port,
             bind_addr,
             gdb_port,

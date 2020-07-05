@@ -1,29 +1,73 @@
-mod ethernet;
-mod pcie;
-mod spi;
-mod uart;
-mod usb;
+mod bridges;
 
-pub use ethernet::{EthernetBridge, EthernetBridgeConfig, EthernetBridgeProtocol};
-pub use pcie::PCIeBridge;
-pub use spi::{SpiBridge, SpiBridgeConfig};
-pub use uart::{UartBridge, UartBridgeConfig};
-pub use usb::{UsbBridge, UsbBridgeConfig};
+pub use bridges::ethernet::{EthernetBridge, EthernetBridgeConfig, EthernetBridgeProtocol};
+pub use bridges::pcie::{PCIeBridge, PCIeBridgeConfig};
+pub use bridges::spi::{SpiBridge, SpiBridgeConfig};
+pub use bridges::uart::{UartBridge, UartBridgeConfig};
+pub use bridges::usb::{UsbBridge, UsbBridgeConfig};
 
 use log::debug;
 
 use std::io;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
-pub enum BridgeKind {
+/// A `BridgeConfig` describes the configuration of a bridge that has
+/// not yet been opened.
+pub enum BridgeConfig {
+    /// An unconfigured `BridgeConfig`. Attempts to use this will return
+    /// an `Err(NoBridgeSpecified)`, so this value exists so that `Default`
+    /// may be implemented.
     None,
+
+    /// Describes a bridge that connects via Ethernet, either via UDP
+    /// (for direct hardware connections) or TCP (for connecting to
+    /// other Wishbone servers such as `litex_server` or `wishbone-tool`)
     EthernetBridge(EthernetBridgeConfig),
-    PCIeBridge(PathBuf),
+
+    /// Describes a connection to a device via a PCIe bridge. Unlike most
+    /// other bridges, a PCIe bridge does not provide a complete view of
+    /// the memory space.
+    PCIeBridge(PCIeBridgeConfig),
+
+    /// Describes a connection to a device via SPI wires.
     SpiBridge(SpiBridgeConfig),
+
+    /// Describes a connection to a device via a serial or other UART port.
     UartBridge(UartBridgeConfig),
+
+    /// Describes a connection to a device via USB.
     UsbBridge(UsbBridgeConfig),
+}
+
+impl From<EthernetBridgeConfig> for BridgeConfig {
+    fn from(other: EthernetBridgeConfig) -> Self {
+        BridgeConfig::EthernetBridge(other)
+    }
+}
+
+impl From<PCIeBridgeConfig> for BridgeConfig {
+    fn from(other: PCIeBridgeConfig) -> Self {
+        BridgeConfig::PCIeBridge(other)
+    }
+}
+
+impl From<SpiBridgeConfig> for BridgeConfig {
+    fn from(other: SpiBridgeConfig) -> Self {
+        BridgeConfig::SpiBridge(other)
+    }
+}
+
+impl From<UartBridgeConfig> for BridgeConfig {
+    fn from(other: UartBridgeConfig) -> Self {
+        BridgeConfig::UartBridge(other)
+    }
+}
+
+impl From<UsbBridgeConfig> for BridgeConfig {
+    fn from(other: UsbBridgeConfig) -> Self {
+        BridgeConfig::UsbBridge(other)
+    }
 }
 
 #[derive(Clone)]
@@ -101,27 +145,28 @@ impl std::convert::From<io::Error> for BridgeError {
 }
 
 impl Bridge {
-    pub fn new(bridge_cfg: &BridgeKind) -> Result<Bridge, BridgeError> {
+    /// Create a new 
+    pub fn new(bridge_cfg: &BridgeConfig) -> Result<Bridge, BridgeError> {
         let mutex = Arc::new(Mutex::new(()));
         match bridge_cfg {
-            BridgeKind::None => Err(BridgeError::NoBridgeSpecified),
-            BridgeKind::EthernetBridge(bridge_cfg) => Ok(Bridge {
+            BridgeConfig::None => Err(BridgeError::NoBridgeSpecified),
+            BridgeConfig::EthernetBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::EthernetBridge(EthernetBridge::new(bridge_cfg)?),
             }),
-            BridgeKind::PCIeBridge(bridge_cfg) => Ok(Bridge {
+            BridgeConfig::PCIeBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::PCIeBridge(PCIeBridge::new(bridge_cfg)?),
             }),
-            BridgeKind::SpiBridge(bridge_cfg) => Ok(Bridge {
+            BridgeConfig::SpiBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::SpiBridge(SpiBridge::new(bridge_cfg)?),
             }),
-            BridgeKind::UartBridge(bridge_cfg) => Ok(Bridge {
+            BridgeConfig::UartBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::UartBridge(UartBridge::new(bridge_cfg)?),
             }),
-            BridgeKind::UsbBridge(bridge_cfg) => Ok(Bridge {
+            BridgeConfig::UsbBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::UsbBridge(UsbBridge::new(bridge_cfg)?),
             }),
