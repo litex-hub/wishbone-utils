@@ -217,15 +217,15 @@ impl Config {
         let ethernet_tcp = matches.is_present("ethernet-tcp");
 
         if let Some(host) = matches.value_of("ethernet-host") {
-            bridge_config = BridgeConfig::EthernetBridge(EthernetBridgeConfig {
-                host: host.to_owned(),
-                protocol: if ethernet_tcp {
+            let ebc = EthernetBridgeConfig::new(host.to_owned())
+                .or_else(|e| Err(ConfigError::InvalidConfig(format!("invalid ethernet address: {}", e))))?
+                .protocol(if ethernet_tcp {
                     EthernetBridgeProtocol::TCP
                 } else {
                     EthernetBridgeProtocol::UDP
-                },
-                port: ethernet_port,
-            });
+                })
+                .port(ethernet_port);
+            bridge_config = ebc.into();
         }
 
         matches.value_of("pcie-bar").map(|path| {
