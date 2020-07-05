@@ -15,6 +15,17 @@ pub struct PCIeBridgeConfig {
     path: PathBuf,
 }
 
+impl PCIeBridgeConfig {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<PCIeBridgeConfig, BridgeError> {
+        if !path.as_ref().exists() {
+            return Err(BridgeError::InvalidAddress);
+        }
+        Ok(PCIeBridgeConfig {
+            path: path.as_ref().to_path_buf(),
+        })
+    }
+}
+
 impl From<&str> for PCIeBridgeConfig {
     fn from(f: &str) -> Self {
         PCIeBridgeConfig { path: PathBuf::from(f) }

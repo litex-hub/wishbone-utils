@@ -135,11 +135,17 @@ impl Config {
     pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
         let mut server_kind = vec![];
 
-        let usb_config = UsbBridgeConfig::new()
+        let mut usb_config = UsbBridgeConfig::new();
+        usb_config
             .vid(matches.value_of("vid").map(|v| parse_u16(v)).transpose()?)
             .pid(matches.value_of("pid").map(|p| parse_u16(p)).transpose()?)
             .bus(matches.value_of("bus").map(|b| parse_u8(b)).transpose()?)
-            .device(matches.value_of("device").map(|d| parse_u8(d)).transpose()?);
+            .device(
+                matches
+                    .value_of("device")
+                    .map(|d| parse_u8(d))
+                    .transpose()?,
+            );
         let mut bridge_config = usb_config.into();
 
         if let Some(port) = matches.value_of("serial") {
@@ -157,18 +163,13 @@ impl Config {
             })?;
 
             if let Some(baud) = matches.value_of("baud") {
-                uart_config = uart_config.baud(parse_u32(baud)?);
+                uart_config.baud(parse_u32(baud)?);
             }
 
             bridge_config = uart_config.into();
         }
 
-        let load_name = if let Some(n) = matches.value_of("load-name") {
-            Some(n.to_owned())
-        } else {
-            None
-        };
-
+        let load_name = matches.value_of("load-name").map(|n| n.to_owned());
         let load_addr = if let Some(addr) = matches.value_of("load-address") {
             if load_name.is_none() {
                 server_kind.push(ServerKind::MemoryAccess);
@@ -178,45 +179,49 @@ impl Config {
             None
         };
 
-        let memory_value = if let Some(v) = matches.value_of("value") {
-            Some(parse_u32(v)?)
-        } else {
-            None
-        };
+        let memory_value = matches
+            .value_of("value")
+            .map(|v| parse_u32(v))
+            .transpose()?;
 
         // unwrap() is safe because there is a default value
         let gdb_port = parse_u16(matches.value_of("gdb-port").unwrap())?;
         let bind_port = parse_u16(matches.value_of("wishbone-port").unwrap())?;
         let ethernet_port = parse_u16(matches.value_of("ethernet-port").unwrap())?;
 
-        let bind_addr = if let Some(addr) = matches.value_of("bind-addr") {
-            addr.to_owned()
-        } else {
-            "127.0.0.1".to_owned()
-        };
+        let bind_addr = matches
+            .value_of("bind-addr")
+            .map(|addr| addr.to_owned())
+            .unwrap_or_else(|| "127.0.0.1".to_owned());
 
         let ethernet_tcp = matches.is_present("ethernet-tcp");
 
         if let Some(host) = matches.value_of("ethernet-host") {
-            let ebc = EthernetBridgeConfig::new(host.to_owned())
-                .or_else(|e| {
-                    Err(ConfigError::InvalidConfig(format!(
-                        "invalid ethernet address: {}",
-                        e
-                    )))
-                })?
-                .protocol(if ethernet_tcp {
-                    EthernetBridgeProtocol::TCP
-                } else {
-                    EthernetBridgeProtocol::UDP
-                })
-                .port(ethernet_port);
+            let mut ebc = EthernetBridgeConfig::new(host.to_owned()).or_else(|e| {
+                Err(ConfigError::InvalidConfig(format!(
+                    "invalid ethernet address: {}",
+                    e
+                )))
+            })?;
+            ebc.protocol(if ethernet_tcp {
+                EthernetBridgeProtocol::TCP
+            } else {
+                EthernetBridgeProtocol::UDP
+            })
+            .port(ethernet_port);
             bridge_config = ebc.into();
         }
 
-        matches.value_of("pcie-bar").map(|path| {
-            bridge_config = PCIeBridgeConfig::from(path).into();
-        });
+        if let Some(pcie_bar) = matches.value_of("pcie-bar") {
+            bridge_config = PCIeBridgeConfig::new(pcie_bar)
+                .or_else(|e| {
+                    Err(ConfigError::InvalidConfig(format!(
+                        "invalid pcie bar: {}",
+                        e
+                    )))
+                })?
+                .into();
+        }
 
         if let Some(pins) = matches.value_of("spi-pins") {
             bridge_config = BridgeConfig::SpiBridge(

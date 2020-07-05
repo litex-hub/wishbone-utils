@@ -10,7 +10,7 @@ use log::{debug, error, info};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serialport::prelude::*;
 
-use crate::BridgeError;
+use crate::{BridgeConfig, BridgeError};
 
 /// The default baud rate for the serial port. To change, call `set_baud()`
 pub const DEFAULT_BAUD_RATE: u32 = 115_200;
@@ -33,9 +33,13 @@ impl UartBridgeConfig {
         })
     }
 
-    pub fn baud(mut self, new_baud: u32) -> UartBridgeConfig {
+    pub fn baud(&mut self, new_baud: u32) -> &mut UartBridgeConfig {
         self.baud = new_baud;
         self
+    }
+
+    pub fn finalize(self) -> BridgeConfig {
+        self.into()
     }
 }
 

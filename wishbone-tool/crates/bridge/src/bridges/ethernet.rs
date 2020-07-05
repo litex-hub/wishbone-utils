@@ -11,7 +11,7 @@ use log::{debug, error, info};
 
 use byteorder::{BigEndian, ByteOrder};
 
-use crate::BridgeError;
+use crate::{BridgeConfig, BridgeError};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum EthernetBridgeProtocol {
@@ -41,14 +41,18 @@ impl EthernetBridgeConfig {
     }
 
     /// Set the remote port for the target device.
-    pub fn port(mut self, new_port: u16) -> EthernetBridgeConfig {
+    pub fn port(&mut self, new_port: u16) -> &mut EthernetBridgeConfig {
         self.addr.set_port(new_port);
         self
     }
 
-    pub fn protocol(mut self, prot: EthernetBridgeProtocol) -> EthernetBridgeConfig {
+    pub fn protocol(&mut self, prot: EthernetBridgeProtocol) -> &mut EthernetBridgeConfig {
         self.protocol = prot;
         self
+    }
+
+    pub fn finalize(self) -> BridgeConfig {
+        self.into()
     }
 }
 

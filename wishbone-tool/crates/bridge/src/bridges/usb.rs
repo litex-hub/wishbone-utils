@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use log::{debug, error, info};
 
-use crate::BridgeError;
+use crate::{BridgeConfig, BridgeError};
 
 #[derive(Clone, Default)]
 pub struct UsbBridgeConfig {
@@ -19,21 +19,24 @@ impl UsbBridgeConfig {
     pub fn new() -> UsbBridgeConfig {
         UsbBridgeConfig { pid: None, vid: None, bus: None, device: None }
     }
-    pub fn pid(mut self, pid: Option<u16>) -> UsbBridgeConfig {
+    pub fn pid(&mut self, pid: Option<u16>) -> &mut UsbBridgeConfig {
         self.pid = pid;
         self
     }
-    pub fn vid(mut self, vid: Option<u16>) -> UsbBridgeConfig {
+    pub fn vid(&mut self, vid: Option<u16>) -> &mut UsbBridgeConfig {
         self.vid = vid;
         self
     }
-    pub fn bus(mut self, bus: Option<u8>) -> UsbBridgeConfig {
+    pub fn bus(&mut self, bus: Option<u8>) -> &mut UsbBridgeConfig {
         self.bus = bus;
         self
     }
-    pub fn device(mut self, device: Option<u8>) -> UsbBridgeConfig {
+    pub fn device(&mut self, device: Option<u8>) -> &mut UsbBridgeConfig {
         self.device = device;
         self
+    }
+    pub fn finalize(self) -> BridgeConfig {
+        self.into()
     }
 }
 
