@@ -1,5 +1,4 @@
 [package]
-
 name = "libusb-sys-wishbone-tool"
 version = "0.2.6"
 authors = ["Sean Cross <sean@xobs.io>", "David Cuddeback <david.cuddeback@gmail.com>"]

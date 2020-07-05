@@ -5,14 +5,13 @@ extern crate clap;
 
 use log::{debug, error};
 
-mod bridge;
 mod config;
 mod gdb;
 mod riscv;
 mod server;
 mod wishbone;
 
-use bridge::Bridge;
+use wishbone_bridge::Bridge;
 
 use clap::{App, Arg, Shell};
 use config::Config;
@@ -20,69 +19,12 @@ use server::ServerKind;
 
 use std::process;
 use std::sync::Arc;
-use std::time::Duration;
-
-fn list_usb() -> Result<(), libusb_wishbone_tool::Error> {
-    let usb_ctx = libusb_wishbone_tool::Context::new().unwrap();
-    let devices = usb_ctx.devices().unwrap();
-    println!("devices:");
-    for device in devices.iter() {
-        let device_desc = device.device_descriptor().unwrap();
-        let usb_bus = device.bus_number();
-        let usb_device = device.address();
-        let mut line = format!(
-            "[{:04x}:{:04x}] usb: {:03}/{:03} - ",
-            device_desc.vendor_id(),
-            device_desc.product_id(),
-            usb_bus,
-            usb_device,
-        );
-        if let Ok(usb) = device.open() {
-            if let Ok(langs) = usb.read_languages(Duration::from_secs(1)) {
-                let product =
-                    match usb.read_product_string(langs[0], &device_desc, Duration::from_secs(1)) {
-                        Ok(s) => s,
-                        Err(_) => "(unknown product)".to_owned(),
-                    };
-                let manufacturer = match usb.read_manufacturer_string(
-                    langs[0],
-                    &device_desc,
-                    Duration::from_secs(1),
-                ) {
-                    Ok(s) => s,
-                    Err(_) => "(unknown manufacturer)".to_owned(),
-                };
-                line.push_str(&format!("{} - {}", product, manufacturer));
-            } else {
-                line.push_str("(no strings found)");
-            }
-        } else {
-            line.push_str("(couldn't open device)");
-        }
-        println!("    {}", line);
-    }
-    Ok(())
-}
 
 fn clap_app<'a, 'b>() -> App<'a, 'b> {
     App::new("Wishbone Tool")
         .version(crate_version!())
         .author("Sean Cross <sean@xobs.io>")
         .about("Work with Wishbone devices over various bridges")
-        .arg(
-            Arg::with_name("list")
-                .short("l")
-                .long("list")
-                .help("List USB devices in the system")
-                .required_unless("completion")
-                .conflicts_with("completion")
-                .required_unless("address")
-                .conflicts_with("address")
-                .required_unless("server-kind")
-                .conflicts_with("server-kind")
-                .display_order(3)
-                .takes_value(false),
-        )
         .arg(
             Arg::with_name("completion")
                 .short("c")
@@ -342,13 +284,6 @@ fn main() {
         .unwrap();
     let matches = clap_app().get_matches();
 
-    if matches.is_present("list") {
-        if list_usb().is_err() {
-            println!("USB is not properly configured");
-        };
-        return;
-    }
-
     if let Some(shell_str) = matches.value_of("completion") {
         use std::io;
         use std::str::FromStr;
@@ -380,7 +315,7 @@ fn main() {
     };
 
     {
-        let bridge = Bridge::new(&cfg).unwrap();
+        let bridge = Bridge::new(&cfg.bridge_kind).unwrap();
         bridge.connect().unwrap();
         let cfg = Arc::new(cfg);
         let mut threads = vec![];

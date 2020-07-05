@@ -12,7 +12,6 @@ keywords = ["usb", "libusb", "hardware", "bindings"]
 
 [dependencies]
 bit-set = "0.4.0"
-# libusb-sys = "0.3.0"{ git = "https://github.com/paritytech/libusb-sys" }
 libusb-sys-wishbone-tool = { version = "0.2.5", path = "../libusb-sys" }
 libc = "0.2"
 

@@ -13,29 +13,25 @@ readme = "README.md"
 travis-ci = { repository = "litex-hub/wishbone-utils", branch = "master" }
 cirrus-ci = { repository = "litex-hub/wishbone-utils", branch = "master" }
 
+[[bin]]
+path = "crates/core/main.rs"
+name = "wishbone-tool"
+
+[workspace]
+members = [
+    "crates/libusb-sys",
+    "crates/libusb-rs",
+    "crates/bridge",
+]
+
 [dependencies]
+clap = "2"
 bitflags = "1"
 byteorder = "1"
-clap = "2"
-memmap = "0.7"
 terminal = "0.2.0"
-
-# git = "https://github.com/paritytech/libusb-rs.git"
-libusb-sys-wishbone-tool = { path="libusb-sys", version = "0.2.6" }
-# git = "https://github.com/paritytech/libusb-rs.git"
-libusb-wishbone-tool = { path = "libusb-rs", version = "0.3.1" }
-
 rand = "0"
-
 log = "0"
 flexi_logger = { version = "0", features = ["colors"] }
-
-serialport = { version = "3.3", default-features = false }
-
+wishbone-bridge = { path = "crates/bridge" }
 # Support reading csr.csv
 csv = "1.1"
-
-# Enable GPIO access for SpiBone on Raspberry Pi
-[target.'cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))'.dependencies]
-rppal = "0.11"
-spin_sleep = "0.3"

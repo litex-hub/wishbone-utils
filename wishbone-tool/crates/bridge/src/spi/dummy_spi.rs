@@ -1,4 +1,4 @@
-use crate::bridge::{BridgeError, SpiBridgeConfig};
+use crate::{BridgeError, SpiBridgeConfig};
 use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]

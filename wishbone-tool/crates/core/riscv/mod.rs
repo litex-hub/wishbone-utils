@@ -1,4 +1,4 @@
-use super::bridge::{Bridge, BridgeError};
+use wishbone_bridge::{Bridge, BridgeError};
 use super::gdb::GdbController;
 
 use log::{debug, info};

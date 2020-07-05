@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
-use crate::bridge::{
+use wishbone_bridge::{
     BridgeKind, EthernetBridgeConfig, EthernetBridgeProtocol, SpiBridgeConfig, UartBridgeConfig,
     UsbBridgeConfig,
 };
@@ -234,7 +234,10 @@ impl Config {
         });
 
         if let Some(pins) = matches.value_of("spi-pins") {
-            bridge_kind = BridgeKind::SpiBridge(SpiBridgeConfig::from_string(pins)?)
+            bridge_kind = BridgeKind::SpiBridge(
+                SpiBridgeConfig::from_string(pins)
+                    .or_else(|e| Err(ConfigError::SpiParseError(e)))?,
+            )
         }
 
         if let Some(server_kinds) = matches.values_of("server-kind") {

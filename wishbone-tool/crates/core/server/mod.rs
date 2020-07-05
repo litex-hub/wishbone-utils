@@ -1,16 +1,14 @@
-use crate::bridge;
+
 use crate::config::{Config, ConfigError};
 use crate::gdb;
 use crate::riscv;
 use crate::wishbone;
 
-extern crate log;
-use log::{error, info};
-
-extern crate rand;
-use rand::prelude::*;
-
 use byteorder::{LittleEndian, ReadBytesExt};
+use log::{error, info};
+use rand::prelude::*;
+use wishbone_bridge::{Bridge, BridgeError};
+
 
 use std::fs::File;
 use std::io;
@@ -47,7 +45,7 @@ pub enum ServerError {
     IoError(io::Error),
     WishboneError(wishbone::WishboneServerError),
     GdbError(gdb::GdbServerError),
-    BridgeError(bridge::BridgeError),
+    BridgeError(BridgeError),
     RiscvCpuError(riscv::RiscvCpuError),
     RandomValueError(
         u32, /* counter */
@@ -75,8 +73,8 @@ impl std::convert::From<gdb::GdbServerError> for ServerError {
         ServerError::GdbError(e)
     }
 }
-impl std::convert::From<bridge::BridgeError> for ServerError {
-    fn from(e: bridge::BridgeError) -> ServerError {
+impl std::convert::From<BridgeError> for ServerError {
+    fn from(e: BridgeError) -> ServerError {
         ServerError::BridgeError(e)
     }
 }
@@ -112,7 +110,7 @@ impl ServerKind {
 /// after returning.
 fn poll_messible(
     messible_address: Option<u32>,
-    bridge: &bridge::Bridge,
+    bridge: &Bridge,
     gdb_controller: &mut gdb::GdbController,
 ) -> bool {
     let addr = match messible_address {
@@ -156,11 +154,11 @@ fn poll_messible(
 /// Poll the UART at the address specified.
 /// Return `true` if there is still data to be read
 /// after returning.
-fn poll_uart(uart_address: u32, bridge: &bridge::Bridge) -> Result<bool, bridge::BridgeError> {
+fn poll_uart(uart_address: u32, bridge: &Bridge) -> Result<bool, BridgeError> {
     Ok(bridge.peek(uart_address)? == 0)
 }
 
-pub fn gdb_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn gdb_server(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let cpu = riscv::RiscvCpu::new(&bridge, cfg.debug_offset)?;
     // Enable messible support, but only if we're not also running a messible or wishbone server.
     let messible_address = if cfg.server_kind.contains(&ServerKind::Messible)
@@ -259,7 +257,7 @@ pub fn gdb_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerErro
     }
 }
 
-pub fn wishbone_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn wishbone_server(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
     // Enable messible support, but only if we're not also running a messible server.
     let messible_address = if cfg.server_kind.contains(&ServerKind::Messible) {
@@ -329,7 +327,7 @@ pub fn wishbone_server(cfg: &Config, bridge: bridge::Bridge) -> Result<(), Serve
     }
 }
 
-pub fn random_test(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn random_test(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let mut loop_counter: u32 = 0;
     let random_addr = match cfg.random_address {
         Some(s) => s,
@@ -380,7 +378,7 @@ pub fn random_test(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerErr
     }
 }
 
-pub fn memory_access(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn memory_access(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     if let Some(addr) = cfg.memory_address {
         if let Some(value) = cfg.memory_value {
             bridge.poke(addr, value)?;
@@ -397,7 +395,7 @@ pub fn memory_access(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerE
     Ok(())
 }
 
-pub fn load_file(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let mut loop_counter: u32 = 0;
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
@@ -438,7 +436,7 @@ struct IOInterface {
     capture_mouse: bool,
 }
 
-pub fn terminal_client(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn terminal_client(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let poll_time = 10;
     let my_terminal = IOInterface::new(cfg.terminal_mouse);
     use std::io::stdout;
@@ -527,7 +525,7 @@ impl Drop for IOInterface {
     }
 }
 
-pub fn messible_client(cfg: &Config, bridge: bridge::Bridge) -> Result<(), ServerError> {
+pub fn messible_client(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let poll_time = 10;
     let my_terminal = IOInterface::new(cfg.terminal_mouse);
     use std::io::stdout;

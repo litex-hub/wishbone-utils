@@ -1,0 +1,29 @@
+[package]
+name = "wishbone-bridge"
+version = "1.0.0"
+authors = ["Sean Cross <sean@xobs.io>"]
+edition = "2018"
+repository = "https://github.com/litex-hub/wishbone-utils"
+keywords = [ "litex", "wishbone" ]
+description = "A library to control Wishbone devices"
+license = "Apache-2.0"
+readme = "README.md"
+
+[badges]
+travis-ci = { repository = "litex-hub/wishbone-utils", branch = "master" }
+cirrus-ci = { repository = "litex-hub/wishbone-utils", branch = "master" }
+
+[dependencies]
+memmap = "0.7"
+byteorder = "1"
+
+libusb-sys-wishbone-tool = { path="../libusb-sys", version = "0.2.6" }
+libusb-wishbone-tool = { path = "../libusb-rs", version = "0.3.1" }
+
+serialport = { version = "3.3", default-features = false }
+log = "0"
+
+# Enable GPIO access for SpiBone on Raspberry Pi
+[target.'cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))'.dependencies]
+rppal = "0.11"
+spin_sleep = "0.3"

@@ -4,7 +4,7 @@ use std::io;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use super::bridge::{Bridge, BridgeError};
+use wishbone_bridge::{Bridge, BridgeError};
 use super::Config;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 

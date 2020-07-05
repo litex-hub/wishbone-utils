@@ -4,8 +4,6 @@ mod spi;
 mod uart;
 mod usb;
 
-use crate::config::Config;
-
 pub use ethernet::{EthernetBridge, EthernetBridgeConfig, EthernetBridgeProtocol};
 pub use pcie::PCIeBridge;
 pub use spi::{SpiBridge, SpiBridgeConfig};
@@ -103,9 +101,9 @@ impl std::convert::From<io::Error> for BridgeError {
 }
 
 impl Bridge {
-    pub fn new(cfg: &Config) -> Result<Bridge, BridgeError> {
+    pub fn new(bridge_cfg: &BridgeKind) -> Result<Bridge, BridgeError> {
         let mutex = Arc::new(Mutex::new(()));
-        match &cfg.bridge_kind {
+        match bridge_cfg {
             BridgeKind::None => Err(BridgeError::NoBridgeSpecified),
             BridgeKind::EthernetBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
