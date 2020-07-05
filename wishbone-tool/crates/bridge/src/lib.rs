@@ -19,7 +19,7 @@ pub use bridges::ethernet::EthernetBridge;
 pub use bridges::pcie::PCIeBridge;
 #[doc(hidden)]
 pub use bridges::spi::SpiBridge;
-#[doc(hideen)]
+#[doc(hidden)]
 pub use bridges::uart::UartBridge;
 #[doc(hidden)]
 pub use bridges::usb::UsbBridge;
