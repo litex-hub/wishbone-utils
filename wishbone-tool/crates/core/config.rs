@@ -169,17 +169,22 @@ impl Config {
         if let Some(port) = matches.value_of("serial") {
             // Strip off the trailing ":" on Windows, since it's confusing
             let serial_port = if cfg!(windows) && port.ends_with(':') {
-                port.get(0..port.len() - 1).unwrap_or("").to_owned()
+                port.get(0..port.len() - 1).unwrap_or("")
             } else {
-                port.to_owned()
+                port
             };
-            let baud = if let Some(baud) = matches.value_of("baud") {
-                parse_u32(baud)? as usize
-            } else {
-                115200
-            };
+            let mut uart_config = UartBridgeConfig::new(serial_port).or_else(|e| {
+                Err(ConfigError::InvalidConfig(format!(
+                    "invalid serial port: {}",
+                    e
+                )))
+            })?;
 
-            bridge_config = BridgeConfig::UartBridge(UartBridgeConfig { serial_port, baud });
+            if let Some(baud) = matches.value_of("baud") {
+                uart_config = uart_config.baud(parse_u32(baud)?);
+            }
+
+            bridge_config = uart_config.into();
         }
 
         let load_name = if let Some(n) = matches.value_of("load-name") {
@@ -218,7 +223,12 @@ impl Config {
 
         if let Some(host) = matches.value_of("ethernet-host") {
             let ebc = EthernetBridgeConfig::new(host.to_owned())
-                .or_else(|e| Err(ConfigError::InvalidConfig(format!("invalid ethernet address: {}", e))))?
+                .or_else(|e| {
+                    Err(ConfigError::InvalidConfig(format!(
+                        "invalid ethernet address: {}",
+                        e
+                    )))
+                })?
                 .protocol(if ethernet_tcp {
                     EthernetBridgeProtocol::TCP
                 } else {

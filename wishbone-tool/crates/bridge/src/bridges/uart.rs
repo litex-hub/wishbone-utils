@@ -1,3 +1,5 @@
+use std::io::prelude::*;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -10,15 +12,36 @@ use serialport::prelude::*;
 
 use crate::BridgeError;
 
+/// The default baud rate for the serial port. To change, call `set_baud()`
+pub const DEFAULT_BAUD_RATE: u32 = 115_200;
+
+/// Describes a connection to a UART or serial port
 #[derive(Clone)]
 pub struct UartBridgeConfig {
-    pub serial_port: String,
-    pub baud: usize,
+    serial_port: PathBuf,
+    baud: u32,
+}
+
+impl UartBridgeConfig {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<UartBridgeConfig, BridgeError> {
+        if !path.as_ref().exists() {
+            return Err(BridgeError::InvalidAddress);
+        }
+        Ok(UartBridgeConfig {
+            serial_port: path.as_ref().to_path_buf(),
+            baud: DEFAULT_BAUD_RATE,
+        })
+    }
+
+    pub fn baud(mut self, new_baud: u32) -> UartBridgeConfig {
+        self.baud = new_baud;
+        self
+    }
 }
 
 pub struct UartBridge {
-    path: String,
-    baudrate: usize,
+    path: PathBuf,
+    baudrate: u32,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
@@ -39,7 +62,7 @@ impl Clone for UartBridge {
 }
 
 enum ConnectThreadRequests {
-    StartPolling(String /* path */, usize /* baudrate */),
+    StartPolling(PathBuf /* path */, u32 /* baudrate */),
     Exit,
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
@@ -80,8 +103,8 @@ impl UartBridge {
     fn serial_connect_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        path: String,
-        baud: usize,
+        path: PathBuf,
+        baud: u32,
     ) {
         let mut path = path;
         let mut baud = baud;
@@ -91,7 +114,7 @@ impl UartBridge {
         loop {
             let mut port = match serialport::open(&path) {
                 Ok(port) => {
-                    info!("Re-opened serial device {}", path);
+                    info!("Re-opened serial device {}", path.display());
                     if first_run {
                         *response.lock().unwrap() = Some(ConnectThreadResponses::OpenedDevice);
                         first_run = false;
