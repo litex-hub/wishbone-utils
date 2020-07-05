@@ -135,36 +135,12 @@ impl Config {
     pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
         let mut server_kind = vec![];
 
-        let vid = if let Some(vid) = matches.value_of("vid") {
-            Some(parse_u16(vid)?)
-        } else {
-            None
-        };
-
-        let pid = if let Some(pid) = matches.value_of("pid") {
-            Some(parse_u16(pid)?)
-        } else {
-            None
-        };
-
-        let bus = if let Some(bus) = matches.value_of("bus") {
-            Some(parse_u8(bus)?)
-        } else {
-            None
-        };
-
-        let device = if let Some(device) = matches.value_of("device") {
-            Some(parse_u8(device)?)
-        } else {
-            None
-        };
-        let mut bridge_config = BridgeConfig::UsbBridge(UsbBridgeConfig {
-            vid,
-            pid,
-            bus,
-            device,
-        });
-        // TODO: add parsing for bus and address here
+        let usb_config = UsbBridgeConfig::new()
+            .vid(matches.value_of("vid").map(|v| parse_u16(v)).transpose()?)
+            .pid(matches.value_of("pid").map(|p| parse_u16(p)).transpose()?)
+            .bus(matches.value_of("bus").map(|b| parse_u8(b)).transpose()?)
+            .device(matches.value_of("device").map(|d| parse_u8(d)).transpose()?);
+        let mut bridge_config = usb_config.into();
 
         if let Some(port) = matches.value_of("serial") {
             // Strip off the trailing ":" on Windows, since it's confusing

@@ -9,10 +9,32 @@ use crate::BridgeError;
 
 #[derive(Clone, Default)]
 pub struct UsbBridgeConfig {
-    pub pid: Option<u16>,
-    pub vid: Option<u16>,
-    pub bus: Option<u8>,
-    pub device: Option<u8>,
+    pid: Option<u16>,
+    vid: Option<u16>,
+    bus: Option<u8>,
+    device: Option<u8>,
+}
+
+impl UsbBridgeConfig {
+    pub fn new() -> UsbBridgeConfig {
+        UsbBridgeConfig { pid: None, vid: None, bus: None, device: None }
+    }
+    pub fn pid(mut self, pid: Option<u16>) -> UsbBridgeConfig {
+        self.pid = pid;
+        self
+    }
+    pub fn vid(mut self, vid: Option<u16>) -> UsbBridgeConfig {
+        self.vid = vid;
+        self
+    }
+    pub fn bus(mut self, bus: Option<u8>) -> UsbBridgeConfig {
+        self.bus = bus;
+        self
+    }
+    pub fn device(mut self, device: Option<u8>) -> UsbBridgeConfig {
+        self.device = device;
+        self
+    }
 }
 
 pub struct UsbBridge {
