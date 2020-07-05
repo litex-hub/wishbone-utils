@@ -126,6 +126,9 @@ pub enum BridgeError {
     /// Attempted to communicate with the bridge, but it wasn't connected
     NotConnected,
 
+    /// The address or path was incorrect
+    InvalidAddress,
+
     /// We got something weird back from the bridge
     WrongResponse,
 
@@ -150,6 +153,7 @@ impl ::std::fmt::Display for BridgeError {
             NoBridgeSpecified => write!(f, "no bridge was specified"),
             NotConnected => write!(f, "bridge not connected"),
             WrongResponse => write!(f, "wrong response received"),
+            InvalidAddress => write!(f, "bad address or path"),
             ProtocolNotSupported => write!(f, "protocol not supported on this platform"),
             Timeout => write!(f, "connection timed out"),
         }
