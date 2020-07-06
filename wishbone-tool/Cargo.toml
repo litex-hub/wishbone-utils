@@ -32,6 +32,6 @@ terminal = "0.2.0"
 rand = "0"
 log = "0"
 flexi_logger = { version = "0", features = ["colors"] }
-wishbone-bridge = { path = "crates/bridge" }
+wishbone-bridge = { path = "crates/bridge", version = "1" }
 # Support reading csr.csv
 csv = "1.1"
