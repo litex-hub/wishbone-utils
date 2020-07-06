@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use log::{debug, error, info};
 
-use crate::{BridgeConfig, BridgeError};
+use crate::{Bridge, BridgeConfig, BridgeError};
 
 #[derive(Clone, Default)]
 pub struct UsbBridgeConfig {
@@ -17,26 +17,36 @@ pub struct UsbBridgeConfig {
 
 impl UsbBridgeConfig {
     pub fn new() -> UsbBridgeConfig {
-        UsbBridgeConfig { pid: None, vid: None, bus: None, device: None }
+        UsbBridgeConfig {
+            pid: None,
+            vid: None,
+            bus: None,
+            device: None,
+        }
     }
+
     pub fn pid(&mut self, pid: Option<u16>) -> &mut UsbBridgeConfig {
         self.pid = pid;
         self
     }
-    pub fn vid(&mut self, vid: Option<u16>) -> &mut UsbBridgeConfig {
-        self.vid = vid;
+
+    pub fn vid<O: Into<Option<u16>>>(&mut self, vid: O) -> &mut UsbBridgeConfig {
+        self.vid = vid.into();
         self
     }
-    pub fn bus(&mut self, bus: Option<u8>) -> &mut UsbBridgeConfig {
-        self.bus = bus;
+
+    pub fn bus<O: Into<Option<u8>>>(&mut self, bus: O) -> &mut UsbBridgeConfig {
+        self.bus = bus.into();
         self
     }
-    pub fn device(&mut self, device: Option<u8>) -> &mut UsbBridgeConfig {
-        self.device = device;
+
+    pub fn device<O: Into<Option<u8>>>(&mut self, device: O) -> &mut UsbBridgeConfig {
+        self.device = device.into();
         self
     }
-    pub fn finalize(self) -> BridgeConfig {
-        self.into()
+
+    pub fn create(&self) -> Result<Bridge, BridgeError> {
+        Bridge::new(BridgeConfig::UsbBridge(self.clone()))
     }
 }
 
@@ -86,9 +96,7 @@ impl UsbBridge {
         let thr_cfg = cfg.clone();
         let thr_cv = cv.clone();
         let poll_thread = Some(thread::spawn(move || {
-            Self::usb_poll_thread(
-                usb_ctx, thr_cv, thread_rx, thr_cfg, 0x43,
-            )
+            Self::usb_poll_thread(usb_ctx, thr_cv, thread_rx, thr_cfg, 0x43)
         }));
 
         Ok(UsbBridge {

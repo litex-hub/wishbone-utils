@@ -11,7 +11,7 @@ use log::{debug, error, info};
 
 use byteorder::{BigEndian, ByteOrder};
 
-use crate::{BridgeConfig, BridgeError};
+use crate::{Bridge, BridgeConfig, BridgeError};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum EthernetBridgeProtocol {
@@ -51,8 +51,8 @@ impl EthernetBridgeConfig {
         self
     }
 
-    pub fn finalize(self) -> BridgeConfig {
-        self.into()
+    pub fn create(&self) -> Result<Bridge, BridgeError> {
+        Bridge::new(BridgeConfig::EthernetBridge(self.clone()))
     }
 }
 

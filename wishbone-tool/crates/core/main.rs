@@ -11,8 +11,6 @@ mod riscv;
 mod server;
 mod wishbone;
 
-use wishbone_bridge::Bridge;
-
 use clap::{App, Arg, Shell};
 use config::Config;
 use server::ServerKind;
@@ -292,7 +290,7 @@ fn main() {
         return;
     }
 
-    let cfg = match Config::parse(matches) {
+    let (cfg, bridge) = match Config::parse(matches) {
         Ok(cfg) => cfg,
         Err(e) => {
             match e {
@@ -315,7 +313,6 @@ fn main() {
     };
 
     {
-        let bridge = Bridge::new(&cfg.bridge_config).unwrap();
         bridge.connect().unwrap();
         let cfg = Arc::new(cfg);
         let mut threads = vec![];
@@ -343,8 +340,4 @@ fn main() {
             handle.join().ok();
         }
     };
-    // if let Err(e) = retcode {
-    //     error!("server error: {:?}", e);
-    //     process::exit(1);
-    // }
 }

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use log::{debug, error};
 
-use crate::BridgeError;
+use crate::{Bridge, BridgeConfig, BridgeError};
 
 #[derive(Clone)]
 pub struct PCIeBridgeConfig {
@@ -24,11 +24,17 @@ impl PCIeBridgeConfig {
             path: path.as_ref().to_path_buf(),
         })
     }
+
+    pub fn create(&self) -> Result<Bridge, BridgeError> {
+        Bridge::new(BridgeConfig::PCIeBridge(self.clone()))
+    }
 }
 
 impl From<&str> for PCIeBridgeConfig {
     fn from(f: &str) -> Self {
-        PCIeBridgeConfig { path: PathBuf::from(f) }
+        PCIeBridgeConfig {
+            path: PathBuf::from(f),
+        }
     }
 }
 

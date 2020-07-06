@@ -35,6 +35,7 @@ use log::debug;
 use std::io;
 use std::sync::{Arc, Mutex};
 
+#[doc(hidden)]
 #[derive(Clone)]
 /// A `BridgeConfig` describes the configuration of a bridge that has
 /// not yet been opened.
@@ -64,36 +65,6 @@ pub enum BridgeConfig {
     UsbBridge(UsbBridgeConfig),
 }
 
-impl From<EthernetBridgeConfig> for BridgeConfig {
-    fn from(other: EthernetBridgeConfig) -> Self {
-        BridgeConfig::EthernetBridge(other)
-    }
-}
-
-impl From<PCIeBridgeConfig> for BridgeConfig {
-    fn from(other: PCIeBridgeConfig) -> Self {
-        BridgeConfig::PCIeBridge(other)
-    }
-}
-
-impl From<SpiBridgeConfig> for BridgeConfig {
-    fn from(other: SpiBridgeConfig) -> Self {
-        BridgeConfig::SpiBridge(other)
-    }
-}
-
-impl From<UartBridgeConfig> for BridgeConfig {
-    fn from(other: UartBridgeConfig) -> Self {
-        BridgeConfig::UartBridge(other)
-    }
-}
-
-impl From<UsbBridgeConfig> for BridgeConfig {
-    fn from(other: UsbBridgeConfig) -> Self {
-        BridgeConfig::UsbBridge(other)
-    }
-}
-
 #[derive(Clone)]
 pub enum BridgeCore {
     EthernetBridge(EthernetBridge),
@@ -103,6 +74,17 @@ pub enum BridgeCore {
     UsbBridge(UsbBridge),
 }
 
+/// Bridges represent the actual connection to the device. You must create
+/// a Bridge by constructing a `BridgeConfig` from the relevant
+/// configuration type.
+///
+/// For example, to create a USB bridge, use the `USBBridgeConfig` object:
+///
+/// ```
+/// use wishbone_bridge::UsbBridgeConfig;
+/// let mut bridge_config = UsbBridgeConfig::new();
+/// let bridge = bridge_config.pid(Some(0x5bf0)).create().unwrap();
+/// ```
 #[derive(Clone)]
 pub struct Bridge {
     core: BridgeCore,
@@ -175,9 +157,9 @@ impl std::convert::From<io::Error> for BridgeError {
 impl Bridge {
     /// Create a new Bridge with the specified configuration. The new bridge
     /// starts out in a Disconnected state, so you must call `connect()`.
-    pub fn new(bridge_cfg: &BridgeConfig) -> Result<Bridge, BridgeError> {
+    pub(crate) fn new(bridge_cfg: BridgeConfig) -> Result<Bridge, BridgeError> {
         let mutex = Arc::new(Mutex::new(()));
-        match bridge_cfg {
+        match &bridge_cfg {
             BridgeConfig::None => Err(BridgeError::NoBridgeSpecified),
             BridgeConfig::EthernetBridge(bridge_cfg) => Ok(Bridge {
                 mutex,

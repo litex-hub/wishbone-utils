@@ -5,7 +5,7 @@ use std::io;
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use wishbone_bridge::{
-    BridgeConfig, EthernetBridgeConfig, EthernetBridgeProtocol, PCIeBridgeConfig, SpiBridgeConfig,
+    Bridge, EthernetBridgeConfig, EthernetBridgeProtocol, PCIeBridgeConfig, SpiBridgeConfig,
     UartBridgeConfig, UsbBridgeConfig,
 };
 
@@ -91,7 +91,6 @@ pub struct Config {
     pub memory_address: Option<u32>,
     pub memory_value: Option<u32>,
     pub server_kind: Vec<ServerKind>,
-    pub bridge_config: BridgeConfig,
     pub bind_addr: String,
     pub bind_port: u16,
     pub gdb_port: u16,
@@ -112,7 +111,6 @@ impl Default for Config {
             memory_address: None,
             memory_value: None,
             server_kind: vec![],
-            bridge_config: BridgeConfig::None,
             bind_addr: "127.0.0.1".to_owned(),
             bind_port: 1234,
             gdb_port: 3333,
@@ -130,23 +128,18 @@ impl Default for Config {
 }
 
 impl Config {
-    #[allow(clippy::cognitive_complexity)]
-    pub fn parse(matches: ArgMatches) -> Result<Self, ConfigError> {
-        let mut server_kind = vec![];
+    fn create_bridge(matches: &ArgMatches) -> Result<Bridge, ConfigError> {
+        // If SPI pins are specified, then assume the bridge must be SPI.
+        if let Some(pins) = matches.value_of("spi-pins") {
+            return SpiBridgeConfig::new(pins)
+                .or_else(|e| Err(ConfigError::SpiParseError(e)))?
+                .create()
+                .map_err(|e| {
+                    ConfigError::InvalidConfig(format!("unable to create spi bridge: {}", e))
+                });
+        }
 
-        let mut usb_config = UsbBridgeConfig::new();
-        usb_config
-            .vid(matches.value_of("vid").map(|v| parse_u16(v)).transpose()?)
-            .pid(matches.value_of("pid").map(|p| parse_u16(p)).transpose()?)
-            .bus(matches.value_of("bus").map(|b| parse_u8(b)).transpose()?)
-            .device(
-                matches
-                    .value_of("device")
-                    .map(|d| parse_u8(d))
-                    .transpose()?,
-            );
-        let mut bridge_config = usb_config.into();
-
+        // UART bridge config
         if let Some(port) = matches.value_of("serial") {
             // Strip off the trailing ":" on Windows, since it's confusing
             let serial_port = if cfg!(windows) && port.ends_with(':') {
@@ -165,8 +158,66 @@ impl Config {
                 uart_config.baud(parse_u32(baud)?);
             }
 
-            bridge_config = uart_config.into();
+            return uart_config.create().map_err(|e| {
+                ConfigError::InvalidConfig(format!("unable to create uart bridge: {}", e))
+            });
         }
+
+        // PCIe BAR-as-a-file
+        if let Some(pcie_bar) = matches.value_of("pcie-bar") {
+            return PCIeBridgeConfig::new(pcie_bar)
+                .or_else(|e| {
+                    Err(ConfigError::InvalidConfig(format!(
+                        "invalid pcie bar: {}",
+                        e
+                    )))
+                })?
+                .create()
+                .map_err(|e| {
+                    ConfigError::InvalidConfig(format!("unable to create pcie bridge: {}", e))
+                });
+        }
+
+        // Ethernet (TCP or UDP)
+        if let Some(host) = matches.value_of("ethernet-host") {
+            let ethernet_tcp = matches.is_present("ethernet-tcp");
+            let ethernet_port = parse_u16(matches.value_of("ethernet-port").unwrap())?;
+            let mut ebc = EthernetBridgeConfig::new(host.to_owned()).or_else(|e| {
+                Err(ConfigError::InvalidConfig(format!(
+                    "invalid ethernet address: {}",
+                    e
+                )))
+            })?;
+            ebc.protocol(if ethernet_tcp {
+                EthernetBridgeProtocol::TCP
+            } else {
+                EthernetBridgeProtocol::UDP
+            })
+            .port(ethernet_port);
+            return ebc.create().map_err(|e| {
+                ConfigError::InvalidConfig(format!("unable to create ethernet bridge: {}", e))
+            });
+        }
+
+        // Fall back to USB
+        UsbBridgeConfig::new()
+            .vid(matches.value_of("vid").map(|v| parse_u16(v)).transpose()?)
+            .pid(matches.value_of("pid").map(|p| parse_u16(p)).transpose()?)
+            .bus(matches.value_of("bus").map(|b| parse_u8(b)).transpose()?)
+            .device(
+                matches
+                    .value_of("device")
+                    .map(|d| parse_u8(d))
+                    .transpose()?,
+            )
+            .create()
+            .map_err(|e| ConfigError::InvalidConfig(format!("unable to create usb bridge: {}", e)))
+    }
+
+    pub fn parse(matches: ArgMatches) -> Result<(Self, Bridge), ConfigError> {
+        let mut server_kind = vec![];
+
+        let bridge = Self::create_bridge(&matches)?;
 
         let load_name = matches.value_of("load-name").map(|n| n.to_owned());
         let load_addr = if let Some(addr) = matches.value_of("load-address") {
@@ -186,48 +237,11 @@ impl Config {
         // unwrap() is safe because there is a default value
         let gdb_port = parse_u16(matches.value_of("gdb-port").unwrap())?;
         let bind_port = parse_u16(matches.value_of("wishbone-port").unwrap())?;
-        let ethernet_port = parse_u16(matches.value_of("ethernet-port").unwrap())?;
 
         let bind_addr = matches
             .value_of("bind-addr")
             .map(|addr| addr.to_owned())
             .unwrap_or_else(|| "127.0.0.1".to_owned());
-
-        let ethernet_tcp = matches.is_present("ethernet-tcp");
-
-        if let Some(host) = matches.value_of("ethernet-host") {
-            let mut ebc = EthernetBridgeConfig::new(host.to_owned()).or_else(|e| {
-                Err(ConfigError::InvalidConfig(format!(
-                    "invalid ethernet address: {}",
-                    e
-                )))
-            })?;
-            ebc.protocol(if ethernet_tcp {
-                EthernetBridgeProtocol::TCP
-            } else {
-                EthernetBridgeProtocol::UDP
-            })
-            .port(ethernet_port);
-            bridge_config = ebc.into();
-        }
-
-        if let Some(pcie_bar) = matches.value_of("pcie-bar") {
-            bridge_config = PCIeBridgeConfig::new(pcie_bar)
-                .or_else(|e| {
-                    Err(ConfigError::InvalidConfig(format!(
-                        "invalid pcie bar: {}",
-                        e
-                    )))
-                })?
-                .into();
-        }
-
-        if let Some(pins) = matches.value_of("spi-pins") {
-            bridge_config = BridgeConfig::SpiBridge(
-                SpiBridgeConfig::from_string(pins)
-                    .or_else(|e| Err(ConfigError::SpiParseError(e)))?,
-            )
-        }
 
         if let Some(server_kinds) = matches.values_of("server-kind") {
             for sk in server_kinds {
@@ -329,24 +343,26 @@ impl Config {
 
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
 
-        Ok(Config {
-            memory_address,
-            memory_value,
-            server_kind,
-            bridge_config,
-            bind_port,
-            bind_addr,
-            gdb_port,
-            random_loops,
-            random_address,
-            random_range,
-            messible_address,
-            register_mapping,
-            debug_offset,
-            load_name,
-            load_addr,
-            terminal_mouse,
-        })
+        Ok((
+            Config {
+                memory_address,
+                memory_value,
+                server_kind,
+                bind_port,
+                bind_addr,
+                gdb_port,
+                random_loops,
+                random_address,
+                random_range,
+                messible_address,
+                register_mapping,
+                debug_offset,
+                load_name,
+                load_addr,
+                terminal_mouse,
+            },
+            bridge,
+        ))
     }
 
     fn parse_csr_csv(

@@ -1,3 +1,5 @@
+use crate::{Bridge, BridgeConfig, BridgeError};
+
 pub fn get_base(value: &str) -> (&str, u32) {
     if value.starts_with("0x") {
         (value.trim_start_matches("0x"), 16)
@@ -33,7 +35,7 @@ pub struct SpiBridgeConfig {
 }
 
 impl SpiBridgeConfig {
-    pub fn from_string(spec: &str) -> Result<Self, String> {
+    pub fn new(spec: &str) -> Result<Self, String> {
         let chars: Vec<&str> = spec.split(',').collect();
 
         let (copi, cipo, clk, cs) = match chars.len() {
@@ -69,6 +71,10 @@ impl SpiBridgeConfig {
             clk,
             cs,
         })
+    }
+
+    pub fn create(&self) -> Result<Bridge, BridgeError> {
+        Bridge::new(BridgeConfig::SpiBridge(self.clone()))
     }
 }
 
