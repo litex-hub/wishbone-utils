@@ -170,9 +170,9 @@ $
 Auto-completion is available for zsh, bash, fish, powershell, and
 elvish.
 
-## `wishbone-tool` as a Library
+## `wishbone-bridge` as a Library
 
-You can also use `wishbone-tool` as a library from within your own program.
+You can also use `wishbone-bridge` as a library from within your own program.
 
 For example, there is a kind of device that has a USB bridge with a small
 random number generator at address 0xf001_7000. This device has a
@@ -187,7 +187,7 @@ We can turn this into a command that reads from this RNG and prints to stdout:
 
 ```rust
 use std::io::{self, Write};
-use wishbone_tool::{Bridge, BridgeError, BridgeKind, Config, UsbBridgeConfig};
+use wishbone_bridge::{UsbBridge, BridgeError};
 
 fn main() -> Result<(), BridgeError> {
     let stdout = io::stdout();
@@ -195,15 +195,7 @@ fn main() -> Result<(), BridgeError> {
 
     // Create a configuration object with a USB bridge that
     // connects to a device with the product ID of 0x5bf0.
-    let mut cfg = Config::default();
-    cfg.bridge_kind = BridgeKind::UsbBridge(UsbBridgeConfig {
-        pid: Some(0x5bf0),
-        ..Default::default()
-    });
-
-    // Create the USB bridge and connect to it.
-    let bridge = Bridge::new(&cfg)?;
-    bridge.connect()?;
+    let bridge = UsbBridge::new().pid(0x5bf0).connect()?;
 
     // Enable the oscillator. Note that this address may change,
     // so consult the `csr.csv` for your device.

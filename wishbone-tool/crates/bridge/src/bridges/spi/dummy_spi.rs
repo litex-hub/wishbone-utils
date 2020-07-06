@@ -1,12 +1,12 @@
-use crate::{BridgeError, SpiBridgeConfig};
+use crate::{BridgeError, SpiBridge};
 use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]
 #[derive(Clone)]
-pub struct SpiBridge;
+pub struct SpiBridgeInner;
 
-impl SpiBridge {
-    pub fn new(_cfg: &SpiBridgeConfig) -> Result<Self, BridgeError> {
+impl SpiBridgeInner {
+    pub fn new(_cfg: &SpiBridge) -> Result<Self, BridgeError> {
         Err(BridgeError::ProtocolNotSupported)
     }
 

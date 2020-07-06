@@ -12,7 +12,7 @@ use log::{debug, error, info};
 use rppal::gpio::Mode::{Input, Output};
 use rppal::gpio::{Gpio, IoPin};
 
-use crate::{BridgeError, SpiBridgeConfig};
+use crate::{BridgeError, SpiBridge};
 
 const TIMEOUT_COUNT: u32 = 20000;
 
@@ -44,7 +44,7 @@ impl fmt::Display for SpiPins {
 }
 
 #[derive(Clone)]
-pub struct SpiBridge {
+pub struct SpiBridgeInner {
     baudrate: usize,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
@@ -63,8 +63,8 @@ enum ConnectThreadResponses {
     PokeResult(Result<(), BridgeError>),
 }
 
-impl SpiBridge {
-    pub fn new(cfg: &SpiBridgeConfig) -> Result<Self, BridgeError> {
+impl SpiBridgeInner {
+    pub fn new(cfg: &SpiBridge) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
@@ -93,7 +93,7 @@ impl SpiBridge {
             Self::spi_connect_thread(thr_cv, thread_rx, thr_copi, thr_cipo, thr_clk, thr_cs)
         });
 
-        Ok(SpiBridge {
+        Ok(SpiBridgeInner {
             baudrate,
             main_tx,
             main_rx: cv,
@@ -430,7 +430,7 @@ impl SpiBridge {
     }
 }
 
-impl Drop for SpiBridge {
+impl Drop for SpiBridgeInner {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.

@@ -7,17 +7,35 @@ use log::{debug, error, info};
 
 use crate::{Bridge, BridgeConfig, BridgeError};
 
+/// Connect to a target device via USB.
 #[derive(Clone, Default)]
-pub struct UsbBridgeConfig {
+pub struct UsbBridge {
+    /// If specified, indicate the USB product ID to match.
     pid: Option<u16>,
+
+    /// If specified, indicate the USB vendor ID to match.
     vid: Option<u16>,
+
+    /// If specified, indicate the USB bus number to look for.
     bus: Option<u8>,
+
+    /// If specified, indicate the USB device number to look for.
     device: Option<u8>,
 }
 
-impl UsbBridgeConfig {
-    pub fn new() -> UsbBridgeConfig {
-        UsbBridgeConfig {
+/// A builder to create a connection to a target via USB. You should
+/// specify at least a USB VID or PID in order to avoid connecting
+/// to any random device on your system.
+///
+/// ```no_run
+/// use wishbone_bridge::UsbBridge;
+/// let bridge = UsbBridge::new().pid(0x1234).create().unwrap();
+/// ```
+impl UsbBridge {
+    /// Create a new `UsbBridge` object that will attempt to connect to
+    /// any USB device on the system.
+    pub fn new() -> UsbBridge {
+        UsbBridge {
             pid: None,
             vid: None,
             bus: None,
@@ -25,32 +43,37 @@ impl UsbBridgeConfig {
         }
     }
 
-    pub fn pid(&mut self, pid: Option<u16>) -> &mut UsbBridgeConfig {
-        self.pid = pid;
+    /// Specify a USB PID to connect to.
+    pub fn pid(&mut self, pid: u16) -> &mut UsbBridge {
+        self.pid = Some(pid);
         self
     }
 
-    pub fn vid<O: Into<Option<u16>>>(&mut self, vid: O) -> &mut UsbBridgeConfig {
-        self.vid = vid.into();
+    /// Specify a USB VID to connect to.
+    pub fn vid(&mut self, vid: u16) -> &mut UsbBridge {
+        self.vid = Some(vid);
         self
     }
 
-    pub fn bus<O: Into<Option<u8>>>(&mut self, bus: O) -> &mut UsbBridgeConfig {
-        self.bus = bus.into();
+    /// Limit connections to a specific USB bus number.
+    pub fn bus(&mut self, bus: u8) -> &mut UsbBridge {
+        self.bus = Some(bus);
         self
     }
 
-    pub fn device<O: Into<Option<u8>>>(&mut self, device: O) -> &mut UsbBridgeConfig {
-        self.device = device.into();
+    /// Limit connections to a specific USB device.
+    pub fn device(&mut self, device: u8) -> &mut UsbBridge {
+        self.device = Some(device);
         self
     }
 
+    /// Create a bridge based on the current configuration.
     pub fn create(&self) -> Result<Bridge, BridgeError> {
         Bridge::new(BridgeConfig::UsbBridge(self.clone()))
     }
 }
 
-pub struct UsbBridge {
+pub struct UsbBridgeInner {
     usb_pid: Option<u16>,
     usb_vid: Option<u16>,
     main_tx: Sender<ConnectThreadRequests>,
@@ -74,9 +97,9 @@ enum ConnectThreadResponses {
     Exiting,
 }
 
-impl Clone for UsbBridge {
+impl Clone for UsbBridgeInner {
     fn clone(&self) -> Self {
-        UsbBridge {
+        UsbBridgeInner {
             usb_pid: self.usb_pid,
             usb_vid: self.usb_vid,
             main_tx: self.main_tx.clone(),
@@ -87,8 +110,8 @@ impl Clone for UsbBridge {
     }
 }
 
-impl UsbBridge {
-    pub fn new(cfg: &UsbBridgeConfig) -> Result<Self, BridgeError> {
+impl UsbBridgeInner {
+    pub fn new(cfg: &UsbBridge) -> Result<Self, BridgeError> {
         let usb_ctx = libusb_wishbone_tool::Context::new()?;
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
@@ -99,7 +122,7 @@ impl UsbBridge {
             Self::usb_poll_thread(usb_ctx, thr_cv, thread_rx, thr_cfg, 0x43)
         }));
 
-        Ok(UsbBridge {
+        Ok(UsbBridgeInner {
             usb_pid: cfg.pid,
             usb_vid: cfg.vid,
             main_tx,
@@ -112,7 +135,7 @@ impl UsbBridge {
     fn device_matches(
         device: &libusb_wishbone_tool::Device,
         device_desc: &libusb_wishbone_tool::DeviceDescriptor,
-        cfg: &UsbBridgeConfig,
+        cfg: &UsbBridge,
     ) -> bool {
         if let Some(pid) = cfg.pid {
             if pid != device_desc.product_id() {
@@ -165,7 +188,7 @@ impl UsbBridge {
         usb_ctx: libusb_wishbone_tool::Context,
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        mut cfg: UsbBridgeConfig,
+        mut cfg: UsbBridge,
         debug_byte: u8,
     ) {
         let mut print_waiting_message = true;
@@ -392,7 +415,7 @@ impl UsbBridge {
     }
 }
 
-impl Drop for UsbBridge {
+impl Drop for UsbBridgeInner {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.

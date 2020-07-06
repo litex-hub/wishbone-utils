@@ -10,25 +10,42 @@
 //! Wishbone may be bridged from a target to a host using a variety of protocols.
 //! This library supports different protocols depending on what features are
 //! enabled. By default, all supported protocols are enabled.
+//!
+//! Creating a Wishbone `Bridge` object involves first creating a configuration
+//! struct that describes the connection mechanism, and then calling `.create()`
+//! on that struct to create the `Bridge`. For example, to create a USB Bridge
+//! using the USB PID `0x1234`, peek memory at address 0, and poke the value
+//! `0x12345678` into address `0x20000000`, you would use a `UsbBridge` like this:
+//!
+//! ```no_run
+//! use wishbone_bridge::UsbBridge;
+//! let bridge = UsbBridge::new().pid(0x1234).create().unwrap();
+//! println!("Memory at address 0: {:08x}", bridge.peek(0).unwrap());
+//! bridge.poke(0x2000_0000, 0x1234_5678).unwrap();
+//! ```
+//!
+//! Creating other bridges is done in a similar manner -- see their individual
+//! pages for more information.
+
 
 pub(crate) mod bridges;
 
 #[doc(hidden)]
-pub use bridges::ethernet::EthernetBridge;
+pub use bridges::ethernet::EthernetBridgeInner;
 #[doc(hidden)]
-pub use bridges::pcie::PCIeBridge;
+pub use bridges::pcie::PCIeBridgeInner;
 #[doc(hidden)]
-pub use bridges::spi::SpiBridge;
+pub use bridges::spi::SpiBridgeInner;
 #[doc(hidden)]
-pub use bridges::uart::UartBridge;
+pub use bridges::uart::UartBridgeInner;
 #[doc(hidden)]
-pub use bridges::usb::UsbBridge;
+pub use bridges::usb::UsbBridgeInner;
 
-pub use bridges::ethernet::{EthernetBridgeConfig, EthernetBridgeProtocol};
-pub use bridges::pcie::PCIeBridgeConfig;
-pub use bridges::spi::SpiBridgeConfig;
-pub use bridges::uart::UartBridgeConfig;
-pub use bridges::usb::UsbBridgeConfig;
+pub use bridges::ethernet::{EthernetBridge, EthernetBridgeProtocol};
+pub use bridges::pcie::PCIeBridge;
+pub use bridges::spi::SpiBridge;
+pub use bridges::uart::UartBridge;
+pub use bridges::usb::UsbBridge;
 
 use log::debug;
 
@@ -48,42 +65,43 @@ pub enum BridgeConfig {
     /// Describes a bridge that connects via Ethernet, either via UDP
     /// (for direct hardware connections) or TCP (for connecting to
     /// other Wishbone servers such as `litex_server` or `wishbone-tool`)
-    EthernetBridge(EthernetBridgeConfig),
+    EthernetBridge(EthernetBridge),
 
     /// Describes a connection to a device via a PCIe bridge. Unlike most
     /// other bridges, a PCIe bridge does not provide a complete view of
     /// the memory space.
-    PCIeBridge(PCIeBridgeConfig),
+    PCIeBridge(PCIeBridge),
 
     /// Describes a connection to a device via SPI wires.
-    SpiBridge(SpiBridgeConfig),
+    SpiBridge(SpiBridge),
 
     /// Describes a connection to a device via a serial or other UART port.
-    UartBridge(UartBridgeConfig),
+    UartBridge(UartBridge),
 
     /// Describes a connection to a device via USB.
-    UsbBridge(UsbBridgeConfig),
+    UsbBridge(UsbBridge),
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub enum BridgeCore {
-    EthernetBridge(EthernetBridge),
-    PCIeBridge(PCIeBridge),
-    SpiBridge(SpiBridge),
-    UartBridge(UartBridge),
-    UsbBridge(UsbBridge),
+    EthernetBridge(EthernetBridgeInner),
+    PCIeBridge(PCIeBridgeInner),
+    SpiBridge(SpiBridgeInner),
+    UartBridge(UartBridgeInner),
+    UsbBridge(UsbBridgeInner),
 }
 
 /// Bridges represent the actual connection to the device. You must create
 /// a Bridge by constructing a configuration from the relevant
 /// configuration type, and then calling `create()`.
 ///
-/// For example, to create a USB bridge, use the `USBBridgeConfig` object:
+/// For example, to create a USB bridge, use the `UsbBridge` object:
 ///
 /// ```
-/// use wishbone_bridge::UsbBridgeConfig;
-/// let mut bridge_config = UsbBridgeConfig::new();
-/// let bridge = bridge_config.pid(Some(0x5bf0)).create().unwrap();
+/// use wishbone_bridge::UsbBridge;
+/// let mut bridge_config = UsbBridge::new();
+/// let bridge = bridge_config.pid(0x1234).create().unwrap();
 /// ```
 #[derive(Clone)]
 pub struct Bridge {
@@ -91,6 +109,7 @@ pub struct Bridge {
     mutex: Arc<Mutex<()>>,
 }
 
+/// Errors that are generated while creating or using the Wishbone Bridge.
 #[derive(Debug)]
 pub enum BridgeError {
     /// No bridge was specified (i.e. it was None)
@@ -164,31 +183,30 @@ impl Bridge {
             BridgeConfig::None => Err(BridgeError::NoBridgeSpecified),
             BridgeConfig::EthernetBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::EthernetBridge(EthernetBridge::new(bridge_cfg)?),
+                core: BridgeCore::EthernetBridge(EthernetBridgeInner::new(bridge_cfg)?),
             }),
             BridgeConfig::PCIeBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::PCIeBridge(PCIeBridge::new(bridge_cfg)?),
+                core: BridgeCore::PCIeBridge(PCIeBridgeInner::new(bridge_cfg)?),
             }),
             BridgeConfig::SpiBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::SpiBridge(SpiBridge::new(bridge_cfg)?),
+                core: BridgeCore::SpiBridge(SpiBridgeInner::new(bridge_cfg)?),
             }),
             BridgeConfig::UartBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::UartBridge(UartBridge::new(bridge_cfg)?),
+                core: BridgeCore::UartBridge(UartBridgeInner::new(bridge_cfg)?),
             }),
             BridgeConfig::UsbBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
-                core: BridgeCore::UsbBridge(UsbBridge::new(bridge_cfg)?),
+                core: BridgeCore::UsbBridge(UsbBridgeInner::new(bridge_cfg)?),
             }),
         }
     }
 
     /// Ensure the bridge is connected. Many bridges support performing connection
-    /// in the background, and will return an error if you attempt to perform
-    /// operations such as `peek()` and `poke()` with an unconnected bridge.
-    /// Calling `connect()` ensures that the bridge has been established.
+    /// in the background, so calling `connect()` ensures that the bridge has been
+    /// established.
     pub fn connect(&self) -> Result<(), BridgeError> {
         let _mtx = self.mutex.lock().unwrap();
         match &self.core {
@@ -200,6 +218,13 @@ impl Bridge {
         }
     }
 
+    /// Read a single 32-bit value from the target device.
+    /// ```no_run
+    /// use wishbone_bridge::UsbBridge;
+    /// let mut bridge_config = UsbBridge::new();
+    /// let bridge = bridge_config.pid(0x5bf0).create().unwrap();
+    /// println!("The value at address 0 is: {:08x}", bridge.peek(0).unwrap());
+    /// ```
     pub fn peek(&self, addr: u32) -> Result<u32, BridgeError> {
         let _mtx = self.mutex.lock().unwrap();
         loop {
@@ -222,6 +247,14 @@ impl Bridge {
         }
     }
 
+    /// Write a single 32-bit value into the specified address.
+    /// ```no_run
+    /// use wishbone_bridge::UsbBridge;
+    /// let mut bridge_config = UsbBridge::new();
+    /// let bridge = bridge_config.pid(0x5bf0).create().unwrap();
+    /// // Poke 0x12345678 into the target device at address 0
+    /// bridge.poke(0, 0x12345678).unwrap();
+    /// ```
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {
         let _mtx = self.mutex.lock().unwrap();
         loop {

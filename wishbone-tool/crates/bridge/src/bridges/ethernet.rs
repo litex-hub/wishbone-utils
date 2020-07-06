@@ -14,43 +14,61 @@ use byteorder::{BigEndian, ByteOrder};
 use crate::{Bridge, BridgeConfig, BridgeError};
 
 #[derive(Clone, Copy, PartialEq)]
+/// Indicates which Ethernet protocol to use for Wishbone when connecting
+/// via a network.
 pub enum EthernetBridgeProtocol {
+    /// A persistent TCP connection, also known as "Etherbone". TCP connections
+    /// are common for systems with complete networking stacks and proxies.
     TCP,
+
+    /// An ephemeral Ethernet connection used for systems with limited networking
+    /// stacks. UDP connections are common in FPGA hardware designs.
     UDP,
 }
 
 #[derive(Clone)]
-pub struct EthernetBridgeConfig {
+/// A builder to create a connection to a target via Ethernet, either using
+/// TCP or UDP. The `EthernetBridge` struct also describes
+/// connections to proxy servers that relay Wishbone packets
+/// over Ethernet, such as remote USB-to-Ethernet bridges.
+///
+/// ```no_run
+/// use wishbone_bridge::EthernetBridge;
+/// let bridge = EthernetBridge::new("192.168.50.100:1234").unwrap().create().unwrap();
+/// ```
+pub struct EthernetBridge {
     protocol: EthernetBridgeProtocol,
     addr: SocketAddr,
 }
 
 /// Describes all configuration parameters required to connect to a
 /// Wishbone bridge via Ethernet. The protocol defaults to `UDP`, which
-/// is what most hardware uses. Set the protocol to TCP by using `.protocol()`.
-impl EthernetBridgeConfig {
-    pub fn new<A: std::net::ToSocketAddrs>(addr: A) -> Result<EthernetBridgeConfig, BridgeError> {
+/// is what most embedded hardware uses. Set the protocol to TCP by using `.protocol()`.
+impl EthernetBridge {
+    pub fn new<A: std::net::ToSocketAddrs>(addr: A) -> Result<EthernetBridge, BridgeError> {
         let addr = addr
             .to_socket_addrs()?
             .next()
             .ok_or(BridgeError::InvalidAddress)?;
-        Ok(EthernetBridgeConfig {
+        Ok(EthernetBridge {
             protocol: EthernetBridgeProtocol::UDP,
             addr,
         })
     }
 
     /// Set the remote port for the target device.
-    pub fn port(&mut self, new_port: u16) -> &mut EthernetBridgeConfig {
+    pub fn port(&mut self, new_port: u16) -> &mut EthernetBridge {
         self.addr.set_port(new_port);
         self
     }
 
-    pub fn protocol(&mut self, prot: EthernetBridgeProtocol) -> &mut EthernetBridgeConfig {
+    /// Set the protocol to be used to connect to the remote device.
+    pub fn protocol(&mut self, prot: EthernetBridgeProtocol) -> &mut EthernetBridge {
         self.protocol = prot;
         self
     }
 
+    /// Create a new `Bridge` based on the current configuration.
     pub fn create(&self) -> Result<Bridge, BridgeError> {
         Bridge::new(BridgeConfig::EthernetBridge(self.clone()))
     }
@@ -77,8 +95,8 @@ impl EthernetConnection {
     }
 }
 
-pub struct EthernetBridge {
-    cfg: EthernetBridgeConfig,
+pub struct EthernetBridgeInner {
+    cfg: EthernetBridge,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
     mutex: Arc<Mutex<()>>,
@@ -100,9 +118,9 @@ enum ConnectThreadResponses {
     PokeResult(Result<(), BridgeError>),
 }
 
-impl Clone for EthernetBridge {
+impl Clone for EthernetBridgeInner {
     fn clone(&self) -> Self {
-        EthernetBridge {
+        EthernetBridgeInner {
             cfg: self.cfg.clone(),
             main_tx: self.main_tx.clone(),
             main_rx: self.main_rx.clone(),
@@ -112,8 +130,8 @@ impl Clone for EthernetBridge {
     }
 }
 
-impl EthernetBridge {
-    pub fn new(cfg: &EthernetBridgeConfig) -> Result<Self, BridgeError> {
+impl EthernetBridgeInner {
+    pub fn new(cfg: &EthernetBridge) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
@@ -123,7 +141,7 @@ impl EthernetBridge {
             Self::ethernet_thread(thr_cv, thread_rx, thr_cfg)
         }));
 
-        Ok(EthernetBridge {
+        Ok(EthernetBridgeInner {
             cfg: cfg.clone(),
             main_tx,
             main_rx: cv,
@@ -135,7 +153,7 @@ impl EthernetBridge {
     fn ethernet_thread(
         tx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
         rx: Receiver<ConnectThreadRequests>,
-        cfg: EthernetBridgeConfig,
+        cfg: EthernetBridge,
     ) {
         let mut remote_addr = cfg.addr;
         let mut print_waiting_message = true;
@@ -409,7 +427,7 @@ impl EthernetBridge {
     }
 }
 
-impl Drop for EthernetBridge {
+impl Drop for EthernetBridgeInner {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.

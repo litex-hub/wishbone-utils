@@ -5,8 +5,8 @@ use std::io;
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use wishbone_bridge::{
-    Bridge, EthernetBridgeConfig, EthernetBridgeProtocol, PCIeBridgeConfig, SpiBridgeConfig,
-    UartBridgeConfig, UsbBridgeConfig,
+    Bridge, EthernetBridge, EthernetBridgeProtocol, PCIeBridge, SpiBridge,
+    UartBridge, UsbBridge,
 };
 
 #[derive(Debug)]
@@ -131,7 +131,7 @@ impl Config {
     fn create_bridge(matches: &ArgMatches) -> Result<Bridge, ConfigError> {
         // If SPI pins are specified, then assume the bridge must be SPI.
         if let Some(pins) = matches.value_of("spi-pins") {
-            return SpiBridgeConfig::new(pins)
+            return SpiBridge::new(pins)
                 .or_else(|e| Err(ConfigError::SpiParseError(e)))?
                 .create()
                 .map_err(|e| {
@@ -147,7 +147,7 @@ impl Config {
             } else {
                 port
             };
-            let mut uart_config = UartBridgeConfig::new(serial_port).or_else(|e| {
+            let mut uart_config = UartBridge::new(serial_port).or_else(|e| {
                 Err(ConfigError::InvalidConfig(format!(
                     "invalid serial port: {}",
                     e
@@ -165,7 +165,7 @@ impl Config {
 
         // PCIe BAR-as-a-file
         if let Some(pcie_bar) = matches.value_of("pcie-bar") {
-            return PCIeBridgeConfig::new(pcie_bar)
+            return PCIeBridge::new(pcie_bar)
                 .or_else(|e| {
                     Err(ConfigError::InvalidConfig(format!(
                         "invalid pcie bar: {}",
@@ -182,7 +182,7 @@ impl Config {
         if let Some(host) = matches.value_of("ethernet-host") {
             let ethernet_tcp = matches.is_present("ethernet-tcp");
             let ethernet_port = parse_u16(matches.value_of("ethernet-port").unwrap())?;
-            let mut ebc = EthernetBridgeConfig::new(host.to_owned()).or_else(|e| {
+            let mut ebc = EthernetBridge::new(host.to_owned()).or_else(|e| {
                 Err(ConfigError::InvalidConfig(format!(
                     "invalid ethernet address: {}",
                     e
@@ -200,7 +200,7 @@ impl Config {
         }
 
         // Fall back to USB
-        UsbBridgeConfig::new()
+        UsbBridge::new()
             .vid(matches.value_of("vid").map(|v| parse_u16(v)).transpose()?)
             .pid(matches.value_of("pid").map(|p| parse_u16(p)).transpose()?)
             .bus(matches.value_of("bus").map(|b| parse_u8(b)).transpose()?)

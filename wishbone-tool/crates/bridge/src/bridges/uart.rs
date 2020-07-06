@@ -17,23 +17,23 @@ pub const DEFAULT_BAUD_RATE: u32 = 115_200;
 
 /// Describes a connection to a UART or serial port
 #[derive(Clone)]
-pub struct UartBridgeConfig {
+pub struct UartBridge {
     serial_port: PathBuf,
     baud: u32,
 }
 
-impl UartBridgeConfig {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<UartBridgeConfig, BridgeError> {
+impl UartBridge {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<UartBridge, BridgeError> {
         if !path.as_ref().exists() {
             return Err(BridgeError::InvalidAddress);
         }
-        Ok(UartBridgeConfig {
+        Ok(UartBridge {
             serial_port: path.as_ref().to_path_buf(),
             baud: DEFAULT_BAUD_RATE,
         })
     }
 
-    pub fn baud(&mut self, new_baud: u32) -> &mut UartBridgeConfig {
+    pub fn baud(&mut self, new_baud: u32) -> &mut UartBridge {
         self.baud = new_baud;
         self
     }
@@ -43,7 +43,7 @@ impl UartBridgeConfig {
     }
 }
 
-pub struct UartBridge {
+pub struct UartBridgeInner {
     path: PathBuf,
     baudrate: u32,
     main_tx: Sender<ConnectThreadRequests>,
@@ -52,9 +52,9 @@ pub struct UartBridge {
     poll_thread: Option<thread::JoinHandle<()>>,
 }
 
-impl Clone for UartBridge {
+impl Clone for UartBridgeInner {
     fn clone(&self) -> Self {
-        UartBridge {
+        UartBridgeInner {
             path: self.path.clone(),
             baudrate: self.baudrate,
             main_tx: self.main_tx.clone(),
@@ -80,8 +80,8 @@ enum ConnectThreadResponses {
     PokeResult(Result<(), BridgeError>),
 }
 
-impl UartBridge {
-    pub fn new(cfg: &UartBridgeConfig) -> Result<Self, BridgeError> {
+impl UartBridgeInner {
+    pub fn new(cfg: &UartBridge) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
@@ -94,7 +94,7 @@ impl UartBridge {
             Self::serial_connect_thread(thr_cv, thread_rx, thr_path, baudrate)
         }));
 
-        Ok(UartBridge {
+        Ok(UartBridgeInner {
             path,
             baudrate,
             main_tx,
@@ -331,7 +331,7 @@ impl UartBridge {
     }
 }
 
-impl Drop for UartBridge {
+impl Drop for UartBridgeInner {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.

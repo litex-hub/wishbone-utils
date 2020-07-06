@@ -10,35 +10,52 @@ use log::{debug, error};
 
 use crate::{Bridge, BridgeConfig, BridgeError};
 
+/// Describes a connection to a target via PCI Express.
 #[derive(Clone)]
-pub struct PCIeBridgeConfig {
+pub struct PCIeBridge {
     path: PathBuf,
 }
 
-impl PCIeBridgeConfig {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<PCIeBridgeConfig, BridgeError> {
+/// A builder to create a connection to a target via PCIe. Specify
+/// a PCIe resource file as part of the path.
+///
+/// **Note:** PCIe bridges to not expose the entire Wishbine bus. You
+/// will probably need to translate your addresses to take this into
+/// account. For example, address `0x0000_1000` on your Wishbone bus
+/// may actually correspond to address `0xe000_1000` on your target device.
+///
+/// ```no_run
+/// use wishbone_bridge::PCIeBridge;
+/// let bridge = PCIeBridge::new("/sys/devices/pci0001:00/0001:00:07.0/resource0").unwrap().create().unwrap();
+/// ```
+impl PCIeBridge {
+    /// Create a new `PCIeBridge` struct. The file must exist. This does
+    /// not check to ensure you have access permissions.
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<PCIeBridge, BridgeError> {
         if !path.as_ref().exists() {
             return Err(BridgeError::InvalidAddress);
         }
-        Ok(PCIeBridgeConfig {
+        Ok(PCIeBridge {
             path: path.as_ref().to_path_buf(),
         })
     }
 
+    /// Create a new `Bridge` with the given file. This will produce
+    /// an error if the PCIe device could not be opened.
     pub fn create(&self) -> Result<Bridge, BridgeError> {
         Bridge::new(BridgeConfig::PCIeBridge(self.clone()))
     }
 }
 
-impl From<&str> for PCIeBridgeConfig {
+impl From<&str> for PCIeBridge {
     fn from(f: &str) -> Self {
-        PCIeBridgeConfig {
+        PCIeBridge {
             path: PathBuf::from(f),
         }
     }
 }
 
-pub struct PCIeBridge {
+pub struct PCIeBridgeInner {
     path: PathBuf,
     main_tx: Sender<ConnectThreadRequests>,
     main_rx: Arc<(Mutex<Option<ConnectThreadResponses>>, Condvar)>,
@@ -74,9 +91,9 @@ fn mmap_mut_path(path: &Path) -> MmapMut {
     }
 }
 
-impl Clone for PCIeBridge {
+impl Clone for PCIeBridgeInner {
     fn clone(&self) -> Self {
-        PCIeBridge {
+        PCIeBridgeInner {
             path: self.path.clone(),
             main_tx: self.main_tx.clone(),
             main_rx: self.main_rx.clone(),
@@ -86,8 +103,8 @@ impl Clone for PCIeBridge {
     }
 }
 
-impl PCIeBridge {
-    pub fn new(cfg: &PCIeBridgeConfig) -> Result<Self, BridgeError> {
+impl PCIeBridgeInner {
+    pub fn new(cfg: &PCIeBridge) -> Result<Self, BridgeError> {
         let (main_tx, thread_rx) = channel();
         let cv = Arc::new((Mutex::new(None), Condvar::new()));
 
@@ -99,7 +116,7 @@ impl PCIeBridge {
             Self::pcie_thread(thr_cv, thread_rx, thr_path)
         }));
 
-        Ok(PCIeBridge {
+        Ok(PCIeBridgeInner {
             path,
             main_tx,
             main_rx: cv,
@@ -279,7 +296,7 @@ impl PCIeBridge {
     }
 }
 
-impl Drop for PCIeBridge {
+impl Drop for PCIeBridgeInner {
     fn drop(&mut self) {
         // If this is the last reference to the bridge, tell the control thread
         // to exit.
