@@ -27,24 +27,36 @@
 //! Creating other bridges is done in a similar manner -- see their individual
 //! pages for more information.
 
+#[cfg(not(any(feature = "pcie", feature = "uart", feature = "spi", feature = "ethernet", feature = "usb")))]
+compile_error!("Must enable at least one bridge type: pcie, uart, spi, ethernet, or usb");
 
 pub(crate) mod bridges;
 
 #[doc(hidden)]
+#[cfg(feature = "ethernet")]
 pub use bridges::ethernet::EthernetBridgeInner;
 #[doc(hidden)]
+#[cfg(feature = "pcie")]
 pub use bridges::pcie::PCIeBridgeInner;
 #[doc(hidden)]
+#[cfg(feature = "spi")]
 pub use bridges::spi::SpiBridgeInner;
 #[doc(hidden)]
+#[cfg(feature = "uart")]
 pub use bridges::uart::UartBridgeInner;
 #[doc(hidden)]
+#[cfg(feature = "usb")]
 pub use bridges::usb::UsbBridgeInner;
 
+#[cfg(feature = "ethernet")]
 pub use bridges::ethernet::{EthernetBridge, EthernetBridgeProtocol};
+#[cfg(feature = "pcie")]
 pub use bridges::pcie::PCIeBridge;
+#[cfg(feature = "spi")]
 pub use bridges::spi::SpiBridge;
+#[cfg(feature = "uart")]
 pub use bridges::uart::UartBridge;
+#[cfg(feature = "usb")]
 pub use bridges::usb::UsbBridge;
 
 use log::debug;
@@ -65,30 +77,40 @@ pub enum BridgeConfig {
     /// Describes a bridge that connects via Ethernet, either via UDP
     /// (for direct hardware connections) or TCP (for connecting to
     /// other Wishbone servers such as `litex_server` or `wishbone-tool`)
+    #[cfg(feature = "ethernet")]
     EthernetBridge(EthernetBridge),
 
     /// Describes a connection to a device via a PCIe bridge. Unlike most
     /// other bridges, a PCIe bridge does not provide a complete view of
     /// the memory space.
+    #[cfg(feature = "pcie")]
     PCIeBridge(PCIeBridge),
 
     /// Describes a connection to a device via SPI wires.
+    #[cfg(feature = "spi")]
     SpiBridge(SpiBridge),
 
     /// Describes a connection to a device via a serial or other UART port.
+    #[cfg(feature = "uart")]
     UartBridge(UartBridge),
 
     /// Describes a connection to a device via USB.
+    #[cfg(feature = "usb")]
     UsbBridge(UsbBridge),
 }
 
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum BridgeCore {
+    #[cfg(feature = "ethernet")]
     EthernetBridge(EthernetBridgeInner),
+    #[cfg(feature = "pcie")]
     PCIeBridge(PCIeBridgeInner),
+    #[cfg(feature = "spi")]
     SpiBridge(SpiBridgeInner),
+    #[cfg(feature = "uart")]
     UartBridge(UartBridgeInner),
+    #[cfg(feature = "usb")]
     UsbBridge(UsbBridgeInner),
 }
 
@@ -119,6 +141,7 @@ pub enum BridgeError {
     LengthError(usize, usize),
 
     /// USB subsystem returned an error
+    #[cfg(feature = "usb")]
     USBError(libusb_wishbone_tool::Error),
 
     /// std::io error
@@ -149,6 +172,7 @@ impl ::std::fmt::Display for BridgeError {
             LengthError(expected, actual) => {
                 write!(f, "expected {} bytes, but got {} instead", expected, actual)
             }
+            #[cfg(feature = "usb")]
             USBError(e) => write!(f, "libusb error {}", e.strerror()),
             IoError(e) => write!(f, "io error {}", e),
             NoBridgeSpecified => write!(f, "no bridge was specified"),
@@ -161,6 +185,7 @@ impl ::std::fmt::Display for BridgeError {
     }
 }
 
+#[cfg(feature = "usb")]
 impl std::convert::From<libusb_wishbone_tool::Error> for BridgeError {
     fn from(e: libusb_wishbone_tool::Error) -> BridgeError {
         BridgeError::USBError(e)
@@ -181,22 +206,27 @@ impl Bridge {
         let mutex = Arc::new(Mutex::new(()));
         match &bridge_cfg {
             BridgeConfig::None => Err(BridgeError::NoBridgeSpecified),
+            #[cfg(feature = "ethernet")]
             BridgeConfig::EthernetBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::EthernetBridge(EthernetBridgeInner::new(bridge_cfg)?),
             }),
+            #[cfg(feature = "pcie")]
             BridgeConfig::PCIeBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::PCIeBridge(PCIeBridgeInner::new(bridge_cfg)?),
             }),
+            #[cfg(feature = "spi")]
             BridgeConfig::SpiBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::SpiBridge(SpiBridgeInner::new(bridge_cfg)?),
             }),
+            #[cfg(feature = "uart")]
             BridgeConfig::UartBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::UartBridge(UartBridgeInner::new(bridge_cfg)?),
             }),
+            #[cfg(feature = "usb")]
             BridgeConfig::UsbBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::UsbBridge(UsbBridgeInner::new(bridge_cfg)?),
@@ -210,10 +240,15 @@ impl Bridge {
     pub fn connect(&self) -> Result<(), BridgeError> {
         let _mtx = self.mutex.lock().unwrap();
         match &self.core {
+            #[cfg(feature = "ethernet")]
             BridgeCore::EthernetBridge(b) => b.connect(),
+            #[cfg(feature = "pcie")]
             BridgeCore::PCIeBridge(b) => b.connect(),
+            #[cfg(feature = "spi")]
             BridgeCore::SpiBridge(b) => b.connect(),
+            #[cfg(feature = "uart")]
             BridgeCore::UartBridge(b) => b.connect(),
+            #[cfg(feature = "usb")]
             BridgeCore::UsbBridge(b) => b.connect(),
         }
     }
@@ -229,13 +264,20 @@ impl Bridge {
         let _mtx = self.mutex.lock().unwrap();
         loop {
             let result = match &self.core {
+                #[cfg(feature = "ethernet")]
                 BridgeCore::EthernetBridge(b) => b.peek(addr),
+                #[cfg(feature = "pcie")]
                 BridgeCore::PCIeBridge(b) => b.peek(addr),
+                #[cfg(feature = "spi")]
                 BridgeCore::SpiBridge(b) => b.peek(addr),
+                #[cfg(feature = "uart")]
                 BridgeCore::UartBridge(b) => b.peek(addr),
+                #[cfg(feature = "usb")]
                 BridgeCore::UsbBridge(b) => b.peek(addr),
             };
+            #[allow(unreachable_code)] // Only possible when no features are enabled (compile error)
             if let Err(e) = result {
+                #[cfg(feature = "usb")]
                 if let BridgeError::USBError(libusb_wishbone_tool::Error::Pipe) = e {
                     debug!("USB device disconnected, forcing early return");
                     return Err(e);
@@ -259,18 +301,26 @@ impl Bridge {
         let _mtx = self.mutex.lock().unwrap();
         loop {
             let result = match &self.core {
+                #[cfg(feature = "ethernet")]
                 BridgeCore::EthernetBridge(b) => b.poke(addr, value),
+                #[cfg(feature = "pcie")]
                 BridgeCore::PCIeBridge(b) => b.poke(addr, value),
+                #[cfg(feature = "spi")]
                 BridgeCore::SpiBridge(b) => b.poke(addr, value),
+                #[cfg(feature = "uart")]
                 BridgeCore::UartBridge(b) => b.poke(addr, value),
+                #[cfg(feature = "usb")]
                 BridgeCore::UsbBridge(b) => b.poke(addr, value),
             };
+            #[allow(unreachable_code)] // Only possible when no features are enabled (compile error)
             if let Err(e) = result {
                 match e {
+                    #[cfg(feature = "usb")]
                     BridgeError::USBError(libusb_wishbone_tool::Error::Pipe) => {
                         debug!("USB device disconnected (Windows), forcing early return");
                         return Err(e);
                     }
+                    #[cfg(feature = "usb")]
                     BridgeError::USBError(libusb_wishbone_tool::Error::Io) => {
                         debug!("USB device disconnected (Posix), forcing early return");
                         return Err(e);

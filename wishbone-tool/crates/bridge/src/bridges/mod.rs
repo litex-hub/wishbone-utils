@@ -1,5 +1,10 @@
+#[cfg(feature = "ethernet")]
 pub mod ethernet;
+#[cfg(feature = "pcie")]
 pub mod pcie;
+#[cfg(feature = "spi")]
 pub mod spi;
+#[cfg(feature = "uart")]
 pub mod uart;
+#[cfg(feature = "usb")]
 pub mod usb;
