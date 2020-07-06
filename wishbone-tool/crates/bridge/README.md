@@ -53,3 +53,16 @@ fn main() -> Result<(), BridgeError> {
 
 It is then possible to run this with `cargo run | hexdump -C` to
 produce an endless stream of random numbers.
+
+## Feature Support
+
+Support for all bridges is enabled by default, however you may enable only certain bridges using cargo features.
+
+For example, to enable only the "usb" bridge, add the following to your `Cargo.toml`:
+
+```toml
+[dependencies]
+wishbone-bridge = { version = "1", default-features = false, features = ["usb"] }
+```
+
+This will result in a faster build, but you will only have access to the `UsbBridge`.
