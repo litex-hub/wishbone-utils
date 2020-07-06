@@ -3,7 +3,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate clap;
 
-use log::{debug, error};
+use log::debug;
 
 mod config;
 mod gdb;
@@ -15,7 +15,6 @@ use clap::{App, Arg, Shell};
 use config::Config;
 use server::ServerKind;
 
-use std::process;
 use std::sync::Arc;
 
 fn clap_app<'a, 'b>() -> App<'a, 'b> {
@@ -272,7 +271,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     flexi_logger::Logger::with_env_or_str("wishbone_tool=info")
         .format_for_stderr(|write, now, record| {
             flexi_logger::colored_default_format(write, now, record)?;
@@ -280,64 +279,60 @@ fn main() {
         })
         .start()
         .unwrap();
+
     let matches = clap_app().get_matches();
 
+    // If they specify a "--completion", print it to stdout and exit without error.
     if let Some(shell_str) = matches.value_of("completion") {
         use std::io;
         use std::str::FromStr;
-        let shell = Shell::from_str(shell_str).expect("unrecognized shell");
-        clap_app().gen_completions_to("wishbone-tool", shell, &mut io::stdout());
-        return;
+        // Unwrap is safe since `get_matches()` validated it above
+        let shell = Shell::from_str(shell_str).unwrap();
+        clap_app().gen_completions_to(crate_name!(), shell, &mut io::stdout());
+        return Ok(());
     }
 
-    let (cfg, bridge) = match Config::parse(matches) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            match e {
-                config::ConfigError::NumberParseError(num, e) => {
-                    error!("unable to parse the number \"{}\": {}", num, e)
-                }
-                config::ConfigError::NoOperationSpecified => panic!("no operation was specified"),
-                config::ConfigError::UnknownServerKind(s) => {
-                    error!("unknown server '{}', see --help", s)
-                }
-                config::ConfigError::SpiParseError(s) => error!("couldn't parse spi pins: {}", s),
-                config::ConfigError::IoError(s) => error!("file error: {}", s),
-                config::ConfigError::InvalidConfig(s) => error!("invalid configuration: {}", s),
-                config::ConfigError::AddressOutOfRange(s) => {
-                    error!("address was not in mappable range: {}", s)
-                }
-            }
-            process::exit(1);
+    let (cfg, bridge) = Config::parse(matches).map_err(|e| match e {
+        config::ConfigError::NumberParseError(num, e) => {
+            format!("unable to parse the number \"{}\": {}", num, e)
         }
-    };
+        config::ConfigError::NoOperationSpecified => format!("no operation was specified"),
+        config::ConfigError::UnknownServerKind(s) => format!("unknown server '{}', see --help", s),
+        config::ConfigError::SpiParseError(s) => format!("couldn't parse spi pins: {}", s),
+        config::ConfigError::IoError(s) => format!("file error: {}", s),
+        config::ConfigError::InvalidConfig(s) => format!("invalid configuration: {}", s),
+        config::ConfigError::AddressOutOfRange(s) => {
+            format!("address was not in mappable range: {}", s)
+        }
+    })?;
 
-    {
-        bridge.connect().unwrap();
-        let cfg = Arc::new(cfg);
-        let mut threads = vec![];
-        for server_kind in cfg.server_kind.iter() {
-            use std::thread;
-            let bridge = bridge.clone();
-            let cfg = cfg.clone();
-            let server_kind = *server_kind;
-            let thr_handle = thread::spawn(move || {
-                match server_kind {
-                    ServerKind::GDB => server::gdb_server(&cfg, bridge),
-                    ServerKind::Wishbone => server::wishbone_server(&cfg, bridge),
-                    ServerKind::RandomTest => server::random_test(&cfg, bridge),
-                    ServerKind::LoadFile => server::load_file(&cfg, bridge),
-                    ServerKind::Terminal => server::terminal_client(&cfg, bridge),
-                    ServerKind::MemoryAccess => server::memory_access(&cfg, bridge),
-                    ServerKind::Messible => server::messible_client(&cfg, bridge),
-                }
-                .expect("couldn't start server");
-                debug!("Exited {:?} thread", server_kind);
-            });
-            threads.push(thr_handle);
-        }
-        for handle in threads {
-            handle.join().ok();
-        }
-    };
+    bridge.connect().map_err(|e| format!("unable to connect to bridge: {}", e))?;
+
+    let cfg = Arc::new(cfg);
+    let mut threads = vec![];
+    for server_kind in cfg.server_kind.iter() {
+        use std::thread;
+        let bridge = bridge.clone();
+        let cfg = cfg.clone();
+        let server_kind = *server_kind;
+        let thr_handle = thread::spawn(move || {
+            match server_kind {
+                ServerKind::GDB => server::gdb_server(&cfg, bridge),
+                ServerKind::Wishbone => server::wishbone_server(&cfg, bridge),
+                ServerKind::RandomTest => server::random_test(&cfg, bridge),
+                ServerKind::LoadFile => server::load_file(&cfg, bridge),
+                ServerKind::Terminal => server::terminal_client(&cfg, bridge),
+                ServerKind::MemoryAccess => server::memory_access(&cfg, bridge),
+                ServerKind::Messible => server::messible_client(&cfg, bridge),
+            }
+            .expect("couldn't start server");
+            debug!("Exited {:?} thread", server_kind);
+        });
+        threads.push(thr_handle);
+    }
+    for handle in threads {
+        handle.join().ok();
+    }
+
+    Ok(())
 }
