@@ -5,8 +5,7 @@ use std::io;
 use crate::server::ServerKind;
 use clap::ArgMatches;
 use wishbone_bridge::{
-    Bridge, EthernetBridge, EthernetBridgeProtocol, PCIeBridge, SpiBridge,
-    UartBridge, UsbBridge,
+    Bridge, EthernetBridge, EthernetBridgeProtocol, PCIeBridge, SpiBridge, UartBridge, UsbBridge,
 };
 
 #[derive(Debug)]
@@ -200,16 +199,20 @@ impl Config {
         }
 
         // Fall back to USB
-        UsbBridge::new()
-            .vid(matches.value_of("vid").map(|v| parse_u16(v)).transpose()?)
-            .pid(matches.value_of("pid").map(|p| parse_u16(p)).transpose()?)
-            .bus(matches.value_of("bus").map(|b| parse_u8(b)).transpose()?)
-            .device(
-                matches
-                    .value_of("device")
-                    .map(|d| parse_u8(d))
-                    .transpose()?,
-            )
+        let mut usb_config = UsbBridge::new();
+        if let Some(vid) = matches.value_of("vid") {
+            usb_config.vid(parse_u16(vid)?);
+        }
+        if let Some(pid) = matches.value_of("pid") {
+            usb_config.pid(parse_u16(pid)?);
+        }
+        if let Some(bus) = matches.value_of("bus") {
+            usb_config.bus(parse_u8(bus)?);
+        }
+        if let Some(device) = matches.value_of("device") {
+            usb_config.device(parse_u8(device)?);
+        }
+        usb_config
             .create()
             .map_err(|e| ConfigError::InvalidConfig(format!("unable to create usb bridge: {}", e)))
     }
