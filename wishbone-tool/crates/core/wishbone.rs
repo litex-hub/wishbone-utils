@@ -4,9 +4,9 @@ use std::io;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use wishbone_bridge::{Bridge, BridgeError};
 use super::Config;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use wishbone_bridge::{Bridge, BridgeError};
 
 /* The network protocol looks like this:
 

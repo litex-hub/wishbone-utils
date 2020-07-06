@@ -3,8 +3,8 @@ use std::io;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use wishbone_bridge::{Bridge, BridgeError};
 use super::riscv::{RiscvCpu, RiscvCpuError};
+use wishbone_bridge::{Bridge, BridgeError};
 
 use log::{debug, error, info};
 

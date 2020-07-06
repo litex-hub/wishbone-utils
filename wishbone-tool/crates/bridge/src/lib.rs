@@ -27,7 +27,13 @@
 //! Creating other bridges is done in a similar manner -- see their individual
 //! pages for more information.
 
-#[cfg(not(any(feature = "pcie", feature = "uart", feature = "spi", feature = "ethernet", feature = "usb")))]
+#[cfg(not(any(
+    feature = "pcie",
+    feature = "uart",
+    feature = "spi",
+    feature = "ethernet",
+    feature = "usb"
+)))]
 compile_error!("Must enable at least one bridge type: pcie, uart, spi, ethernet, or usb");
 
 pub(crate) mod bridges;
