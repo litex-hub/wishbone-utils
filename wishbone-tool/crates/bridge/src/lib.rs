@@ -75,8 +75,8 @@ pub enum BridgeCore {
 }
 
 /// Bridges represent the actual connection to the device. You must create
-/// a Bridge by constructing a `BridgeConfig` from the relevant
-/// configuration type.
+/// a Bridge by constructing a configuration from the relevant
+/// configuration type, and then calling `create()`.
 ///
 /// For example, to create a USB bridge, use the `USBBridgeConfig` object:
 ///
@@ -156,7 +156,8 @@ impl std::convert::From<io::Error> for BridgeError {
 
 impl Bridge {
     /// Create a new Bridge with the specified configuration. The new bridge
-    /// starts out in a Disconnected state, so you must call `connect()`.
+    /// starts out in a Disconnected state, but may be connecting in the background.
+    /// To ensure the bridge is connected, so you must call `connect()`.
     pub(crate) fn new(bridge_cfg: BridgeConfig) -> Result<Bridge, BridgeError> {
         let mutex = Arc::new(Mutex::new(()));
         match &bridge_cfg {
@@ -184,6 +185,10 @@ impl Bridge {
         }
     }
 
+    /// Ensure the bridge is connected. Many bridges support performing connection
+    /// in the background, and will return an error if you attempt to perform
+    /// operations such as `peek()` and `poke()` with an unconnected bridge.
+    /// Calling `connect()` ensures that the bridge has been established.
     pub fn connect(&self) -> Result<(), BridgeError> {
         let _mtx = self.mutex.lock().unwrap();
         match &self.core {
@@ -192,16 +197,6 @@ impl Bridge {
             BridgeCore::SpiBridge(b) => b.connect(),
             BridgeCore::UartBridge(b) => b.connect(),
             BridgeCore::UsbBridge(b) => b.connect(),
-        }
-    }
-
-    pub fn mutex(&self) -> &Arc<Mutex<()>> {
-        match &self.core {
-            BridgeCore::EthernetBridge(b) => b.mutex(),
-            BridgeCore::PCIeBridge(b) => b.mutex(),
-            BridgeCore::SpiBridge(b) => b.mutex(),
-            BridgeCore::UartBridge(b) => b.mutex(),
-            BridgeCore::UsbBridge(b) => b.mutex(),
         }
     }
 

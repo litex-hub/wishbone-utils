@@ -678,7 +678,7 @@ impl RiscvCpu {
     }
 
     pub fn halt(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         let mut current_status = self.cpu_state.lock().unwrap();
         *current_status = RiscvCpuState::Halted;
         self.controller.perform_halt(bridge)?;
@@ -710,7 +710,7 @@ impl RiscvCpu {
     /// Reset the target CPU, restore any breakpoints, and leave it in
     /// the "halted" state.
     pub fn reset(&self, bridge: &Bridge) -> Result<(), RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         // Since we're resetting the CPU, invalidate all cached registers
         self.cached_values.lock().unwrap().drain();
         self.flush_cache(bridge)?;
@@ -731,7 +731,7 @@ impl RiscvCpu {
 
     /// Restore the CPU state and continue execution.
     pub fn resume(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         *self.cpu_state.lock().unwrap() = RiscvCpuState::Running;
         // Rewrite breakpoints (is this necessary?)
         self.update_breakpoints(bridge)?;
@@ -747,7 +747,7 @@ impl RiscvCpu {
 
     /// Step the CPU forward by one instruction.
     pub fn step(&self, bridge: &Bridge) -> Result<Option<String>, RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         self.controller.perform_resume(bridge, true)?;
 
         if let Some(exception) = self.last_exception.lock().unwrap().take() {
@@ -808,7 +808,7 @@ impl RiscvCpu {
         gdb_idx: u32,
         value: u32,
     ) -> Result<(), RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         let reg = self.gdb_to_register(gdb_idx)?;
         if reg.register_type == RiscvRegisterType::General {
             self.set_cached_reg(reg, value);
@@ -824,7 +824,7 @@ impl RiscvCpu {
     }
 
     pub fn read_memory(&self, bridge: &Bridge, addr: u32, sz: u32) -> Result<u32, RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         self.controller.read_memory(bridge, addr, sz)
     }
 
@@ -835,7 +835,7 @@ impl RiscvCpu {
         sz: u32,
         value: u32,
     ) -> Result<(), RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         self.controller.write_memory(bridge, addr, sz, value)
     }
 
@@ -883,7 +883,7 @@ impl RiscvCpuController {
         bridge: &Bridge,
         gdb_controller: &mut GdbController,
     ) -> Result<bool, RiscvCpuError> {
-        let _bridge_mutex = bridge.mutex().lock().unwrap();
+        // let _bridge_mutex = bridge.mutex().lock().unwrap();
         let flags = self.read_status(bridge)?;
         let mut current_status = self.cpu_state.lock().unwrap();
 
