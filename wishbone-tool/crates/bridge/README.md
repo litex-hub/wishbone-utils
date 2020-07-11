@@ -33,7 +33,7 @@ fn main() -> Result<(), BridgeError> {
 
     // Create a configuration object with a USB bridge that
     // connects to a device with the product ID of 0x5bf0.
-    let bridge = UsbBridge::new().pid(0x5bf0).connect()?;
+    let bridge = UsbBridge::new().pid(0x5bf0).create()?;
 
     // Enable the oscillator. Note that this address may change,
     // so consult the `csr.csv` for your device.
