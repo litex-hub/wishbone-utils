@@ -1,1 +1,0 @@
-../../wishbone-tool/README.rst

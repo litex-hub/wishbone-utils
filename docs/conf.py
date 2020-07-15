@@ -9,6 +9,7 @@
 import os
 import re
 import sys
+from recommonmark.parser import CommonMarkParser
 
 # -- Path setup --------------------------------------------------------------
 
@@ -304,3 +305,7 @@ exhale_args = {
     "exhaleExecutesDoxygen": True,
     "exhaleDoxygenStdin":    "INPUT = ../libeb-c"
 }
+
+# Add support for Markdown, which is used by Rust
+source_parsers = {'.md': CommonMarkParser}
+source_suffix = ['.rst', '.md']
