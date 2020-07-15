@@ -1,30 +1,29 @@
 # `wishbone-tool` - All-in-one Wishbone Binary and Library
 
-
 `wishbone-tool` is useful for interacting with the internal Wishbone
 bridge on a device.
 
 Some of the things you can use `wishbone-tool` for:
 
--  Peeking and poking memory, similar to using `devmem2`
--  Testing memory and bridge link quality
--  Exposing a Wishbone bridge to Ethernet
--  Attaching a GDB server to a softcore
+- Peeking and poking memory, similar to using `devmem2`
+- Testing memory and bridge link quality
+- Exposing a Wishbone bridge to Ethernet
+- Attaching a GDB server to a softcore
 
 Currently-supported Wishbone bridges include:
 
--  **USB** - For use with Valentyusb such as on Fomu
--  **Serial** - Generic UART, nominally running at 115200 (but can be
-   changed with ``--baud``)
--  **SPI** - Using 2-, 3-, or 4-wire SPI from
-   [spibone](https://github.com/litex-hub/spibone)
--  **Ethernet** - Both TCP (e.g. a remote copy of `wishbone-tool`) or UDP (via Etherbone)
--  **PCI Express** - Using a PCIe softcore with the CSR register bank exposed
+- **USB** - For use with Valentyusb such as on Fomu
+- **Serial** - Generic UART, nominally running at 115200 (but can be
+  changed with ``--baud``)
+- **SPI** - Using 2-, 3-, or 4-wire SPI from
+  [spibone](https://github.com/litex-hub/spibone)
+- **Ethernet** - Both TCP (e.g. a remote copy of `wishbone-tool`) or UDP (via Etherbone)
+- **PCI Express** - Using a PCIe softcore with the CSR register bank exposed
 
 ## Binaries
 
 Precompiled versions of `wishbone-tool` can be found in the
-[Releases](https://github.com/litex-hub/wishbone-utils/releases>)
+[Releases](https://github.com/litex-hub/wishbone-utils/releases)
 section.
 
 ## Building
@@ -32,7 +31,7 @@ section.
 To build `wishbone-tool`:
 
 1. Install Rust and Cargo. The easiest way to do this is to go to
-   https://rustup.rs/ and follow the instructions.
+   <https://rustup.rs/> and follow the instructions.
 2. Enter the ``wishbone-tool`` directory.
 3. Run `cargo build` or `cargo build --release`
 
@@ -42,8 +41,7 @@ The `wishbone-tool` binary will be located under `target/debug/` or
 ## Usage
 
 By default, `wishbone-tool` will communicate via USB, attempting to
-open a device with PID `0x5bf0`. It will also run the `peek/poke` server
-by default.
+open a device with PID `0x5bf0`. It will also run the `peek/poke` server, allowing basic manipulation of memory addresses on the target device.
 
 ### USB Bridge
 
@@ -51,7 +49,7 @@ Simply run `wishbone-tool [ADDRESS]` to peek at a particular address.
 To specify a particular vendor ID, pass `--vid [ID]`, for example `--vid 0xb0f1`.
 To read from an area of memory (such as 0x10000000), run:
 
-```
+```shell
 $ # Read from address 0x10000000 via USB
 $ wishbone-tool 0x10000000
 INFO [wishbone_tool::usb_bridge] waiting for target device
@@ -62,7 +60,7 @@ $
 
 To write a value to memory, add an additional parameter:
 
-```sh
+```shell
 $ wishbone-tool 0x10000000 0x12345678
 INFO [wishbone_tool::usb_bridge] opened USB device device 019 on bus 001
 $ wishbone-tool 0x10000000
@@ -71,13 +69,12 @@ Value at 00000000: 12345678
 $
 ```
 
-
 ### Serial Bridge
 
-You can connect to a serial port by specifying the ``--serial``
+You can connect to a serial port by specifying the `--serial`
 argument:
 
-```sh
+```shell
 $ wishbone-tool --serial COM4: 0x00000000
 Value at 00000000: ffffffff
 $ wishbone-tool --serial /dev/ttyUSB0 0x00000000
@@ -138,15 +135,17 @@ bridge.
 Then, to interact with the terminal, run `wishbone-tool` and provide it
 with the `csr.csv` file from your build, and add the `-s terminal` flag:
 
-```
+```shell
 $ wishbone-tool -s terminal --csr-csv build/csr.csv
+$
 ```
 
 Note that you can run multiple `wishbone-tool` servers at the same time.
 For example, to run the `gdb` server as well, run:
 
-```
+```shell
 $ wishbone-tool -s gdb -s terminal --csr-csv build/csr.csv
+$
 ```
 
 To exit the session, press `Ctrl-C`.
@@ -161,7 +160,7 @@ and use `wishbone-tool` to act as a gdbserver.
 You can generate auto-completion for `wishbone-tool` with the `-c`
 option. For example, to generate auto-completion for bash, run:
 
-```
+```shell
 $ wishbone-tool -c bash > wishbone-tool.bash
 $ . wishbone-tool.bash
 $
@@ -173,42 +172,4 @@ elvish.
 ## `wishbone-bridge` as a Library
 
 You can also use `wishbone-bridge` as a library from within your own program.
-
-For example, there is a kind of device that has a USB bridge with a small
-random number generator at address 0xf001_7000. This device has a
-simple API:
-
-1. Write `1` to 0xf001_7000 to enable the device
-2. When `0xf001_7008` is `1` there is data available
-3. Read the data from `0xf001_7004`
-4. Goto 2
-
-We can turn this into a command that reads from this RNG and prints to stdout:
-
-```rust
-use std::io::{self, Write};
-use wishbone_bridge::{UsbBridge, BridgeError};
-
-fn main() -> Result<(), BridgeError> {
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-
-    // Create a configuration object with a USB bridge that
-    // connects to a device with the product ID of 0x5bf0.
-    let bridge = UsbBridge::new().pid(0x5bf0).connect()?;
-
-    // Enable the oscillator. Note that this address may change,
-    // so consult the `csr.csv` for your device.
-    bridge.poke(0xf001_7000, 1)?;
-
-    loop {
-        // Wait until the `Ready` flag is `1`
-        while bridge.peek(0xf001_7008)? & 1 == 0 {}
-
-        // Read the random word and write it to stdout
-        handle
-            .write_all(&bridge.peek(0xf001_7004)?.to_le_bytes())
-            .unwrap();
-    }
-}
-```
+For more information, see the [wishbone-bridge documentation](https://docs.rs/wishbone-bridge/1.0.1/wishbone_bridge/).
