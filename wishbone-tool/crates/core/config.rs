@@ -181,12 +181,14 @@ impl Config {
         if let Some(host) = matches.value_of("ethernet-host") {
             let ethernet_tcp = matches.is_present("ethernet-tcp");
             let ethernet_port = parse_u16(matches.value_of("ethernet-port").unwrap())?;
-            let mut ebc = EthernetBridge::new(host.to_owned()).or_else(|e| {
-                Err(ConfigError::InvalidConfig(format!(
-                    "invalid ethernet address: {}",
-                    e
-                )))
-            })?;
+            let mut ebc = EthernetBridge::new(host)
+                .or_else(|_| EthernetBridge::new(&format!("{}:{}", host, ethernet_port)))
+                .or_else(|e| {
+                    Err(ConfigError::InvalidConfig(format!(
+                        "invalid ethernet address: {}",
+                        e
+                    )))
+                })?;
             ebc.protocol(if ethernet_tcp {
                 EthernetBridgeProtocol::TCP
             } else {
