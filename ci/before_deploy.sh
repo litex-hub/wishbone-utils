@@ -19,7 +19,7 @@ main() {
     test -f Cargo.lock || cargo generate-lockfile
 
     # TODO Update this to build the artifacts that matter to you
-    cross rustc --bin wishbone-tool --target $TARGET --release -- -C lto
+    cross rustc --bin wishbone-tool --target $TARGET --release
 
     # TODO Update this to package the right artifacts
     cp target/$TARGET/release/wishbone-tool$EXTENSION $stage/
