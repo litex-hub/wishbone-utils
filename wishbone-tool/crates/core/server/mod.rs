@@ -379,10 +379,33 @@ pub fn random_test(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 pub fn memory_access(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     if let Some(addr) = cfg.memory_address {
         if let Some(value) = cfg.memory_value {
-            bridge.poke(addr, value)?;
+            if cfg.burst_length == 4 {
+                bridge.poke(addr, value)?;
+            } else {
+                println!("Burst write not yet implemented");
+            }
         } else {
-            let val = bridge.peek(addr)?;
-            println!("Value at {:08x}: {:08x}", addr, val);
+            if cfg.burst_length == 4 {
+                let val = bridge.peek(addr)?;
+                println!("Value at {:08x}: {:08x}", addr, val);
+            } else {
+                let page = bridge.burst_read(addr, cfg.burst_length);
+                match page {
+                    Ok(array) => {
+                        for i in 0..array.len() {
+                            if (i % 16) == 0 {
+                                println!(""); // carriage return
+                                print!("{:08x}: ", addr as usize + i);
+                            }
+                            print!("{:02x} ", array[i]);
+                        }
+                        println!("");
+                    },
+                    _ => {
+                        error!("Error occured reading page");
+                    }
+                }
+            }
         }
     } else {
         println!("No operation and no address specified!");

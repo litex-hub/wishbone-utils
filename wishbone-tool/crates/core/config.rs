@@ -102,6 +102,7 @@ pub struct Config {
     pub load_name: Option<String>,
     pub load_addr: Option<u32>,
     pub terminal_mouse: bool,
+    pub burst_length: u32,
 }
 
 impl Default for Config {
@@ -122,6 +123,7 @@ impl Default for Config {
             load_name: None,
             load_addr: None,
             terminal_mouse: false,
+            burst_length: 4,
         }
     }
 }
@@ -242,6 +244,7 @@ impl Config {
         // unwrap() is safe because there is a default value
         let gdb_port = parse_u16(matches.value_of("gdb-port").unwrap())?;
         let bind_port = parse_u16(matches.value_of("wishbone-port").unwrap())?;
+        let burst_length = parse_u32(matches.value_of("burst-length").unwrap())?;
 
         let bind_addr = matches
             .value_of("bind-addr")
@@ -365,6 +368,7 @@ impl Config {
                 load_name,
                 load_addr,
                 terminal_mouse,
+                burst_length,
             },
             bridge,
         ))

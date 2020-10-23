@@ -270,6 +270,15 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .display_order(26)
                 .takes_value(true),
         )
+
+        .arg(
+            Arg::with_name("burst-length")
+            .long("burst-length")
+            .help("Number of bytes in a burst (implies burst operation)")
+            .default_value("4")
+            .display_order(27)
+            .takes_value(true),
+        )
 }
 
 fn main() -> Result<(), String> {

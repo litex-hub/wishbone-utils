@@ -87,12 +87,14 @@ enum ConnectThreadRequests {
     Exit,
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
+    BurstRead(u32 /* addr */, u32 /* len */),
 }
 
 #[derive(Debug)]
 enum ConnectThreadResponses {
     OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
+    BurstReadResult(Result<Vec<u8>, BridgeError>),
     PokeResult(Result<(), BridgeError>),
     Exiting,
 }
@@ -251,6 +253,13 @@ impl UsbBridgeInner {
                                         Some(ConnectThreadResponses::PokeResult(result));
                                     cvar.notify_one();
                                 }
+                                ConnectThreadRequests::BurstRead(addr, len) => {
+                                    let result = Self::do_burst_read(&usb, addr, len, debug_byte);
+                                    keep_going = result.is_ok();
+                                    *response.lock().unwrap() =
+                                        Some(ConnectThreadResponses::BurstReadResult(result));
+                                    cvar.notify_one();
+                                }
                             },
                         }
                     }
@@ -294,6 +303,12 @@ impl UsbBridgeInner {
                         ConnectThreadRequests::StartPolling(p, v) => {
                             cfg.pid = p;
                             cfg.vid = v;
+                        }
+                        ConnectThreadRequests::BurstRead(_addr, _len) => {
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(
+                                Err(BridgeError::NotConnected),
+                            ));
+                            cvar.notify_one();
                         }
                     },
                 }
@@ -344,7 +359,7 @@ impl UsbBridgeInner {
         addr: u32,
         debug_byte: u8,
     ) -> Result<u32, BridgeError> {
-        let mut data_val = [0; 512];
+        let mut data_val = [0; 4];
         match usb.read_control(
             0x80 | debug_byte,
             0,
@@ -371,6 +386,45 @@ impl UsbBridgeInner {
                         | (data_val[0] as u32);
                     debug!("PEEK @ {:08x} = {:08x}", addr, value);
                     Ok(value)
+                }
+            }
+        }
+    }
+
+    fn do_burst_read(
+        usb: &libusb_wishbone_tool::DeviceHandle,
+        addr: u32,
+        len: u32,
+        debug_byte: u8,
+    ) -> Result<Vec<u8>, BridgeError> {
+        let mut data_val = vec![0; len as usize];
+        match usb.read_control(
+            0x80 | debug_byte,
+            0,
+            (addr & 0xffff) as u16,
+            ((addr >> 16) & 0xffff) as u16,
+            &mut data_val,
+            Duration::from_millis(500),
+        ) {
+            Err(e) => {
+                debug!("BURST_READ @ {:08x}: usb error {:?}", addr, e);
+                Err(BridgeError::USBError(e))
+            }
+            Ok(retlen) => {
+                if retlen != len as usize {
+                    debug!(
+                        "BURST_READ @ {:08x}: length error: expected {} bytes, got {} bytes",
+                        addr, len, retlen
+                    );
+                    Err(BridgeError::LengthError(len as usize, retlen))
+                } else {
+                    for i in 0..data_val.len() {
+                        if (i % 16) == 0 {
+                           debug!("\nBURST_READ @ {:08x}: ", addr as usize + i);
+                        }
+                        debug!("{:02x} ", data_val[i]);
+                    }
+                    Ok(data_val)
                 }
             }
         }
@@ -407,6 +461,25 @@ impl UsbBridgeInner {
         }
         match _mtx.take() {
             Some(ConnectThreadResponses::PeekResult(r)) => Ok(r?),
+            e => {
+                error!("unexpected bridge peek response: {:?}", e);
+                Err(BridgeError::WrongResponse)
+            }
+        }
+    }
+
+    pub fn burst_read(&self, addr: u32, len: u32) -> Result<Vec<u8>, BridgeError> {
+        let &(ref lock, ref cvar) = &*self.main_rx;
+        let mut _mtx = lock.lock().unwrap();
+        self.main_tx
+            .send(ConnectThreadRequests::BurstRead(addr, len))
+            .expect("Unable to send peek to connect thread");
+        *_mtx = None;
+        while _mtx.is_none() {
+            _mtx = cvar.wait(_mtx).unwrap();
+        }
+        match _mtx.take() {
+            Some(ConnectThreadResponses::BurstReadResult(r)) => Ok(r?),
             e => {
                 error!("unexpected bridge peek response: {:?}", e);
                 Err(BridgeError::WrongResponse)
