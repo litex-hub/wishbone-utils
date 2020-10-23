@@ -103,6 +103,7 @@ pub struct Config {
     pub load_addr: Option<u32>,
     pub terminal_mouse: bool,
     pub burst_length: u32,
+    pub hexdump: bool,
 }
 
 impl Default for Config {
@@ -124,6 +125,7 @@ impl Default for Config {
             load_addr: None,
             terminal_mouse: false,
             burst_length: 4,
+            hexdump: false,
         }
     }
 }
@@ -350,6 +352,7 @@ impl Config {
         }
 
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
+        let hexdump = matches.is_present("hexdump");
 
         Ok((
             Config {
@@ -369,6 +372,7 @@ impl Config {
                 load_addr,
                 terminal_mouse,
                 burst_length,
+                hexdump,
             },
             bridge,
         ))

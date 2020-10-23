@@ -392,14 +392,19 @@ pub fn memory_access(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 let page = bridge.burst_read(addr, cfg.burst_length);
                 match page {
                     Ok(array) => {
-                        for i in 0..array.len() {
-                            if (i % 16) == 0 {
-                                println!(""); // carriage return
-                                print!("{:08x}: ", addr as usize + i);
+                        if cfg.hexdump {
+                            for i in 0..array.len() {
+                                if (i % 16) == 0 {
+                                    println!(""); // carriage return
+                                    print!("{:08x}: ", addr as usize + i);
+                                }
+                                print!("{:02x} ", array[i]);
                             }
-                            print!("{:02x} ", array[i]);
+                            println!("");
+                        } else {
+                            use std::io::Write;
+                            io::stdout().write_all(&array)?;
                         }
-                        println!("");
                     },
                     _ => {
                         error!("Error occured reading page");

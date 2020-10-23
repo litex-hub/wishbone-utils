@@ -397,37 +397,57 @@ impl UsbBridgeInner {
         len: u32,
         debug_byte: u8,
     ) -> Result<Vec<u8>, BridgeError> {
-        let mut data_val = vec![0; len as usize];
-        match usb.read_control(
-            0x80 | debug_byte,
-            0,
-            (addr & 0xffff) as u16,
-            ((addr >> 16) & 0xffff) as u16,
-            &mut data_val,
-            Duration::from_millis(500),
-        ) {
-            Err(e) => {
-                debug!("BURST_READ @ {:08x}: usb error {:?}", addr, e);
-                Err(BridgeError::USBError(e))
-            }
-            Ok(retlen) => {
-                if retlen != len as usize {
-                    debug!(
-                        "BURST_READ @ {:08x}: length error: expected {} bytes, got {} bytes",
-                        addr, len, retlen
-                    );
-                    Err(BridgeError::LengthError(len as usize, retlen))
+        let mut data_val = vec![];
+
+        if len == 0 {
+            return Ok(data_val);
+        }
+
+        let packet_count = len / 64 + if (len % 64) != 0 { 1 } else { 0 };
+        for pkt_num in 0..packet_count {
+            let cur_addr = addr + pkt_num * 64;
+            let bufsize = if pkt_num  == (packet_count - 1) {
+                if len % 64 != 0 {
+                    len % 64
                 } else {
-                    for i in 0..data_val.len() {
-                        if (i % 16) == 0 {
-                           debug!("\nBURST_READ @ {:08x}: ", addr as usize + i);
+                    64
+                }
+            } else {
+                64
+            };
+            let mut buffer = vec![0; bufsize as usize];
+            match usb.read_control(
+                0x80 | debug_byte,
+                0,
+                (cur_addr & 0xffff) as u16,
+                ((cur_addr >> 16) & 0xffff) as u16,
+                &mut buffer,
+                Duration::from_millis(500),
+            ) {
+                Err(e) => {
+                    debug!("BURST_READ @ {:08x}: usb error {:?}", addr, e);
+                    return Err(BridgeError::USBError(e));
+                }
+                Ok(retlen) => {
+                    if retlen != bufsize as usize {
+                        debug!(
+                            "BURST_READ @ {:08x}: length error: expected {} bytes, got {} bytes",
+                            addr, len, retlen
+                        );
+                        return Err(BridgeError::LengthError(len as usize, retlen));
+                    } else {
+                        for i in 0..data_val.len() {
+                            if (i % 16) == 0 {
+                               debug!("\nBURST_READ @ {:08x}: ", addr as usize + i);
+                            }
+                            debug!("{:02x} ", data_val[i]);
                         }
-                        debug!("{:02x} ", data_val[i]);
+                        data_val.append(&mut buffer);
                     }
-                    Ok(data_val)
                 }
             }
         }
+        Ok(data_val)
     }
 
     pub fn poke(&self, addr: u32, value: u32) -> Result<(), BridgeError> {

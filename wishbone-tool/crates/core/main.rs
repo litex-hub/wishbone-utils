@@ -279,6 +279,14 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
             .display_order(27)
             .takes_value(true),
         )
+
+        .arg(
+            Arg::with_name("hexdump")
+            .long("hexdump")
+            .help("In conjunction with burst-length, report reads as text hexdumps, instead of binary data")
+            .display_order(28)
+            .takes_value(false),
+        )
 }
 
 fn main() -> Result<(), String> {
