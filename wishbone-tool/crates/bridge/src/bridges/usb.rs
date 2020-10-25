@@ -403,17 +403,19 @@ impl UsbBridgeInner {
             return Ok(data_val);
         }
 
-        let packet_count = len / 64 + if (len % 64) != 0 { 1 } else { 0 };
+        let maxlen = 4096; // spec says...1023 max? but 4096 works.
+
+        let packet_count = len / maxlen + if (len % maxlen) != 0 { 1 } else { 0 };
         for pkt_num in 0..packet_count {
-            let cur_addr = addr + pkt_num * 64;
+            let cur_addr = addr + pkt_num * maxlen;
             let bufsize = if pkt_num  == (packet_count - 1) {
-                if len % 64 != 0 {
-                    len % 64
+                if len % maxlen != 0 {
+                    len % maxlen
                 } else {
-                    64
+                    maxlen
                 }
             } else {
-                64
+                maxlen
             };
             let mut buffer = vec![0; bufsize as usize];
             match usb.read_control(
