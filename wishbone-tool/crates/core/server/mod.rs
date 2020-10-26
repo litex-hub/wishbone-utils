@@ -401,7 +401,7 @@ pub fn memory_access(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                         if cfg.hexdump {
                             for i in 0..array.len() {
                                 if (i % 16) == 0 {
-                                    println!(""); // carriage return
+                                    println!(); // carriage return
                                     print!("{:08x}: ", addr as usize + i);
                                 }
                                 print!("{:02x} ", array[i]);
