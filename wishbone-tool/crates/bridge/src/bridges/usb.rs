@@ -88,6 +88,7 @@ enum ConnectThreadRequests {
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
     BurstRead(u32 /* addr */, u32 /* len */),
+    BurstWrite(u32 /* addr */, Vec<u8> /* write data */)
 }
 
 #[derive(Debug)]
@@ -95,6 +96,7 @@ enum ConnectThreadResponses {
     OpenedDevice,
     PeekResult(Result<u32, BridgeError>),
     BurstReadResult(Result<Vec<u8>, BridgeError>),
+    BurstWriteResult(Result<(), BridgeError>),
     PokeResult(Result<(), BridgeError>),
     Exiting,
 }
@@ -260,6 +262,13 @@ impl UsbBridgeInner {
                                         Some(ConnectThreadResponses::BurstReadResult(result));
                                     cvar.notify_one();
                                 }
+                                ConnectThreadRequests::BurstWrite(addr, data) => {
+                                    let result = Self::do_burst_write(&usb, addr, data, debug_byte);
+                                    keep_going = result.is_ok();
+                                    *response.lock().unwrap() =
+                                        Some(ConnectThreadResponses::BurstWriteResult(result));
+                                    cvar.notify_one();
+                                }
                             },
                         }
                     }
@@ -305,7 +314,13 @@ impl UsbBridgeInner {
                             cfg.vid = v;
                         }
                         ConnectThreadRequests::BurstRead(_addr, _len) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::PokeResult(
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::BurstReadResult(
+                                Err(BridgeError::NotConnected),
+                            ));
+                            cvar.notify_one();
+                        }
+                        ConnectThreadRequests::BurstWrite(_addr, _data) => {
+                            *response.lock().unwrap() = Some(ConnectThreadResponses::BurstWriteResult(
                                 Err(BridgeError::NotConnected),
                             ));
                             cvar.notify_one();
@@ -352,6 +367,56 @@ impl UsbBridgeInner {
                 }
             }
         }
+    }
+
+    fn do_burst_write(
+        usb: &libusb_wishbone_tool::DeviceHandle,
+        addr: u32,
+        data: Vec<u8>,
+        debug_byte: u8,
+    ) -> Result<(), BridgeError> {
+        if data.len() == 0 {
+            return Ok(());
+        }
+
+        let maxlen = 4096; // spec says...1023 max? but 4096 works.
+
+        let packet_count = data.len() / maxlen + if (data.len() % maxlen) != 0 { 1 } else { 0 };
+        for pkt_num in 0..packet_count {
+            let cur_addr = addr as usize + pkt_num * maxlen;
+            let bufsize = if pkt_num  == (packet_count - 1) {
+                if data.len() % maxlen != 0 {
+                    data.len() % maxlen
+                } else {
+                    maxlen
+                }
+            } else {
+                maxlen
+            };
+            match usb.write_control(
+                debug_byte,
+                0,
+                (cur_addr & 0xffff) as u16,
+                ((cur_addr >> 16) & 0xffff) as u16,
+                &data[pkt_num * maxlen..pkt_num * maxlen + bufsize],
+                Duration::from_millis(500),
+            ) {
+                Err(e) => {
+                    debug!("BURST_WRITE @ {:08x}: usb error {:?}", addr, e);
+                    return Err(BridgeError::USBError(e));
+                }
+                Ok(retlen) => {
+                    if retlen != bufsize as usize {
+                        debug!(
+                            "BURST_WRITE @ {:08x}: length error: expected {} bytes, got {} bytes",
+                            addr, bufsize, retlen
+                        );
+                        return Err(BridgeError::LengthError(bufsize as usize, retlen));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn do_peek(
@@ -434,9 +499,9 @@ impl UsbBridgeInner {
                     if retlen != bufsize as usize {
                         debug!(
                             "BURST_READ @ {:08x}: length error: expected {} bytes, got {} bytes",
-                            addr, len, retlen
+                            addr, bufsize, retlen
                         );
-                        return Err(BridgeError::LengthError(len as usize, retlen));
+                        return Err(BridgeError::LengthError(bufsize as usize, retlen));
                     } else {
                         for i in 0..data_val.len() {
                             if (i % 16) == 0 {
@@ -495,7 +560,7 @@ impl UsbBridgeInner {
         let mut _mtx = lock.lock().unwrap();
         self.main_tx
             .send(ConnectThreadRequests::BurstRead(addr, len))
-            .expect("Unable to send peek to connect thread");
+            .expect("Unable to send burst read to connect thread");
         *_mtx = None;
         while _mtx.is_none() {
             _mtx = cvar.wait(_mtx).unwrap();
@@ -503,7 +568,27 @@ impl UsbBridgeInner {
         match _mtx.take() {
             Some(ConnectThreadResponses::BurstReadResult(r)) => Ok(r?),
             e => {
-                error!("unexpected bridge peek response: {:?}", e);
+                error!("unexpected bridge burst reed response: {:?}", e);
+                Err(BridgeError::WrongResponse)
+            }
+        }
+    }
+
+    pub fn burst_write(&self, addr: u32, data: &Vec<u8>) -> Result<(), BridgeError> {
+        let &(ref lock, ref cvar) = &*self.main_rx;
+        let mut _mtx = lock.lock().unwrap();
+        let local_data = data.to_vec();
+        self.main_tx
+            .send(ConnectThreadRequests::BurstWrite(addr, local_data))
+            .expect("Unable to send burst write to connect thread");
+        *_mtx = None;
+        while _mtx.is_none() {
+            _mtx = cvar.wait(_mtx).unwrap();
+        }
+        match _mtx.take() {
+            Some(ConnectThreadResponses::BurstWriteResult(r)) => Ok(r?),
+            e => {
+                error!("unexpected bridge burst write response: {:?}", e);
                 Err(BridgeError::WrongResponse)
             }
         }

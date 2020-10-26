@@ -281,6 +281,14 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         .arg(
+            Arg::with_name("burst-source")
+            .long("burst-source")
+            .help("File for burst data input when sending data to device")
+            .display_order(29)
+            .takes_value(true),
+        )
+
+        .arg(
             Arg::with_name("hexdump")
             .long("hexdump")
             .help("In conjunction with burst-length, report reads as text hexdumps, instead of binary data")

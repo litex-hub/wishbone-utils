@@ -381,9 +381,15 @@ pub fn memory_access(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
         if let Some(value) = cfg.memory_value {
             if cfg.burst_length == 4 {
                 bridge.poke(addr, value)?;
-            } else {
-                println!("Burst write not yet implemented");
             }
+        } else if let Some(file_name) = &cfg.burst_source {
+            use std::io::Read;
+            info!("Loading contents of {} to 0x{:08x}", file_name, addr);
+            let mut f = File::open(file_name)?;
+            let mut data: Vec<u8> = vec![];
+            f.read_to_end(&mut data)?;
+            info!("Sending {} bytes", data.len());
+            bridge.burst_write(addr, &data)?;
         } else {
             if cfg.burst_length == 4 {
                 let val = bridge.peek(addr)?;

@@ -104,6 +104,7 @@ pub struct Config {
     pub terminal_mouse: bool,
     pub burst_length: u32,
     pub hexdump: bool,
+    pub burst_source: Option<String>,
 }
 
 impl Default for Config {
@@ -126,6 +127,7 @@ impl Default for Config {
             terminal_mouse: false,
             burst_length: 4,
             hexdump: false,
+            burst_source: None,
         }
     }
 }
@@ -354,6 +356,8 @@ impl Config {
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
         let hexdump = matches.is_present("hexdump");
 
+        let burst_source = matches.value_of("burst-source").map(|n| n.to_owned());
+
         Ok((
             Config {
                 memory_address,
@@ -373,6 +377,7 @@ impl Config {
                 terminal_mouse,
                 burst_length,
                 hexdump,
+                burst_source,
             },
             bridge,
         ))
