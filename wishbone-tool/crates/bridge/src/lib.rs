@@ -470,3 +470,42 @@ impl std::io::Seek for Bridge {
         Ok(self.offset.try_into().unwrap())
     }
 }
+
+impl std::io::Write for Bridge {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        use std::convert::TryInto;
+        use std::io::{Error, ErrorKind};
+        let _mtx = self.mutex.lock().unwrap();
+
+        fn slice_to_u32(buf: &[u8]) -> std::io::Result<u32> {
+            if buf.len() < 3 {
+                Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "data not a multiple of 4 bytes",
+                ))?;
+            }
+            Ok(u32::from_le_bytes(buf[0..3].try_into().unwrap()))
+        }
+
+        let addr = self.offset as _;
+        let bytes_written = match &self.core {
+            #[cfg(feature = "ethernet")]
+            BridgeCore::EthernetBridge(_) => self.poke(addr, slice_to_u32(buf)?).map(|_| 4),
+            #[cfg(feature = "pcie")]
+            BridgeCore::PCIeBridge(_) => self.poke(addr, slice_to_u32(buf)?).map(|_| 4),
+            #[cfg(feature = "spi")]
+            BridgeCore::SpiBridge(_) => self.poke(addr, slice_to_u32(buf)?).map(|_| 4),
+            #[cfg(feature = "uart")]
+            BridgeCore::UartBridge(_) => self.poke(addr, slice_to_u32(buf)?).map(|_| 4),
+            #[cfg(feature = "usb")]
+            BridgeCore::UsbBridge(b) => b.burst_write(addr, buf).map(|_| buf.len()),
+        }
+        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+        self.offset += bytes_written;
+        Ok(bytes_written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
