@@ -428,7 +428,9 @@ impl std::io::Read for Bridge {
 
         let copied = match &self.core {
             #[cfg(feature = "ethernet")]
-            BridgeCore::EthernetBridge(b) => b.peek(addr).map(|v| fill_array(&v.to_le_bytes(), buf)),
+            BridgeCore::EthernetBridge(b) => {
+                b.peek(addr).map(|v| fill_array(&v.to_le_bytes(), buf))
+            }
             #[cfg(feature = "pcie")]
             BridgeCore::PCIeBridge(b) => b.peek(addr).map(|v| fill_array(&v.to_le_bytes(), buf)),
             #[cfg(feature = "spi")]
@@ -443,5 +445,28 @@ impl std::io::Read for Bridge {
         .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
         self.offset += copied;
         Ok(copied)
+    }
+}
+
+impl std::io::Seek for Bridge {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        use std::convert::TryInto;
+        use std::io::{Error, ErrorKind};
+        let new_offset = match pos {
+            std::io::SeekFrom::End(_) => Err(Error::new(
+                ErrorKind::AddrNotAvailable,
+                "cannot seek from end",
+            ))?,
+            std::io::SeekFrom::Current(add) => {
+                if add > 0 {
+                    self.offset + (add as usize)
+                } else {
+                    self.offset - (-add as usize)
+                }
+            }
+            std::io::SeekFrom::Start(offset) => offset as usize,
+        };
+        self.offset += new_offset;
+        Ok(self.offset.try_into().unwrap())
     }
 }
