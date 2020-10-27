@@ -414,25 +414,34 @@ impl std::io::Read for Bridge {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let _mtx = self.mutex.lock().unwrap();
         let addr = self.offset as _;
+        use std::convert::TryInto;
         use std::io::{Error, ErrorKind};
-        let value = match &self.core {
+
+        fn fill_array(src: &[u8], dest: &mut [u8]) -> usize {
+            let mut fill_bytes = 0;
+            for (s, d) in src.iter().zip(dest) {
+                *d = *s;
+                fill_bytes += 1;
+            }
+            fill_bytes
+        }
+
+        let copied = match &self.core {
             #[cfg(feature = "ethernet")]
-            BridgeCore::EthernetBridge(b) => b.peek(addr),
+            BridgeCore::EthernetBridge(b) => b.peek(addr).map(|v| fill_array(&v.to_le_bytes(), buf)),
             #[cfg(feature = "pcie")]
-            BridgeCore::PCIeBridge(b) => b.peek(addr),
+            BridgeCore::PCIeBridge(b) => b.peek(addr).map(|v| fill_array(&v.to_le_bytes(), buf)),
             #[cfg(feature = "spi")]
-            BridgeCore::SpiBridge(b) => b.peek(addr),
+            BridgeCore::SpiBridge(b) => b.peek(addr).map(|v| fill_array(&v.to_le_bytes(), buf)),
             #[cfg(feature = "uart")]
-            BridgeCore::UartBridge(b) => b.peek(addr),
+            BridgeCore::UartBridge(b) => b.peek(addr).map(|v| fill_array(&v.to_le_bytes(), buf)),
             #[cfg(feature = "usb")]
-            BridgeCore::UsbBridge(b) => b.peek(addr),
-       }.map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-       let mut read_bytes = 0;
-       for (src, dest) in value.to_le_bytes().iter().zip(buf) {
-           *dest = *src;
-           read_bytes +=1;
-       }
-       self.offset += read_bytes;
-       Ok(read_bytes)
+            BridgeCore::UsbBridge(b) => b
+                .burst_read(addr, buf.len().try_into().unwrap())
+                .map(|v| fill_array(&v, buf)),
+        }
+        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+        self.offset += copied;
+        Ok(copied)
     }
 }
