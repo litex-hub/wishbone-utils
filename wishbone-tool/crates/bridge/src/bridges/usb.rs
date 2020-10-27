@@ -574,7 +574,7 @@ impl UsbBridgeInner {
         }
     }
 
-    pub fn burst_write(&self, addr: u32, data: &Vec<u8>) -> Result<(), BridgeError> {
+    pub fn burst_write(&self, addr: u32, data: &[u8]) -> Result<(), BridgeError> {
         let &(ref lock, ref cvar) = &*self.main_rx;
         let mut _mtx = lock.lock().unwrap();
         let local_data = data.to_vec();
