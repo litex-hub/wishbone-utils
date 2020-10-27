@@ -133,7 +133,13 @@ pub enum BridgeCore {
 /// ```
 #[derive(Clone)]
 pub struct Bridge {
+    /// Implementation-specific bridge core
     core: BridgeCore,
+
+    /// Current offset for `Read` and `Write` operations
+    offset: usize,
+
+    /// A Mutex to enforce only a single operation at a time
     mutex: Arc<Mutex<()>>,
 }
 
@@ -216,26 +222,31 @@ impl Bridge {
             BridgeConfig::EthernetBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::EthernetBridge(EthernetBridgeInner::new(bridge_cfg)?),
+                offset: 0,
             }),
             #[cfg(feature = "pcie")]
             BridgeConfig::PCIeBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::PCIeBridge(PCIeBridgeInner::new(bridge_cfg)?),
+                offset: 0,
             }),
             #[cfg(feature = "spi")]
             BridgeConfig::SpiBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::SpiBridge(SpiBridgeInner::new(bridge_cfg)?),
+                offset: 0,
             }),
             #[cfg(feature = "uart")]
             BridgeConfig::UartBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::UartBridge(UartBridgeInner::new(bridge_cfg)?),
+                offset: 0,
             }),
             #[cfg(feature = "usb")]
             BridgeConfig::UsbBridge(bridge_cfg) => Ok(Bridge {
                 mutex,
                 core: BridgeCore::UsbBridge(UsbBridgeInner::new(bridge_cfg)?),
+                offset: 0,
             }),
         }
     }
