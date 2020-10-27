@@ -409,3 +409,30 @@ impl Bridge {
         }
     }
 }
+
+impl std::io::Read for Bridge {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let _mtx = self.mutex.lock().unwrap();
+        let addr = self.offset as _;
+        use std::io::{Error, ErrorKind};
+        let value = match &self.core {
+            #[cfg(feature = "ethernet")]
+            BridgeCore::EthernetBridge(b) => b.peek(addr),
+            #[cfg(feature = "pcie")]
+            BridgeCore::PCIeBridge(b) => b.peek(addr),
+            #[cfg(feature = "spi")]
+            BridgeCore::SpiBridge(b) => b.peek(addr),
+            #[cfg(feature = "uart")]
+            BridgeCore::UartBridge(b) => b.peek(addr),
+            #[cfg(feature = "usb")]
+            BridgeCore::UsbBridge(b) => b.peek(addr),
+       }.map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+       let mut read_bytes = 0;
+       for (src, dest) in value.to_le_bytes().iter().zip(buf) {
+           *dest = *src;
+           read_bytes +=1;
+       }
+       self.offset += read_bytes;
+       Ok(read_bytes)
+    }
+}
