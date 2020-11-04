@@ -14,6 +14,9 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
+mod utra;
+use utra::*;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ServerKind {
     /// DevMem2 equivalent
@@ -36,6 +39,9 @@ pub enum ServerKind {
 
     /// View the messible
     Messible,
+
+    /// Flash programming
+    FlashProgram,
 }
 
 #[derive(Debug)]
@@ -98,6 +104,7 @@ impl ServerKind {
             "terminal" => Ok(ServerKind::Terminal),
             "messible" => Ok(ServerKind::Messible),
             "memory-access" => Ok(ServerKind::MemoryAccess),
+            "flash-program" => Ok(ServerKind::FlashProgram),
             unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
         }
     }
@@ -455,6 +462,52 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             }
         } else {
             error!("No load address specified");
+        }
+    } else {
+        println!("No filename specified!");
+    }
+    Ok(())
+}
+
+pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
+    info!("Got to flash_program");
+    let spinor_base: u32;
+    if false {
+        spinor_base = cfg
+            .register_mapping
+            .get("spinor")
+            .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?.unwrap();
+    } else {
+        spinor_base = 0xf0013000;
+        info!("WARNING: Using hard-coded spinor_base of 0x{:08x}", spinor_base);
+    }
+
+    let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+
+    if let Some(file_name) = &cfg.load_name {
+        if let Some(addr) = cfg.load_addr {
+
+            use std::io::Read;
+            info!("Burning contents of {} to 0x{:08x}", file_name, addr);
+            let mut f = File::open(file_name)?;
+            let mut data: Vec<u8> = vec![];
+            f.read_to_end(&mut data)?;
+            info!("{} total bytes", data.len());
+
+            bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+            bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+              | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x9f)
+              | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
+              | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 2)
+              | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+            )?;
+            let code = bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)?;
+            println!("ID code: 0x{:08x}", code);
+
+            // bridge.flash_program(addr, &data)?;
+        } else {
+            error!("No target address specified");
         }
     } else {
         println!("No filename specified!");

@@ -408,6 +408,36 @@ impl Bridge {
             }
         }
     }
+
+    /*
+    pub fn flash_program(&self, addr: u32, data: &Vec<u8>) -> Result<(), BridgeError> {
+        let _mtx = self.mutex.lock().unwrap();
+        loop {
+            let result = match &self.core {
+                #[cfg(feature = "ethernet")]
+                BridgeCore::EthernetBridge(_b) => return Err(BridgeError::ProtocolNotSupported),
+                #[cfg(feature = "pcie")]
+                BridgeCore::PCIeBridge(_b) => return Err(BridgeError::ProtocolNotSupported),
+                #[cfg(feature = "spi")]
+                BridgeCore::SpiBridge(_b) => return Err(BridgeError::ProtocolNotSupported),
+                #[cfg(feature = "uart")]
+                BridgeCore::UartBridge(_b) => return Err(BridgeError::ProtocolNotSupported),
+                #[cfg(feature = "usb")]
+                BridgeCore::UsbBridge(b) => b.flash_program(addr, data),
+            };
+            #[allow(unreachable_code)] // Only possible when no features are enabled (compile error)
+            if let Err(e) = result {
+                #[cfg(feature = "usb")]
+                if let BridgeError::USBError(libusb_wishbone_tool::Error::Pipe) = e {
+                    debug!("USB device disconnected, forcing early return");
+                    return Err(e);
+                }
+                debug!("Flash program failed, trying again: {:?}", e);
+            } else {
+                return result;
+            }
+        }
+    }*/
 }
 
 impl std::io::Read for Bridge {
