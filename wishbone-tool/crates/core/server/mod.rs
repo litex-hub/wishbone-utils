@@ -60,6 +60,10 @@ pub enum ServerError {
 
     /// The specified address was not in mappable range
     UnmappableAddress(String),
+    FlashError(
+        u32,  // expected
+        u32,  // observed
+    ),
 }
 
 impl std::convert::From<io::Error> for ServerError {
@@ -482,8 +486,6 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
         info!("WARNING: Using hard-coded spinor_base of 0x{:08x}", spinor_base);
     }
 
-    let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
-
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
 
@@ -493,19 +495,217 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             let mut data: Vec<u8> = vec![];
             f.read_to_end(&mut data)?;
             info!("{} total bytes", data.len());
+            if data.len() == 0 {
+                return Ok(())
+            }
 
-            bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
-            bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
-                spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
-              | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x9f)
-              | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
-              | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 2)
-              | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
-            )?;
-            let code = bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)?;
-            println!("ID code: 0x{:08x}", code);
+            // note to those referring to this as reference code for local hardware:
+            // WIP bit must be consulted when running from the local CPU, as it runs much faster
+            // than the command state machines can finish. However, via USB we can safely assume
+            // all commands complete issuing before the next USB packet can arrive.
 
-            // bridge.flash_program(addr, &data)?;
+            let flash_rdsr = |lock_reads: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                      spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                    | spinor_csr.ms(spinor::COMMAND_LOCK_READS, lock_reads)
+                    | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x05) // RDSR
+                    | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
+                    | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 1)
+                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                )?;
+                bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
+            };
+
+            let flash_rdscur = || {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                      spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                    | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                    | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x2B) // RDSCUR
+                    | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
+                    | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 1)
+                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                )?;
+                bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
+            };
+
+            let flash_rdid = |offset: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x9f)  // RDID
+                  | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
+                  | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, offset) // 2 -> 0x3b3b8080, // 1 -> 0x8080c2c2
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                )?;
+                bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
+            };
+
+            let flash_wren = || {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x06)  // WREN
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            let flash_wrdi = || {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x04)  // WRDI
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            let flash_se4b = |sector_address: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, sector_address)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x21)  // SE4B
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            let flash_pp4b = |address: u32, data_bytes: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, address)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x12)  // PP4B
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                  | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, data_bytes / 2)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            ///////// ID code check
+            let code = flash_rdid(1)?;
+            println!("ID code bytes 1-2: 0x{:08x}", code);
+            if code != 0x8080c2c2 {
+                error!("ID code mismatch");
+                return Err(ServerError::FlashError(0x8080c2c2, code));
+            }
+            let code = flash_rdid(2)?;
+            println!("ID code bytes 2-3: 0x{:08x}", code);
+            if code != 0x3b3b8080 {
+                error!("ID code mismatch");
+                return Err(ServerError::FlashError(0x3b3b8080, code));
+            }
+
+            //////// block erase
+            loop {
+                flash_wren()?;
+                let status = flash_rdsr(1)?;
+                println!("WREN: FLASH status register: 0x{:08x}", status);
+                if status & 0x02 != 0 {
+                    break;
+                }
+            }
+
+            flash_se4b(0x80_0000)?;
+
+            loop {
+                let status = flash_rdsr(1)?;
+                println!("SE4B: FLASH status register: 0x{:08x}", status);
+                if status & 0x01 == 0 {
+                    break;
+                }
+            }
+
+            let result = flash_rdscur()?;
+            println!("erase result: 0x{:08x}", result);
+            if result & 0x60 != 0 {
+                error!("E_FAIL/P_FAIL set, programming may have failed.")
+            }
+
+            if flash_rdsr(1)? & 0x02 != 0 {
+                flash_wrdi()?;
+                loop {
+                    let status = flash_rdsr(1)?;
+                    println!("WRDI: FLASH status register: 0x{:08x}", status);
+                    if status & 0x02 == 0 {
+                        break;
+                    }
+                }
+            }
+
+
+            ////////// program
+            // pre-load the page program buffer. note that data.len() must be even
+            if data.len() % 2 != 0 {
+                data.push(0xff);  // add a "blank" byte to the end to get us to an even number of bytes
+            }
+
+            let mut written = 0;
+            while written < data.len() {
+                let chunklen: usize;
+                if data.len() - written > 256 {
+                    chunklen = 256;
+                } else {
+                    chunklen = data.len() - written;
+                }
+
+                loop {
+                    flash_wren()?;
+                    let status = flash_rdsr(1)?;
+                    println!("WREN: FLASH status register: 0x{:08x}", status);
+                    if status & 0x02 != 0 {
+                        break;
+                    }
+                }
+
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                for i in 0..chunklen / 2 {
+                    let word = data[i*2 + written] as u16 | ((data[i*2 + 1 + written] as u16) << 8);
+                    println!("program: index {}, word 0x{:04x}", i, word);
+                    bridge.poke(spinor_base + (spinor::WDATA.offset as u32) * 4,
+                        spinor_csr.ms(spinor::WDATA_WDATA, word as u32)
+                    )?;
+                }
+
+                println!("PP4B: processing chunk of length {} bytes from offset 0x{:08x}", chunklen, 0x80_0000 + written);
+                flash_pp4b(0x80_0000 + written as u32, chunklen as u32)?;
+
+                loop {
+                    let status = flash_rdsr(1)?;
+                    println!("PP4B: FLASH status register: 0x{:08x}", status);
+                    if status & 0x01 == 0 {
+                        break;
+                    }
+                }
+
+                let result = flash_rdscur()?;
+                println!("program result: 0x{:08x}", result);
+                if result & 0x60 != 0 {
+                    error!("E_FAIL/P_FAIL set, programming may have failed.")
+                }
+                written += chunklen;
+            }
+
+
+            if flash_rdsr(1)? & 0x02 != 0 {
+                flash_wrdi()?;
+                loop {
+                    let status = flash_rdsr(1)?;
+                    println!("WRDI: FLASH status register: 0x{:08x}", status);
+                    if status & 0x02 == 0 {
+                        break;
+                    }
+                }
+            }
+
+            flash_rdsr(0)?; // dummy read clears the "read lock" bit
+
         } else {
             error!("No target address specified");
         }

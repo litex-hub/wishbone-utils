@@ -160,8 +160,8 @@ pub mod spinor {
     pub const COMMAND_CMD_CODE: Field = Field::new(8, 2, COMMAND);
     pub const COMMAND_HAS_ARG: Field = Field::new(1, 10, COMMAND);
     pub const COMMAND_DUMMY_CYCLES: Field = Field::new(5, 11, COMMAND);
-    pub const COMMAND_DATA_WORDS: Field = Field::new(7, 16, COMMAND);
-    pub const COMMAND_LOCK_READS: Field = Field::new(1, 23, COMMAND);
+    pub const COMMAND_DATA_WORDS: Field = Field::new(8, 16, COMMAND);
+    pub const COMMAND_LOCK_READS: Field = Field::new(1, 24, COMMAND);
 
     pub const CMD_ARG: Register = Register::new(4);
     pub const CMD_ARG_CMD_ARG: Field = Field::new(32, 0, CMD_ARG);
