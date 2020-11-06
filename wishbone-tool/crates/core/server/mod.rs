@@ -475,15 +475,23 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
 pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     info!("Got to flash_program");
+    println!("yo");
     let spinor_base: u32;
-    if false {
+    let flash_region: u32;
+    if true {
         spinor_base = cfg
             .register_mapping
             .get("spinor")
             .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?.unwrap();
+        flash_region = cfg
+            .register_mapping
+            .get("spiflash")
+            .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?.unwrap();
     } else {
         spinor_base = 0xf0013000;
         info!("WARNING: Using hard-coded spinor_base of 0x{:08x}", spinor_base);
+        flash_region = 0x2000_0000;
+        info!("WARNING: Using hard-coded FLASH base of 0x{:08x}", flash_region);
     }
 
     if let Some(file_name) = &cfg.load_name {
@@ -496,7 +504,12 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             f.read_to_end(&mut data)?;
             info!("{} total bytes", data.len());
             if data.len() == 0 {
-                return Ok(())
+                return Ok(());
+            }
+
+            if addr + data.len() as u32 >= 0x0800_0000 {
+                error!("Write data out of bounds! Aborting.");
+                return Err(ServerError::UnmappableAddress((addr + data.len() as u32).to_string()));
             }
 
             // note to those referring to this as reference code for local hardware:
@@ -576,6 +589,17 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 )
             };
 
+            let flash_be4b = |block_address: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, block_address)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0xdc)  // BE4B
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
             let flash_pp4b = |address: u32, data_bytes: u32| {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
                 bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, address)?;
@@ -612,11 +636,11 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 }
             }
 
-            flash_se4b(0x80_0000)?;
+            flash_be4b(0x80_0000)?;
 
             loop {
                 let status = flash_rdsr(1)?;
-                println!("SE4B: FLASH status register: 0x{:08x}", status);
+                println!("BE4B: FLASH status register: 0x{:08x}", status);
                 if status & 0x01 == 0 {
                     break;
                 }
@@ -642,8 +666,19 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             ////////// program
             // pre-load the page program buffer. note that data.len() must be even
-            if data.len() % 2 != 0 {
-                data.push(0xff);  // add a "blank" byte to the end to get us to an even number of bytes
+            if data.len() % 4 != 0 { // add "blank" bytes to the end to get us to a 32-bit aligned number of bytes
+                if data.len() % 4 == 1 {
+                    data.push(0xff);
+                    data.push(0xff);
+                    data.push(0xff);
+                }
+                if data.len() % 4 == 2 {
+                    data.push(0xff);
+                    data.push(0xff);
+                }
+                if data.len() % 4 == 3 {
+                    data.push(0xff);
+                }
             }
 
             let mut written = 0;
@@ -664,17 +699,26 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                     }
                 }
 
-                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
-                for i in 0..chunklen / 2 {
-                    let word = data[i*2 + written] as u16 | ((data[i*2 + 1 + written] as u16) << 8);
-                    println!("program: index {}, word 0x{:04x}", i, word);
-                    bridge.poke(spinor_base + (spinor::WDATA.offset as u32) * 4,
-                        spinor_csr.ms(spinor::WDATA_WDATA, word as u32)
-                    )?;
+                if false {
+                    let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                    for i in 0..chunklen / 2 {
+                        let word = data[i*2 + written] as u16 | ((data[i*2 + 1 + written] as u16) << 8);
+                        println!("program: index {}, word 0x{:04x}", i, word);
+                        bridge.poke(spinor_base + (spinor::WDATA.offset as u32) * 4,
+                            spinor_csr.ms(spinor::WDATA_WDATA, word as u32)
+                        )?;
+                    }
+                } else {
+                    let mut page: Vec<u8> = vec![];
+                    for i in 0..chunklen {
+                        page.push(data[written + i]);
+                        // println!("program: index {}, 0x{:02x}", i, data[written + i]);
+                    }
+                    bridge.burst_write(flash_region, &page)?;
                 }
 
                 println!("PP4B: processing chunk of length {} bytes from offset 0x{:08x}", chunklen, 0x80_0000 + written);
-                flash_pp4b(0x80_0000 + written as u32, chunklen as u32)?;
+                flash_pp4b(addr + written as u32, chunklen as u32)?;
 
                 loop {
                     let status = flash_rdsr(1)?;

@@ -338,13 +338,15 @@ fn main() -> Result<(), String> {
             format!("address was not in mappable range: {}", s)
         }
     })?;
-
+    println!("hithere1 ");
     bridge
         .connect()
         .map_err(|e| format!("unable to connect to bridge: {}", e))?;
 
+    println!("hithere2");
     let cfg = Arc::new(cfg);
     let mut threads = vec![];
+    println!("hithere3");
     for server_kind in cfg.server_kind.iter() {
         use std::thread;
         let bridge = bridge.clone();

@@ -327,12 +327,14 @@ impl Config {
         } else {
             None
         };
+        println!("memory address: 0x{:08x}", memory_address.unwrap());
 
         if server_kind.is_empty() {
             if memory_address.is_none() {
                 return Err(ConfigError::NoOperationSpecified);
             }
             server_kind.push(ServerKind::MemoryAccess);
+            println!("serverkind is memoryaccess");
         }
 
         // Validate the configuration is correct
@@ -358,6 +360,7 @@ impl Config {
                 }
             }
             if server_kind.contains(&ServerKind::FlashProgram) {
+                println!("server knid is flashprogram");
                 if !(register_mapping.contains_key("spinor")
                  ) {
                     return Err(ConfigError::InvalidConfig(
@@ -449,6 +452,11 @@ impl Config {
                         }
                     }
                     "memory_region" => {
+                        let region = &r[1];
+                        let base_addr = parse_u32(&r[2])?;
+                        map.insert(region.to_string().to_lowercase(), Some(base_addr));
+                    }
+                    "csr_base" => {
                         let region = &r[1];
                         let base_addr = parse_u32(&r[2])?;
                         map.insert(region.to_string().to_lowercase(), Some(base_addr));

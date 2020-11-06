@@ -8,7 +8,7 @@ use log::{debug, error, info};
 use crate::{Bridge, BridgeConfig, BridgeError};
 
 /// Connect to a target device via USB.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct UsbBridge {
     /// If specified, indicate the USB product ID to match.
     pid: Option<u16>,
@@ -82,6 +82,7 @@ pub struct UsbBridgeInner {
     poll_thread: Option<thread::JoinHandle<()>>,
 }
 
+#[derive(Debug)]
 enum ConnectThreadRequests {
     StartPolling(Option<u16> /* vid */, Option<u16> /* pid */),
     Exit,
@@ -195,6 +196,7 @@ impl UsbBridgeInner {
         mut cfg: UsbBridge,
         debug_byte: u8,
     ) {
+        println!("cfg: {:?}", cfg);
         let mut print_waiting_message = true;
         let mut first_open = true;
         let &(ref response, ref cvar) = &*tx;
@@ -210,12 +212,14 @@ impl UsbBridgeInner {
                                 device.address(),
                                 device.bus_number()
                             );
+                            println!("hi2");
                             if first_open {
                                 *response.lock().unwrap() =
                                     Some(ConnectThreadResponses::OpenedDevice);
                                 cvar.notify_one();
                                 first_open = false;
                             }
+                            println!("hi3");
                             print_waiting_message = true;
                             o
                         }
@@ -226,7 +230,9 @@ impl UsbBridgeInner {
                     };
                     let mut keep_going = true;
                     while keep_going {
+                        println!("hi4");
                         let var = rx.recv();
+                        println!("hi5 {:?}", var);
                         match var {
                             Err(e) => panic!("error in connect thread: {}", e),
                             Ok(o) => match o {
