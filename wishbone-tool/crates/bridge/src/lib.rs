@@ -266,7 +266,7 @@ impl Bridge {
             #[cfg(feature = "uart")]
             BridgeCore::UartBridge(b) => b.connect(),
             #[cfg(feature = "usb")]
-            BridgeCore::UsbBridge(b) => {println!("attempting usb connection"); b.connect()},
+            BridgeCore::UsbBridge(b) => b.connect(),
         }
     }
 

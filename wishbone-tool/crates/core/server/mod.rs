@@ -16,6 +16,7 @@ use std::time::Duration;
 
 mod utra;
 use utra::*;
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ServerKind {
@@ -473,26 +474,23 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     Ok(())
 }
 
+// demo of burn performance: https://asciinema.org/a/j2HfItVBwRbdimuFMvplRA4DT
 pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
-    info!("Got to flash_program");
-    println!("yo");
     let spinor_base: u32;
     let flash_region: u32;
-    if true {
-        spinor_base = cfg
-            .register_mapping
-            .get("spinor")
-            .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?.unwrap();
-        flash_region = cfg
-            .register_mapping
-            .get("spiflash")
-            .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?.unwrap();
-    } else {
-        spinor_base = 0xf0013000;
-        info!("WARNING: Using hard-coded spinor_base of 0x{:08x}", spinor_base);
-        flash_region = 0x2000_0000;
-        info!("WARNING: Using hard-coded FLASH base of 0x{:08x}", flash_region);
-    }
+    let reset_addr: u32;
+    spinor_base = cfg
+        .register_mapping
+        .get("spinor")
+        .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?.unwrap();
+    flash_region = cfg
+        .register_mapping
+        .get("spiflash")
+        .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?.unwrap();
+    reset_addr = cfg
+        .register_mapping
+        .get("ctrl_reset")
+        .ok_or(ServerError::UnmappableAddress("ctrl_reset".to_string()))?.unwrap();
 
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
@@ -614,55 +612,76 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             ///////// ID code check
             let code = flash_rdid(1)?;
-            println!("ID code bytes 1-2: 0x{:08x}", code);
+            info!("ID code bytes 1-2: 0x{:08x}", code);
             if code != 0x8080c2c2 {
                 error!("ID code mismatch");
                 return Err(ServerError::FlashError(0x8080c2c2, code));
             }
             let code = flash_rdid(2)?;
-            println!("ID code bytes 2-3: 0x{:08x}", code);
+            info!("ID code bytes 2-3: 0x{:08x}", code);
             if code != 0x3b3b8080 {
                 error!("ID code mismatch");
                 return Err(ServerError::FlashError(0x3b3b8080, code));
             }
 
             //////// block erase
-            loop {
-                flash_wren()?;
-                let status = flash_rdsr(1)?;
-                println!("WREN: FLASH status register: 0x{:08x}", status);
-                if status & 0x02 != 0 {
-                    break;
+            let mut erased = 0;
+            let pb = ProgressBar::new(data.len() as u64);
+            pb.set_style(ProgressStyle::default_bar()
+            .template("{spinner:.yellow} [{elapsed_precise}] [{bar:40.red/magenta}] {bytes}/{total_bytes} ({eta})")
+            .progress_chars("#>-"));
+            while erased < data.len() {
+                let blocksize;
+                if data.len() - erased > 4096 {
+                    blocksize = 4096;
+                } else {
+                    blocksize = 65536;
                 }
-            }
 
-            flash_be4b(0x80_0000)?;
-
-            loop {
-                let status = flash_rdsr(1)?;
-                println!("BE4B: FLASH status register: 0x{:08x}", status);
-                if status & 0x01 == 0 {
-                    break;
-                }
-            }
-
-            let result = flash_rdscur()?;
-            println!("erase result: 0x{:08x}", result);
-            if result & 0x60 != 0 {
-                error!("E_FAIL/P_FAIL set, programming may have failed.")
-            }
-
-            if flash_rdsr(1)? & 0x02 != 0 {
-                flash_wrdi()?;
                 loop {
+                    flash_wren()?;
                     let status = flash_rdsr(1)?;
-                    println!("WRDI: FLASH status register: 0x{:08x}", status);
-                    if status & 0x02 == 0 {
+                    // println!("WREN: FLASH status register: 0x{:08x}", status);
+                    if status & 0x02 != 0 {
                         break;
                     }
                 }
-            }
 
+                if blocksize <= 4096 {
+                    flash_se4b(addr + erased as u32)?;
+                } else {
+                    flash_be4b(addr + erased as u32)?;
+                }
+                erased += blocksize;
+
+                loop {
+                    let status = flash_rdsr(1)?;
+                    // println!("BE4B: FLASH status register: 0x{:08x}", status);
+                    if status & 0x01 == 0 {
+                        break;
+                    }
+                }
+
+                let result = flash_rdscur()?;
+                // println!("erase result: 0x{:08x}", result);
+                if result & 0x60 != 0 {
+                    error!("E_FAIL/P_FAIL set, programming may have failed.")
+                }
+
+                if flash_rdsr(1)? & 0x02 != 0 {
+                    flash_wrdi()?;
+                    loop {
+                        let status = flash_rdsr(1)?;
+                        // println!("WRDI: FLASH status register: 0x{:08x}", status);
+                        if status & 0x02 == 0 {
+                            break;
+                        }
+                    }
+                }
+                // use "min" because we erase block size is typically not evenly divided with program size
+                pb.set_position(std::cmp::min(erased, data.len()) as u64);
+            }
+            pb.finish_with_message("Erase finished");
 
             ////////// program
             // pre-load the page program buffer. note that data.len() must be even
@@ -682,6 +701,11 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             }
 
             let mut written = 0;
+
+            let pb = ProgressBar::new(data.len() as u64);
+            pb.set_style(ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .progress_chars("#>-"));
             while written < data.len() {
                 let chunklen: usize;
                 if data.len() - written > 256 {
@@ -693,63 +717,81 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 loop {
                     flash_wren()?;
                     let status = flash_rdsr(1)?;
-                    println!("WREN: FLASH status register: 0x{:08x}", status);
+                    // println!("WREN: FLASH status register: 0x{:08x}", status);
                     if status & 0x02 != 0 {
                         break;
                     }
                 }
 
-                if false {
-                    let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
-                    for i in 0..chunklen / 2 {
-                        let word = data[i*2 + written] as u16 | ((data[i*2 + 1 + written] as u16) << 8);
-                        println!("program: index {}, word 0x{:04x}", i, word);
-                        bridge.poke(spinor_base + (spinor::WDATA.offset as u32) * 4,
-                            spinor_csr.ms(spinor::WDATA_WDATA, word as u32)
-                        )?;
-                    }
-                } else {
-                    let mut page: Vec<u8> = vec![];
-                    for i in 0..chunklen {
-                        page.push(data[written + i]);
-                        // println!("program: index {}, 0x{:02x}", i, data[written + i]);
-                    }
-                    bridge.burst_write(flash_region, &page)?;
+                let mut page: Vec<u8> = vec![];
+                for i in 0..chunklen {
+                    page.push(data[written + i]);
+                    // println!("program: index {}, 0x{:02x}", i, data[written + i]);
                 }
+                bridge.burst_write(flash_region, &page)?;
 
-                println!("PP4B: processing chunk of length {} bytes from offset 0x{:08x}", chunklen, 0x80_0000 + written);
+                // info!("PP4B: processing chunk of length {} bytes from offset 0x{:08x}", chunklen, 0x80_0000 + written);
                 flash_pp4b(addr + written as u32, chunklen as u32)?;
 
                 loop {
                     let status = flash_rdsr(1)?;
-                    println!("PP4B: FLASH status register: 0x{:08x}", status);
+                    // println!("PP4B: FLASH status register: 0x{:08x}", status);
                     if status & 0x01 == 0 {
                         break;
                     }
                 }
 
                 let result = flash_rdscur()?;
-                println!("program result: 0x{:08x}", result);
+                // println!("program result: 0x{:08x}", result);
                 if result & 0x60 != 0 {
                     error!("E_FAIL/P_FAIL set, programming may have failed.")
                 }
                 written += chunklen;
+                pb.set_position(written as u64);
             }
+            pb.finish_with_message("Write finished");
 
 
             if flash_rdsr(1)? & 0x02 != 0 {
                 flash_wrdi()?;
                 loop {
                     let status = flash_rdsr(1)?;
-                    println!("WRDI: FLASH status register: 0x{:08x}", status);
+                    // println!("WRDI: FLASH status register: 0x{:08x}", status);
                     if status & 0x02 == 0 {
                         break;
                     }
                 }
             }
 
-            flash_rdsr(0)?; // dummy read clears the "read lock" bit
+            // dummy reads to clear the "read lock" bit
+            flash_rdsr(0)?;
 
+            /////////// verify
+            info!("Performing readback for verification...");
+            let page = bridge.burst_read(addr + flash_region, data.len() as u32);
+            info!("Comparing results...");
+            match page {
+                Ok(array) => {
+                    let mut error_count = 0;
+                    for i in 0..array.len() {
+                        if data[i] != array[i] {
+                            error_count += 1;
+                        }
+                    }
+                    if error_count != 0 {
+                        info!("{} errors found in verification, programming failed", error_count);
+                    } else {
+                        info!("No errors found, programming passed");
+                    }
+                },
+                _ => {
+                    error!("Low-level error occured during verification readback.");
+                }
+            }
+
+            ////////// reset the CPU, under the presumption that code has changed and we should restart the CPU
+            info!("Resetting CPU now.");
+            bridge.poke(reset_addr, 1)?;
         } else {
             error!("No target address specified");
         }

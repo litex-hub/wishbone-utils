@@ -230,8 +230,6 @@ impl Config {
     pub fn parse(matches: ArgMatches) -> Result<(Self, Bridge), ConfigError> {
         let mut server_kind = vec![];
 
-        let bridge = Self::create_bridge(&matches)?;
-
         let load_name = matches.value_of("load-name").map(|n| n.to_owned());
         let load_flash = matches.is_present("load-flash");
         let load_addr = if let Some(addr) = matches.value_of("load-address") {
@@ -327,14 +325,12 @@ impl Config {
         } else {
             None
         };
-        println!("memory address: 0x{:08x}", memory_address.unwrap());
 
         if server_kind.is_empty() {
             if memory_address.is_none() {
                 return Err(ConfigError::NoOperationSpecified);
             }
             server_kind.push(ServerKind::MemoryAccess);
-            println!("serverkind is memoryaccess");
         }
 
         // Validate the configuration is correct
@@ -360,7 +356,6 @@ impl Config {
                 }
             }
             if server_kind.contains(&ServerKind::FlashProgram) {
-                println!("server knid is flashprogram");
                 if !(register_mapping.contains_key("spinor")
                  ) {
                     return Err(ConfigError::InvalidConfig(
@@ -375,6 +370,8 @@ impl Config {
         let hexdump = matches.is_present("hexdump");
 
         let burst_source = matches.value_of("burst-source").map(|n| n.to_owned());
+
+        let bridge = Self::create_bridge(&matches)?;
 
         Ok((
             Config {

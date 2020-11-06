@@ -170,20 +170,21 @@ impl UsbBridgeInner {
     }
 
     pub fn connect(&self) -> Result<(), BridgeError> {
-        self.main_tx
+        loop {
+            let &(ref lock, ref cvar) = &*self.main_rx;
+            let mut _mtx = lock.lock().unwrap();
+            self.main_tx
             .send(ConnectThreadRequests::StartPolling(
                 self.usb_pid,
                 self.usb_vid,
             ))
             .unwrap();
-        loop {
-            let &(ref lock, ref cvar) = &*self.main_rx;
-            let mut _mtx = lock.lock().unwrap();
             *_mtx = None;
             while _mtx.is_none() {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
-            if let Some(ConnectThreadResponses::OpenedDevice) = _mtx.take() {
+            let result = _mtx.take();
+            if let Some(ConnectThreadResponses::OpenedDevice) = result {
                 return Ok(());
             }
         }
@@ -196,7 +197,6 @@ impl UsbBridgeInner {
         mut cfg: UsbBridge,
         debug_byte: u8,
     ) {
-        println!("cfg: {:?}", cfg);
         let mut print_waiting_message = true;
         let mut first_open = true;
         let &(ref response, ref cvar) = &*tx;
@@ -212,14 +212,12 @@ impl UsbBridgeInner {
                                 device.address(),
                                 device.bus_number()
                             );
-                            println!("hi2");
                             if first_open {
                                 *response.lock().unwrap() =
                                     Some(ConnectThreadResponses::OpenedDevice);
                                 cvar.notify_one();
                                 first_open = false;
                             }
-                            println!("hi3");
                             print_waiting_message = true;
                             o
                         }
@@ -230,9 +228,7 @@ impl UsbBridgeInner {
                     };
                     let mut keep_going = true;
                     while keep_going {
-                        println!("hi4");
                         let var = rx.recv();
-                        println!("hi5 {:?}", var);
                         match var {
                             Err(e) => panic!("error in connect thread: {}", e),
                             Ok(o) => match o {
