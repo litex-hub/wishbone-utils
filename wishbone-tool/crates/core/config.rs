@@ -228,8 +228,6 @@ impl Config {
     pub fn parse(matches: ArgMatches) -> Result<(Self, Bridge), ConfigError> {
         let mut server_kind = vec![];
 
-        let bridge = Self::create_bridge(&matches)?;
-
         let load_name = matches.value_of("load-name").map(|n| n.to_owned());
         let load_addr = if let Some(addr) = matches.value_of("load-address") {
             if load_name.is_none() {
@@ -357,6 +355,8 @@ impl Config {
         let hexdump = matches.is_present("hexdump");
 
         let burst_source = matches.value_of("burst-source").map(|n| n.to_owned());
+
+        let bridge = Self::create_bridge(&matches)?;
 
         Ok((
             Config {
