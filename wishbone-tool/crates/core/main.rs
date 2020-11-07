@@ -304,6 +304,22 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
             .display_order(30)
             .takes_value(true),
         )
+
+        .arg(
+            Arg::with_name("flash-no-reset")
+            .long("flash-no-reset")
+            .help("Don't reset the CPU after resuming")
+            .display_order(31)
+            .takes_value(false),
+        )
+
+        .arg(
+            Arg::with_name("careful-flashing")
+            .long("careful-flashing")
+            .help("Check all intermediate results from burning, instead of just relying on post-flash readback verification. Roughly doubles programming time.")
+            .display_order(32)
+            .takes_value(false),
+        )
 }
 
 fn main() -> Result<(), String> {

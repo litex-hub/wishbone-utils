@@ -106,6 +106,8 @@ pub struct Config {
     pub burst_length: u32,
     pub hexdump: bool,
     pub burst_source: Option<String>,
+    pub flash_no_reset: bool,
+    pub careful_flashing: bool,
 }
 
 impl Default for Config {
@@ -130,6 +132,8 @@ impl Default for Config {
             burst_length: 4,
             hexdump: false,
             burst_source: None,
+            flash_no_reset: false,
+            careful_flashing: false,
         }
     }
 }
@@ -368,6 +372,8 @@ impl Config {
 
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
         let hexdump = matches.is_present("hexdump");
+        let flash_no_reset = matches.is_present("flash-no-reset");
+        let careful_flashing = matches.is_present("careful-flashing");
 
         let burst_source = matches.value_of("burst-source").map(|n| n.to_owned());
 
@@ -394,6 +400,8 @@ impl Config {
                 burst_length,
                 hexdump,
                 burst_source,
+                flash_no_reset,
+                careful_flashing,
             },
             bridge,
         ))

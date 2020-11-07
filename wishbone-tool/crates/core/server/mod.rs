@@ -479,6 +479,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let spinor_base: u32;
     let flash_region: u32;
     let reset_addr: u32;
+    let vexriscv_debug_addr: u32;
     spinor_base = cfg
         .register_mapping
         .get("spinor")
@@ -491,6 +492,10 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
         .register_mapping
         .get("ctrl_reset")
         .ok_or(ServerError::UnmappableAddress("ctrl_reset".to_string()))?.unwrap();
+    vexriscv_debug_addr = cfg
+        .register_mapping
+        .get("vexriscv_debug")
+        .ok_or(ServerError::UnmappableAddress("vexriscv_debug".to_string()))?.unwrap();
 
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
@@ -609,6 +614,9 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                   | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
                 )
             };
+
+            info!("Halting CPU.");
+            bridge.poke(vexriscv_debug_addr, 0x00020000)?; // halt the CPU
 
             ///////// ID code check
             let code = flash_rdid(1)?;
@@ -733,18 +741,19 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 // info!("PP4B: processing chunk of length {} bytes from offset 0x{:08x}", chunklen, 0x80_0000 + written);
                 flash_pp4b(addr + written as u32, chunklen as u32)?;
 
-                loop {
-                    let status = flash_rdsr(1)?;
-                    // println!("PP4B: FLASH status register: 0x{:08x}", status);
-                    if status & 0x01 == 0 {
-                        break;
+                if cfg.careful_flashing {
+                    loop {
+                        let status = flash_rdsr(1)?;
+                        // println!("PP4B: FLASH status register: 0x{:08x}", status);
+                        if status & 0x01 == 0 {
+                            break;
+                        }
                     }
-                }
-
-                let result = flash_rdscur()?;
-                // println!("program result: 0x{:08x}", result);
-                if result & 0x60 != 0 {
-                    error!("E_FAIL/P_FAIL set, programming may have failed.")
+                    let result = flash_rdscur()?;
+                    // println!("program result: 0x{:08x}", result);
+                    if result & 0x60 != 0 {
+                        error!("E_FAIL/P_FAIL set, programming may have failed.")
+                    }
                 }
                 written += chunklen;
                 pb.set_position(written as u64);
@@ -788,10 +797,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                     error!("Low-level error occured during verification readback.");
                 }
             }
+            bridge.poke(vexriscv_debug_addr, 0x02000000)?; // resume the CPU
+            info!("Resuming CPU.");
 
             ////////// reset the CPU, under the presumption that code has changed and we should restart the CPU
-            info!("Resetting CPU now.");
-            bridge.poke(reset_addr, 1)?;
+            if !cfg.flash_no_reset {
+                info!("Resetting CPU.");
+                bridge.poke(reset_addr, 1)?;
+            }
         } else {
             error!("No target address specified");
         }
