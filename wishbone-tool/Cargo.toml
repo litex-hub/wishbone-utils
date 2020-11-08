@@ -35,3 +35,4 @@ flexi_logger = { version = "0", features = ["colors"] }
 wishbone-bridge = { path = "crates/bridge", version = "1" }
 # Support reading csr.csv
 csv = "1.1"
+indicatif = "0.15.0"

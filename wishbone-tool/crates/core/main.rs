@@ -3,6 +3,8 @@ extern crate bitflags;
 #[macro_use]
 extern crate clap;
 
+extern crate indicatif;
+
 use log::debug;
 
 mod config;
@@ -243,7 +245,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("load-name")
                 .long("load-name")
-                .help("LOAD_FILE: Name of the file to load into RAM")
+                .help("LOAD_FILE: Name of the file to load into RAM or FLASH (defaults to RAM unless load-flash is set)")
                 .takes_value(true)
                 .display_order(23),
         )
@@ -256,10 +258,17 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         .arg(
+            Arg::with_name("load-flash")
+                 .long("load-flash")
+                 .help("when specified, load-name and load-address attempt to load to FLASH")
+                 .display_order(25),
+        )
+
+        .arg(
             Arg::with_name("terminal-mouse")
                 .long("terminal-mouse")
                 .help("TERMINAL: enable capturing of mouse events")
-                .display_order(25)
+                .display_order(26)
                 .takes_value(false)
         )
 
@@ -267,7 +276,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("messible-address")
                 .long("messible-address")
                 .help("MESSIBLE: address to use to get messible messages from")
-                .display_order(26)
+                .display_order(27)
                 .takes_value(true),
         )
 
@@ -276,15 +285,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
             .long("burst-length")
             .help("Number of bytes in a burst (implies burst operation)")
             .default_value("4")
-            .display_order(27)
-            .takes_value(true),
-        )
-
-        .arg(
-            Arg::with_name("burst-source")
-            .long("burst-source")
-            .help("File for burst data input when sending data to device")
-            .display_order(29)
+            .display_order(28)
             .takes_value(true),
         )
 
@@ -292,7 +293,31 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("hexdump")
             .long("hexdump")
             .help("In conjunction with burst-length, report reads as text hexdumps, instead of binary data")
-            .display_order(28)
+            .display_order(29)
+            .takes_value(false),
+        )
+
+        .arg(
+            Arg::with_name("burst-source")
+            .long("burst-source")
+            .help("File for burst data input when sending data to device")
+            .display_order(30)
+            .takes_value(true),
+        )
+
+        .arg(
+            Arg::with_name("flash-no-reset")
+            .long("flash-no-reset")
+            .help("Don't reset the CPU after resuming")
+            .display_order(31)
+            .takes_value(false),
+        )
+
+        .arg(
+            Arg::with_name("careful-flashing")
+            .long("careful-flashing")
+            .help("Check all intermediate results from burning, instead of just relying on post-flash readback verification. Roughly doubles programming time.")
+            .display_order(32)
             .takes_value(false),
         )
 }
@@ -331,7 +356,6 @@ fn main() -> Result<(), String> {
             format!("address was not in mappable range: {}", s)
         }
     })?;
-
     bridge
         .connect()
         .map_err(|e| format!("unable to connect to bridge: {}", e))?;
@@ -352,6 +376,7 @@ fn main() -> Result<(), String> {
                 ServerKind::Terminal => server::terminal_client(&cfg, bridge),
                 ServerKind::MemoryAccess => server::memory_access(&cfg, bridge),
                 ServerKind::Messible => server::messible_client(&cfg, bridge),
+                ServerKind::FlashProgram => server::flash_program(&cfg, bridge),
             }
             .expect("couldn't start server");
             debug!("Exited {:?} thread", server_kind);

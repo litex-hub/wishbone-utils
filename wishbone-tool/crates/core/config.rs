@@ -101,10 +101,13 @@ pub struct Config {
     pub debug_offset: u32,
     pub load_name: Option<String>,
     pub load_addr: Option<u32>,
+    pub load_flash: bool,
     pub terminal_mouse: bool,
     pub burst_length: u32,
     pub hexdump: bool,
     pub burst_source: Option<String>,
+    pub flash_no_reset: bool,
+    pub careful_flashing: bool,
 }
 
 impl Default for Config {
@@ -124,10 +127,13 @@ impl Default for Config {
             debug_offset: 0,
             load_name: None,
             load_addr: None,
+            load_flash: false,
             terminal_mouse: false,
             burst_length: 4,
             hexdump: false,
             burst_source: None,
+            flash_no_reset: false,
+            careful_flashing: false,
         }
     }
 }
@@ -229,14 +235,18 @@ impl Config {
         let mut server_kind = vec![];
 
         let load_name = matches.value_of("load-name").map(|n| n.to_owned());
+        let load_flash = matches.is_present("load-flash");
         let load_addr = if let Some(addr) = matches.value_of("load-address") {
-            if load_name.is_none() {
+            if load_name.is_none() & !load_flash {
                 server_kind.push(ServerKind::MemoryAccess);
             }
             Some(parse_u32(addr)?)
         } else {
             None
         };
+        if load_addr.is_some() & load_name.is_some() & load_flash {
+            server_kind.push(ServerKind::FlashProgram);
+        }
 
         let memory_value = matches
             .value_of("value")
@@ -349,10 +359,21 @@ impl Config {
                     ));
                 }
             }
+            if server_kind.contains(&ServerKind::FlashProgram) {
+                if !(register_mapping.contains_key("spinor")
+                 ) {
+                    return Err(ConfigError::InvalidConfig(
+                        "Flash programming requested, but no spinor block present in csv file"
+                            .to_owned(),
+                    ));
+                 }
+            }
         }
 
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
         let hexdump = matches.is_present("hexdump");
+        let flash_no_reset = matches.is_present("flash-no-reset");
+        let careful_flashing = matches.is_present("careful-flashing");
 
         let burst_source = matches.value_of("burst-source").map(|n| n.to_owned());
 
@@ -374,10 +395,13 @@ impl Config {
                 debug_offset,
                 load_name,
                 load_addr,
+                load_flash,
                 terminal_mouse,
                 burst_length,
                 hexdump,
                 burst_source,
+                flash_no_reset,
+                careful_flashing,
             },
             bridge,
         ))
@@ -433,6 +457,11 @@ impl Config {
                         }
                     }
                     "memory_region" => {
+                        let region = &r[1];
+                        let base_addr = parse_u32(&r[2])?;
+                        map.insert(region.to_string().to_lowercase(), Some(base_addr));
+                    }
+                    "csr_base" => {
                         let region = &r[1];
                         let base_addr = parse_u32(&r[2])?;
                         map.insert(region.to_string().to_lowercase(), Some(base_addr));

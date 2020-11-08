@@ -8,7 +8,7 @@ use log::{debug, error, info};
 use crate::{Bridge, BridgeConfig, BridgeError};
 
 /// Connect to a target device via USB.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct UsbBridge {
     /// If specified, indicate the USB product ID to match.
     pid: Option<u16>,
@@ -82,6 +82,7 @@ pub struct UsbBridgeInner {
     poll_thread: Option<thread::JoinHandle<()>>,
 }
 
+#[derive(Debug)]
 enum ConnectThreadRequests {
     StartPolling(Option<u16> /* vid */, Option<u16> /* pid */),
     Exit,
@@ -169,20 +170,21 @@ impl UsbBridgeInner {
     }
 
     pub fn connect(&self) -> Result<(), BridgeError> {
-        self.main_tx
+        loop {
+            let &(ref lock, ref cvar) = &*self.main_rx;
+            let mut _mtx = lock.lock().unwrap();
+            self.main_tx
             .send(ConnectThreadRequests::StartPolling(
                 self.usb_pid,
                 self.usb_vid,
             ))
             .unwrap();
-        loop {
-            let &(ref lock, ref cvar) = &*self.main_rx;
-            let mut _mtx = lock.lock().unwrap();
             *_mtx = None;
             while _mtx.is_none() {
                 _mtx = cvar.wait(_mtx).unwrap();
             }
-            if let Some(ConnectThreadResponses::OpenedDevice) = _mtx.take() {
+            let result = _mtx.take();
+            if let Some(ConnectThreadResponses::OpenedDevice) = result {
                 return Ok(());
             }
         }

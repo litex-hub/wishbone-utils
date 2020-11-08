@@ -14,6 +14,10 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
+mod utra;
+use utra::*;
+use indicatif::{ProgressBar, ProgressStyle};
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ServerKind {
     /// DevMem2 equivalent
@@ -36,6 +40,9 @@ pub enum ServerKind {
 
     /// View the messible
     Messible,
+
+    /// Flash programming
+    FlashProgram,
 }
 
 #[derive(Debug)]
@@ -54,6 +61,10 @@ pub enum ServerError {
 
     /// The specified address was not in mappable range
     UnmappableAddress(String),
+    FlashError(
+        u32,  // expected
+        u32,  // observed
+    ),
 }
 
 impl std::convert::From<io::Error> for ServerError {
@@ -98,6 +109,7 @@ impl ServerKind {
             "terminal" => Ok(ServerKind::Terminal),
             "messible" => Ok(ServerKind::Messible),
             "memory-access" => Ok(ServerKind::MemoryAccess),
+            "flash-program" => Ok(ServerKind::FlashProgram),
             unknown => Err(ConfigError::UnknownServerKind(unknown.to_owned())),
         }
     }
@@ -455,6 +467,346 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             }
         } else {
             error!("No load address specified");
+        }
+    } else {
+        println!("No filename specified!");
+    }
+    Ok(())
+}
+
+// demo of burn performance: https://asciinema.org/a/j2HfItVBwRbdimuFMvplRA4DT
+pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
+    let spinor_base: u32;
+    let flash_region: u32;
+    let reset_addr: u32;
+    let vexriscv_debug_addr: u32;
+    spinor_base = cfg
+        .register_mapping
+        .get("spinor")
+        .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?.unwrap();
+    flash_region = cfg
+        .register_mapping
+        .get("spiflash")
+        .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?.unwrap();
+    reset_addr = cfg
+        .register_mapping
+        .get("ctrl_reset")
+        .ok_or(ServerError::UnmappableAddress("ctrl_reset".to_string()))?.unwrap();
+    vexriscv_debug_addr = cfg
+        .register_mapping
+        .get("vexriscv_debug")
+        .ok_or(ServerError::UnmappableAddress("vexriscv_debug".to_string()))?.unwrap();
+
+    if let Some(file_name) = &cfg.load_name {
+        if let Some(addr) = cfg.load_addr {
+
+            use std::io::Read;
+            info!("Burning contents of {} to 0x{:08x}", file_name, addr);
+            let mut f = File::open(file_name)?;
+            let mut data: Vec<u8> = vec![];
+            f.read_to_end(&mut data)?;
+            info!("{} total bytes", data.len());
+            if data.len() == 0 {
+                return Ok(());
+            }
+
+            if addr + data.len() as u32 >= 0x0800_0000 {
+                error!("Write data out of bounds! Aborting.");
+                return Err(ServerError::UnmappableAddress((addr + data.len() as u32).to_string()));
+            }
+
+            // note to those referring to this as reference code for local hardware:
+            // WIP bit must be consulted when running from the local CPU, as it runs much faster
+            // than the command state machines can finish. However, via USB we can safely assume
+            // all commands complete issuing before the next USB packet can arrive.
+
+            let flash_rdsr = |lock_reads: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                      spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                    | spinor_csr.ms(spinor::COMMAND_LOCK_READS, lock_reads)
+                    | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x05) // RDSR
+                    | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
+                    | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 1)
+                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                )?;
+                bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
+            };
+
+            let flash_rdscur = || {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                      spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                    | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                    | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x2B) // RDSCUR
+                    | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
+                    | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 1)
+                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                )?;
+                bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
+            };
+
+            let flash_rdid = |offset: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x9f)  // RDID
+                  | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
+                  | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, offset) // 2 -> 0x3b3b8080, // 1 -> 0x8080c2c2
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                )?;
+                bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
+            };
+
+            let flash_wren = || {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x06)  // WREN
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            let flash_wrdi = || {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x04)  // WRDI
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            let flash_se4b = |sector_address: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, sector_address)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x21)  // SE4B
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            let flash_be4b = |block_address: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, block_address)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0xdc)  // BE4B
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            let flash_pp4b = |address: u32, data_bytes: u32| {
+                let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
+                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, address)?;
+                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                  | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x12)  // PP4B
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                  | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, data_bytes / 2)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                )
+            };
+
+            info!("Halting CPU.");
+            bridge.poke(vexriscv_debug_addr, 0x00020000)?; // halt the CPU
+
+            ///////// ID code check
+            let code = flash_rdid(1)?;
+            info!("ID code bytes 1-2: 0x{:08x}", code);
+            if code != 0x8080c2c2 {
+                error!("ID code mismatch");
+                return Err(ServerError::FlashError(0x8080c2c2, code));
+            }
+            let code = flash_rdid(2)?;
+            info!("ID code bytes 2-3: 0x{:08x}", code);
+            if code != 0x3b3b8080 {
+                error!("ID code mismatch");
+                return Err(ServerError::FlashError(0x3b3b8080, code));
+            }
+
+            //////// block erase
+            let mut erased = 0;
+            let pb = ProgressBar::new(data.len() as u64);
+            pb.set_style(ProgressStyle::default_bar()
+            .template("{spinner:.yellow} [{elapsed_precise}] [{bar:40.red/magenta}] {bytes}/{total_bytes} ({eta})")
+            .progress_chars("#>-"));
+            while erased < data.len() {
+                let blocksize;
+                if data.len() - erased > 4096 {
+                    blocksize = 4096;
+                } else {
+                    blocksize = 65536;
+                }
+
+                loop {
+                    flash_wren()?;
+                    let status = flash_rdsr(1)?;
+                    // println!("WREN: FLASH status register: 0x{:08x}", status);
+                    if status & 0x02 != 0 {
+                        break;
+                    }
+                }
+
+                if blocksize <= 4096 {
+                    flash_se4b(addr + erased as u32)?;
+                } else {
+                    flash_be4b(addr + erased as u32)?;
+                }
+                erased += blocksize;
+
+                loop {
+                    let status = flash_rdsr(1)?;
+                    // println!("BE4B: FLASH status register: 0x{:08x}", status);
+                    if status & 0x01 == 0 {
+                        break;
+                    }
+                }
+
+                let result = flash_rdscur()?;
+                // println!("erase result: 0x{:08x}", result);
+                if result & 0x60 != 0 {
+                    error!("E_FAIL/P_FAIL set, programming may have failed.")
+                }
+
+                if flash_rdsr(1)? & 0x02 != 0 {
+                    flash_wrdi()?;
+                    loop {
+                        let status = flash_rdsr(1)?;
+                        // println!("WRDI: FLASH status register: 0x{:08x}", status);
+                        if status & 0x02 == 0 {
+                            break;
+                        }
+                    }
+                }
+                // use "min" because we erase block size is typically not evenly divided with program size
+                pb.set_position(std::cmp::min(erased, data.len()) as u64);
+            }
+            pb.finish_with_message("Erase finished");
+
+            ////////// program
+            // pre-load the page program buffer. note that data.len() must be even
+            if data.len() % 4 != 0 { // add "blank" bytes to the end to get us to a 32-bit aligned number of bytes
+                if data.len() % 4 == 1 {
+                    data.push(0xff);
+                    data.push(0xff);
+                    data.push(0xff);
+                }
+                if data.len() % 4 == 2 {
+                    data.push(0xff);
+                    data.push(0xff);
+                }
+                if data.len() % 4 == 3 {
+                    data.push(0xff);
+                }
+            }
+
+            let mut written = 0;
+
+            let pb = ProgressBar::new(data.len() as u64);
+            pb.set_style(ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .progress_chars("#>-"));
+            while written < data.len() {
+                let chunklen: usize;
+                if data.len() - written > 256 {
+                    chunklen = 256;
+                } else {
+                    chunklen = data.len() - written;
+                }
+
+                loop {
+                    flash_wren()?;
+                    let status = flash_rdsr(1)?;
+                    // println!("WREN: FLASH status register: 0x{:08x}", status);
+                    if status & 0x02 != 0 {
+                        break;
+                    }
+                }
+
+                let mut page: Vec<u8> = vec![];
+                for i in 0..chunklen {
+                    page.push(data[written + i]);
+                    // println!("program: index {}, 0x{:02x}", i, data[written + i]);
+                }
+                bridge.burst_write(flash_region, &page)?;
+
+                // info!("PP4B: processing chunk of length {} bytes from offset 0x{:08x}", chunklen, 0x80_0000 + written);
+                flash_pp4b(addr + written as u32, chunklen as u32)?;
+
+                if cfg.careful_flashing {
+                    loop {
+                        let status = flash_rdsr(1)?;
+                        // println!("PP4B: FLASH status register: 0x{:08x}", status);
+                        if status & 0x01 == 0 {
+                            break;
+                        }
+                    }
+                    let result = flash_rdscur()?;
+                    // println!("program result: 0x{:08x}", result);
+                    if result & 0x60 != 0 {
+                        error!("E_FAIL/P_FAIL set, programming may have failed.")
+                    }
+                }
+                written += chunklen;
+                pb.set_position(written as u64);
+            }
+            pb.finish_with_message("Write finished");
+
+
+            if flash_rdsr(1)? & 0x02 != 0 {
+                flash_wrdi()?;
+                loop {
+                    let status = flash_rdsr(1)?;
+                    // println!("WRDI: FLASH status register: 0x{:08x}", status);
+                    if status & 0x02 == 0 {
+                        break;
+                    }
+                }
+            }
+
+            // dummy reads to clear the "read lock" bit
+            flash_rdsr(0)?;
+
+            /////////// verify
+            info!("Performing readback for verification...");
+            let page = bridge.burst_read(addr + flash_region, data.len() as u32);
+            info!("Comparing results...");
+            match page {
+                Ok(array) => {
+                    let mut error_count = 0;
+                    for i in 0..array.len() {
+                        if data[i] != array[i] {
+                            error_count += 1;
+                        }
+                    }
+                    if error_count != 0 {
+                        info!("{} errors found in verification, programming failed", error_count);
+                    } else {
+                        info!("No errors found, programming passed");
+                    }
+                },
+                _ => {
+                    error!("Low-level error occured during verification readback.");
+                }
+            }
+            bridge.poke(vexriscv_debug_addr, 0x02000000)?; // resume the CPU
+            info!("Resuming CPU.");
+
+            ////////// reset the CPU, under the presumption that code has changed and we should restart the CPU
+            if !cfg.flash_no_reset {
+                info!("Resetting CPU.");
+                bridge.poke(reset_addr, 1)?;
+            }
+        } else {
+            error!("No target address specified");
         }
     } else {
         println!("No filename specified!");
