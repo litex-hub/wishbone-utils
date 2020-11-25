@@ -490,8 +490,8 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
         .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?.unwrap();
     reset_addr = cfg
         .register_mapping
-        .get("ctrl_reset")
-        .ok_or(ServerError::UnmappableAddress("ctrl_reset".to_string()))?.unwrap();
+        .get("reboot_cpu_reset")
+        .ok_or(ServerError::UnmappableAddress("reboot_cpu_reset".to_string()))?.unwrap();
     vexriscv_debug_addr = cfg
         .register_mapping
         .get("vexriscv_debug")
