@@ -474,6 +474,17 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     Ok(())
 }
 
+pub fn ping_wdt(wdt_addr: Option<&Option<u32>>, bridge: &Bridge) -> Result<(), ServerError> {
+    if wdt_addr.is_none() {
+        return Ok(());
+    } else {
+        let addr = wdt_addr.unwrap().unwrap();
+        bridge.poke(addr, 0x600d)?;
+        bridge.poke(addr, 0xc0de)?;
+    }
+    Ok(())
+}
+
 // demo of burn performance: https://asciinema.org/a/j2HfItVBwRbdimuFMvplRA4DT
 pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let spinor_base: u32;
@@ -496,6 +507,9 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
         .register_mapping
         .get("vexriscv_debug")
         .ok_or(ServerError::UnmappableAddress("vexriscv_debug".to_string()))?.unwrap();
+    let wdt_addr = cfg
+       .register_mapping
+       .get("wdt_watchdog");
 
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
@@ -615,6 +629,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 )
             };
 
+            ping_wdt(wdt_addr, &bridge)?;
             info!("Halting CPU.");
             bridge.poke(vexriscv_debug_addr, 0x00020000)?; // halt the CPU
 
@@ -639,6 +654,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             .template("{spinner:.yellow} [{elapsed_precise}] [{bar:40.red/magenta}] {bytes}/{total_bytes} ({eta})")
             .progress_chars("#>-"));
             while erased < data.len() {
+                ping_wdt(wdt_addr, &bridge)?;
                 let blocksize;
                 if data.len() - erased > 4096 {
                     blocksize = 4096;
@@ -715,6 +731,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
             .progress_chars("#>-"));
             while written < data.len() {
+                ping_wdt(wdt_addr, &bridge)?;
                 let chunklen: usize;
                 if data.len() - written > 256 {
                     chunklen = 256;
@@ -777,7 +794,9 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             /////////// verify
             info!("Performing readback for verification...");
+            ping_wdt(wdt_addr, &bridge)?;
             let page = bridge.burst_read(addr + flash_region, data.len() as u32);
+            ping_wdt(wdt_addr, &bridge)?;
             info!("Comparing results...");
             match page {
                 Ok(array) => {
