@@ -440,13 +440,13 @@ pub fn memory_access(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 }
 
 pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
-    let mut loop_counter: u32 = 0;
+    let mut word_counter: u32 = 0;
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
-            info!("Loading {} values to 0x{:08x}", file_name, addr);
             let mut f = File::open(file_name)?;
             let f_len = f.metadata().unwrap().len() as u32;
-            loop {
+            info!("Loading {} bytes from {} to address 0x{:08x}", f_len, file_name, addr);
+            while word_counter < f_len {
                 let value = match f.read_u32::<LittleEndian>() {
                     Ok(x) => x,
                     Err(e) => {
@@ -454,17 +454,18 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                         return Ok(());
                     }
                 };
-                if (loop_counter % 1024) == 0 {
+                if (word_counter % 1024) == 0 {
                     info!(
                         "write to {:08x}: ({:08x}) - {}%",
-                        addr + loop_counter,
+                        addr + word_counter,
                         value,
-                        (loop_counter * 100 / f_len)
+                        (word_counter * 100 / f_len)
                     );
                 }
-                bridge.poke(addr + loop_counter, value)?;
-                loop_counter = loop_counter.wrapping_add(4);
+                bridge.poke(addr + word_counter, value)?;
+                word_counter = word_counter.wrapping_add(4);
             }
+            info!("Done. Wrote {} bytes", word_counter);
         } else {
             error!("No load address specified");
         }
