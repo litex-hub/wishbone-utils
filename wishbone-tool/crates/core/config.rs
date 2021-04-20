@@ -359,6 +359,7 @@ impl Config {
                     ));
                 }
             }
+            /* remove this check, because we now have the ability to read out a notional CSR from the target device
             if server_kind.contains(&ServerKind::FlashProgram) {
                 if !(register_mapping.contains_key("spinor")
                  ) {
@@ -367,7 +368,7 @@ impl Config {
                             .to_owned(),
                     ));
                  }
-            }
+            }*/
         }
 
         let terminal_mouse = matches.is_present("terminal-mouse") || cfg!(windows);
