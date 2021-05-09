@@ -337,7 +337,7 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-fn main() -> Result<(), String> {
+fn main_core() -> Result<(), String> {
     flexi_logger::Logger::with_env_or_str("wishbone_tool=info")
         .format_for_stderr(|write, now, record| {
             flexi_logger::colored_default_format(write, now, record)?;
@@ -403,4 +403,14 @@ fn main() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn main() {
+    std::process::exit(match main_core() {
+        Ok(_) => 0,
+        Err(err) => {
+            eprintln!("Exited with error: {:?}", err);
+            1
+        }
+    });
 }
