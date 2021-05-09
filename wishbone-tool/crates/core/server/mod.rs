@@ -807,7 +807,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                     // print anything. So this hack works around that. :-/
                     if start.elapsed().as_millis() > 300 {
                         start = Instant::now();
-                        info!("{}/{}", erased, data.len());
+                        info!("erasing {}/{}", erased, data.len());
                     }
                 }
             }
@@ -886,7 +886,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                     // print anything. So this hack works around that. :-/
                     if start.elapsed().as_millis() > 300 {
                         start = Instant::now();
-                        info!("{}/{}", written, data.len());
+                        info!("writing {}/{}", written, data.len());
                     }
                 }
             }
