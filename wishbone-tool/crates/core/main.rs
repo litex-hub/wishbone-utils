@@ -5,8 +5,6 @@ extern crate clap;
 
 extern crate indicatif;
 
-use log::debug;
-
 mod config;
 mod gdb;
 mod riscv;
@@ -393,13 +391,16 @@ fn main_core() -> Result<(), String> {
                 ServerKind::Messible => server::messible_client(&cfg, bridge),
                 ServerKind::FlashProgram => server::flash_program(&cfg, bridge),
             }
-            .expect("couldn't start server");
-            debug!("Exited {:?} thread", server_kind);
+            //.expect("couldn't start server");
+            //debug!("Exited {:?} thread", server_kind);
         });
         threads.push(thr_handle);
     }
     for handle in threads {
-        handle.join().ok();
+        match handle.join() {
+            Ok(_) => {},
+            Err(e) => return Err(String::from(format!("{:?}", e))),
+        };
     }
 
     Ok(())
