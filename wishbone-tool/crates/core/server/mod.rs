@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io;
 use std::net::TcpListener;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod utra;
 use utra::*;
@@ -746,6 +746,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             //////// block erase
             let mut erased = 0;
+            let mut start = Instant::now();
             let pb = ProgressBar::new(data.len() as u64);
             pb.set_style(ProgressStyle::default_bar()
             .template("{spinner:.yellow} [{elapsed_precise}] [{bar:40.red/magenta}] {bytes}/{total_bytes} ({eta})")
@@ -801,6 +802,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 }
                 // use "min" because we erase block size is typically not evenly divided with program size
                 pb.set_position(std::cmp::min(erased, data.len()) as u64);
+                if cfg.force_term {
+                    // progressbar has a misfeature where if you're piping into a file, it refuses to
+                    // print anything. So this hack works around that. :-/
+                    if start.elapsed().as_millis() > 300 {
+                        start = Instant::now();
+                        info!("{}/{}", erased, data.len());
+                    }
+                }
             }
             pb.finish_with_message("Erase finished");
 
@@ -823,6 +832,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             let mut written = 0;
 
+            let mut start = Instant::now();
             let pb = ProgressBar::new(data.len() as u64);
             pb.set_style(ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
@@ -871,6 +881,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 }
                 written += chunklen;
                 pb.set_position(written as u64);
+                if cfg.force_term {
+                    // progressbar has a misfeature where if you're piping into a file, it refuses to
+                    // print anything. So this hack works around that. :-/
+                    if start.elapsed().as_millis() > 300 {
+                        start = Instant::now();
+                        info!("{}/{}", written, data.len());
+                    }
+                }
             }
             pb.finish_with_message("Write finished");
 
@@ -890,27 +908,30 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             flash_rdsr(0)?;
 
             /////////// verify
-            info!("Performing readback for verification...");
             ping_wdt(wdt_addr, &bridge)?;
-            let page = bridge.burst_read(addr + flash_region, data.len() as u32);
-            ping_wdt(wdt_addr, &bridge)?;
-            info!("Comparing results...");
-            match page {
-                Ok(array) => {
-                    let mut error_count = 0;
-                    for i in 0..array.len() {
-                        if data[i] != array[i] {
-                            error_count += 1;
+            if !cfg.no_verify {
+                info!("Performing readback for verification...");
+                ping_wdt(wdt_addr, &bridge)?;
+                let page = bridge.burst_read(addr + flash_region, data.len() as u32);
+                ping_wdt(wdt_addr, &bridge)?;
+                info!("Comparing results...");
+                match page {
+                    Ok(array) => {
+                        let mut error_count = 0;
+                        for i in 0..array.len() {
+                            if data[i] != array[i] {
+                                error_count += 1;
+                            }
                         }
+                        if error_count != 0 {
+                            info!("{} errors found in verification, programming failed", error_count);
+                        } else {
+                            info!("No errors found, programming passed");
+                        }
+                    },
+                    _ => {
+                        error!("Low-level error occured during verification readback.");
                     }
-                    if error_count != 0 {
-                        info!("{} errors found in verification, programming failed", error_count);
-                    } else {
-                        info!("No errors found, programming passed");
-                    }
-                },
-                _ => {
-                    error!("Low-level error occured during verification readback.");
                 }
             }
             bridge.poke(vexriscv_debug_addr, 0x02000000)?; // resume the CPU

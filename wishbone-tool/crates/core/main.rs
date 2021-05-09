@@ -320,6 +320,21 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
             .display_order(32)
             .takes_value(false),
         )
+
+        .arg(
+            Arg::with_name("force-term")
+            .long("force-term")
+            .help("Forces rendering of progress bars, even if we're not drawing into a terminal (useful for factory test automation)")
+            .display_order(32)
+            .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("no-verify")
+            .long("no-verify")
+            .help("Skips verification readback after burning. May be necessary for when very large file burns, where the watchdog timer is not reset in time during the readback verification.")
+            .display_order(32)
+            .takes_value(false),
+        )
 }
 
 fn main() -> Result<(), String> {

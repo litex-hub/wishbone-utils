@@ -108,6 +108,8 @@ pub struct Config {
     pub burst_source: Option<String>,
     pub flash_no_reset: bool,
     pub careful_flashing: bool,
+    pub no_verify: bool,
+    pub force_term: bool,
 }
 
 impl Default for Config {
@@ -134,6 +136,8 @@ impl Default for Config {
             burst_source: None,
             flash_no_reset: false,
             careful_flashing: false,
+            no_verify: false,
+            force_term: false,
         }
     }
 }
@@ -375,6 +379,8 @@ impl Config {
         let hexdump = matches.is_present("hexdump");
         let flash_no_reset = matches.is_present("flash-no-reset");
         let careful_flashing = matches.is_present("careful-flashing");
+        let force_term = matches.is_present("force-term");
+        let no_verify = matches.is_present("no-verify");
 
         let burst_source = matches.value_of("burst-source").map(|n| n.to_owned());
 
@@ -403,6 +409,8 @@ impl Config {
                 burst_source,
                 flash_no_reset,
                 careful_flashing,
+                no_verify,
+                force_term,
             },
             bridge,
         ))

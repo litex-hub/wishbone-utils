@@ -1,6 +1,6 @@
 [package]
 name = "wishbone-tool"
-version = "0.7.7"
+version = "0.7.8"
 authors = ["Sean Cross <sean@xobs.io>"]
 edition = "2018"
 repository = "https://github.com/litex-hub/wishbone-utils"
@@ -39,3 +39,6 @@ indicatif = "0.15.0"
 # support readout of csr.csv from flash
 sha2 = "0.9"
 
+# fixup printing through factory automation
+[dependencies.console]
+version = ">=0.9.1, <1.0.0"
