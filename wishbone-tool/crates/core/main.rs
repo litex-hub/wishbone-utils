@@ -5,8 +5,6 @@ extern crate clap;
 
 extern crate indicatif;
 
-use log::debug;
-
 mod config;
 mod gdb;
 mod riscv;
@@ -320,9 +318,24 @@ fn clap_app<'a, 'b>() -> App<'a, 'b> {
             .display_order(32)
             .takes_value(false),
         )
+
+        .arg(
+            Arg::with_name("force-term")
+            .long("force-term")
+            .help("Forces rendering of progress bars, even if we're not drawing into a terminal (useful for factory test automation)")
+            .display_order(32)
+            .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("no-verify")
+            .long("no-verify")
+            .help("Skips verification readback after burning. May be necessary for when very large file burns, where the watchdog timer is not reset in time during the readback verification.")
+            .display_order(32)
+            .takes_value(false),
+        )
 }
 
-fn main() -> Result<(), String> {
+fn main_core() -> Result<(), String> {
     flexi_logger::Logger::with_env_or_str("wishbone_tool=info")
         .format_for_stderr(|write, now, record| {
             flexi_logger::colored_default_format(write, now, record)?;
@@ -378,14 +391,27 @@ fn main() -> Result<(), String> {
                 ServerKind::Messible => server::messible_client(&cfg, bridge),
                 ServerKind::FlashProgram => server::flash_program(&cfg, bridge),
             }
-            .expect("couldn't start server");
-            debug!("Exited {:?} thread", server_kind);
+            //.expect("couldn't start server");
+            //debug!("Exited {:?} thread", server_kind);
         });
         threads.push(thr_handle);
     }
     for handle in threads {
-        handle.join().ok();
+        match handle.join() {
+            Ok(_) => {},
+            Err(e) => return Err(String::from(format!("{:?}", e))),
+        };
     }
 
     Ok(())
+}
+
+fn main() {
+    std::process::exit(match main_core() {
+        Ok(_) => 0,
+        Err(err) => {
+            eprintln!("Exited with error: {:?}", err);
+            1
+        }
+    });
 }

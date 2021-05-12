@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io;
 use std::net::TcpListener;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod utra;
 use utra::*;
@@ -475,28 +475,139 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     Ok(())
 }
 
+pub fn ping_wdt(wdt_addr: Option<&Option<u32>>, bridge: &Bridge) -> Result<(), ServerError> {
+    if wdt_addr.is_none() {
+        return Ok(());
+    } else {
+        let addr = wdt_addr.unwrap().unwrap();
+        bridge.poke(addr, 0x600d)?;
+        bridge.poke(addr, 0xc0de)?;
+    }
+    Ok(())
+}
+
+fn get_base(value: &str) -> (&str, u32) {
+    if value.starts_with("0x") {
+        (value.trim_start_matches("0x"), 16)
+    } else if value.starts_with("0X") {
+        (value.trim_start_matches("0X"), 16)
+    } else if value.starts_with("0b") {
+        (value.trim_start_matches("0b"), 2)
+    } else if value.starts_with("0B") {
+        (value.trim_start_matches("0B"), 2)
+    } else if value.starts_with('0') && value != "0" {
+        (value.trim_start_matches('0'), 8)
+    } else {
+        (value, 10)
+    }
+}
+fn parse_u32(value: &str) -> Result<u32, ConfigError> {
+    let (value, base) = get_base(value);
+    match u32::from_str_radix(value, base) {
+        Ok(o) => Ok(o),
+        Err(e) => Err(ConfigError::NumberParseError(value.to_owned(), e)),
+    }
+}
+
 // demo of burn performance: https://asciinema.org/a/j2HfItVBwRbdimuFMvplRA4DT
 pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     let spinor_base: u32;
     let flash_region: u32;
     let reset_addr: u32;
     let vexriscv_debug_addr: u32;
-    spinor_base = cfg
-        .register_mapping
+
+    let mut mapping = cfg.register_mapping.clone();
+
+    if mapping.len() < 4 { // leave some margin for manually-specified CSR addresses
+        // there "should" be a copy of the CSR data at 0x2027_8000
+        let maybe_csr_data = bridge.burst_read(0x2027_8000, 0x8000 as u32);
+
+        use std::convert::TryInto;
+        let csr_data: [u8; 0x8000] = if let Ok(data) = maybe_csr_data {
+            data[0..0x8000].try_into().unwrap()
+        } else {
+            [0 as u8; 0x8000]
+        };
+        use sha2::{Sha512, Digest};
+        let mut hasher = Sha512::new();
+        let hash_region: [u8; 0x7fc0] = csr_data[..0x7fc0].try_into().unwrap();
+        hasher.update(hash_region);
+        let result = hasher.finalize();
+        let mut hash_index = 0x7fc0;
+        let mut matched = true;
+        for b in result {
+            if b != csr_data[hash_index] {
+                log::trace!("CSR mismatch at 0x{:x}. Read 0x{:x}, computed 0x{:x}", hash_index, csr_data[hash_index], b);
+                matched = false;
+            }
+            hash_index += 1;
+        }
+        if matched {
+            info!("No CSR file specified. Good hash check on CSR map stored on device. Using this instead!");
+            let csr_len = u32::from_le_bytes(csr_data[0..4].try_into().unwrap()) as usize;
+            let csr = &csr_data[4..4+csr_len];
+            let mut rdr = csv::ReaderBuilder::new().flexible(true).from_reader(csr);
+            for result in rdr.records() {
+                if let Ok(r) = result {
+                    match &r[0] {
+                        "csr_register" => {
+                            let reg_name = &r[1];
+                            let base_addr = parse_u32(&r[2]).unwrap();
+                            let num_regs = parse_u32(&r[3]).unwrap();
+
+                            // If there's only one register, add it to the map.
+                            // However, CSRs can span multiple registers, and do so in reverse.
+                            // If this is the case, create indexed offsets for those registers.
+                            match num_regs {
+                                1 => {
+                                    mapping.insert(reg_name.to_string().to_lowercase(), Some(base_addr));
+                                }
+                                n => {
+                                    mapping.insert(reg_name.to_string().to_lowercase(), Some(base_addr));
+                                    for logical_reg in 0..n {
+                                        mapping.insert(
+                                            format!(
+                                                "{}{}",
+                                                reg_name.to_string().to_lowercase(),
+                                                n - logical_reg - 1
+                                            ),
+                                            Some(base_addr + logical_reg * 4),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        "memory_region" => {
+                            let region = &r[1];
+                            let base_addr = parse_u32(&r[2]).unwrap();
+                            mapping.insert(region.to_string().to_lowercase(), Some(base_addr));
+                        }
+                        "csr_base" => {
+                            let region = &r[1];
+                            let base_addr = parse_u32(&r[2]).unwrap();
+                            mapping.insert(region.to_string().to_lowercase(), Some(base_addr));
+                        }
+                        _ => (),
+                    };
+                }
+            }
+        }
+    }
+
+    spinor_base = mapping
         .get("spinor")
         .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?.unwrap();
-    flash_region = cfg
-        .register_mapping
+    flash_region = mapping
         .get("spiflash")
         .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?.unwrap();
-    reset_addr = cfg
-        .register_mapping
+    reset_addr = mapping
         .get("reboot_cpu_reset")
         .ok_or(ServerError::UnmappableAddress("reboot_cpu_reset".to_string()))?.unwrap();
-    vexriscv_debug_addr = cfg
-        .register_mapping
+    vexriscv_debug_addr = mapping
         .get("vexriscv_debug")
         .ok_or(ServerError::UnmappableAddress("vexriscv_debug".to_string()))?.unwrap();
+    let wdt_addr = mapping
+       .get("wdt_watchdog");
 
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
@@ -616,6 +727,7 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 )
             };
 
+            ping_wdt(wdt_addr, &bridge)?;
             info!("Halting CPU.");
             bridge.poke(vexriscv_debug_addr, 0x00020000)?; // halt the CPU
 
@@ -635,11 +747,13 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             //////// block erase
             let mut erased = 0;
+            let mut start = Instant::now();
             let pb = ProgressBar::new(data.len() as u64);
             pb.set_style(ProgressStyle::default_bar()
             .template("{spinner:.yellow} [{elapsed_precise}] [{bar:40.red/magenta}] {bytes}/{total_bytes} ({eta})")
             .progress_chars("#>-"));
             while erased < data.len() {
+                ping_wdt(wdt_addr, &bridge)?;
                 let blocksize;
                 if data.len() - erased > 4096 {
                     blocksize = 4096;
@@ -689,6 +803,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 }
                 // use "min" because we erase block size is typically not evenly divided with program size
                 pb.set_position(std::cmp::min(erased, data.len()) as u64);
+                if cfg.force_term {
+                    // progressbar has a misfeature where if you're piping into a file, it refuses to
+                    // print anything. So this hack works around that. :-/
+                    if start.elapsed().as_millis() > 300 {
+                        start = Instant::now();
+                        info!("erasing {}/{}", erased, data.len());
+                    }
+                }
             }
             pb.finish_with_message("Erase finished");
 
@@ -711,11 +833,13 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             let mut written = 0;
 
+            let mut start = Instant::now();
             let pb = ProgressBar::new(data.len() as u64);
             pb.set_style(ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
             .progress_chars("#>-"));
             while written < data.len() {
+                ping_wdt(wdt_addr, &bridge)?;
                 let chunklen: usize;
                 if data.len() - written > 256 {
                     chunklen = 256;
@@ -758,6 +882,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                 }
                 written += chunklen;
                 pb.set_position(written as u64);
+                if cfg.force_term {
+                    // progressbar has a misfeature where if you're piping into a file, it refuses to
+                    // print anything. So this hack works around that. :-/
+                    if start.elapsed().as_millis() > 300 {
+                        start = Instant::now();
+                        info!("writing {}/{}", written, data.len());
+                    }
+                }
             }
             pb.finish_with_message("Write finished");
 
@@ -777,25 +909,30 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             flash_rdsr(0)?;
 
             /////////// verify
-            info!("Performing readback for verification...");
-            let page = bridge.burst_read(addr + flash_region, data.len() as u32);
-            info!("Comparing results...");
-            match page {
-                Ok(array) => {
-                    let mut error_count = 0;
-                    for i in 0..array.len() {
-                        if data[i] != array[i] {
-                            error_count += 1;
+            ping_wdt(wdt_addr, &bridge)?;
+            if !cfg.no_verify {
+                info!("Performing readback for verification...");
+                ping_wdt(wdt_addr, &bridge)?;
+                let page = bridge.burst_read(addr + flash_region, data.len() as u32);
+                ping_wdt(wdt_addr, &bridge)?;
+                info!("Comparing results...");
+                match page {
+                    Ok(array) => {
+                        let mut error_count = 0;
+                        for i in 0..array.len() {
+                            if data[i] != array[i] {
+                                error_count += 1;
+                            }
                         }
+                        if error_count != 0 {
+                            info!("{} errors found in verification, programming failed", error_count);
+                        } else {
+                            info!("No errors found, programming passed");
+                        }
+                    },
+                    _ => {
+                        error!("Low-level error occured during verification readback.");
                     }
-                    if error_count != 0 {
-                        info!("{} errors found in verification, programming failed", error_count);
-                    } else {
-                        info!("No errors found, programming passed");
-                    }
-                },
-                _ => {
-                    error!("Low-level error occured during verification readback.");
                 }
             }
             bridge.poke(vexriscv_debug_addr, 0x02000000)?; // resume the CPU
