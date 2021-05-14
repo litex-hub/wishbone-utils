@@ -15,8 +15,8 @@ use std::thread;
 use std::time::Duration;
 
 mod utra;
-use utra::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use utra::*;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ServerKind {
@@ -62,8 +62,8 @@ pub enum ServerError {
     /// The specified address was not in mappable range
     UnmappableAddress(String),
     FlashError(
-        u32,  // expected
-        u32,  // observed
+        u32, // expected
+        u32, // observed
     ),
 }
 
@@ -268,7 +268,6 @@ pub fn gdb_server(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 }
 
 pub fn wishbone_server(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
-    let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
     // Enable messible support, but only if we're not also running a messible server.
     let messible_address = if cfg.server_kind.contains(&ServerKind::Messible) {
         None
@@ -276,64 +275,66 @@ pub fn wishbone_server(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> 
         cfg.messible_address
     };
 
+    // If there's a messible address specified, enable printf-style debugging.
+    if let Some(addr) = messible_address {
+        let poll_bridge = bridge.clone();
+        thread::spawn(move || loop {
+            let mut data: Vec<u8> = vec![];
+            let max_bytes = 64;
+            while data.len() < max_bytes {
+                // Get the status to see if it's empty.
+                let status = match poll_bridge.peek(addr + 8) {
+                    Ok(b) => b,
+                    Err(_) => return false,
+                };
+
+                // If the messible is empty, stop filling the buffer.
+                if status & 2 == 0 {
+                    break;
+                }
+
+                // It's not empty, so grab the next character
+                let b = match poll_bridge.peek(addr + 4) {
+                    Ok(b) => b as u8,
+                    Err(_) => return false,
+                };
+
+                data.push(b);
+            }
+
+            let s = match std::str::from_utf8(&data) {
+                Ok(o) => o,
+                Err(_) => "[invalid string]",
+            };
+            print!("{}", s);
+
+            // Re-examine the Messible and determine if we still have data
+            let do_pause = match poll_bridge.peek(addr + 8) {
+                Ok(b) => (b & 2) == 0,
+                Err(_) => return false,
+            };
+
+            // If there's no more data, pause for a short time.
+            if do_pause {
+                thread::park_timeout(Duration::from_millis(200));
+            }
+        });
+    }
+
     loop {
+        let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
         if let Err(e) = wishbone.connect() {
             error!("Unable to connect to Wishbone bridge: {:?}", e);
             return Err(ServerError::WishboneError(e));
         }
 
-        // If there's a messible address specified, enable printf-style debugging.
-        if let Some(addr) = messible_address {
-            let poll_bridge = bridge.clone();
-            thread::spawn(move || loop {
-                let mut data: Vec<u8> = vec![];
-                let max_bytes = 64;
-                while data.len() < max_bytes {
-                    // Get the status to see if it's empty.
-                    let status = match poll_bridge.peek(addr + 8) {
-                        Ok(b) => b,
-                        Err(_) => return false,
-                    };
-
-                    // If the messible is empty, stop filling the buffer.
-                    if status & 2 == 0 {
-                        break;
-                    }
-
-                    // It's not empty, so grab the next character
-                    let b = match poll_bridge.peek(addr + 4) {
-                        Ok(b) => b as u8,
-                        Err(_) => return false,
-                    };
-
-                    data.push(b);
-                }
-
-                let s = match std::str::from_utf8(&data) {
-                    Ok(o) => o,
-                    Err(_) => "[invalid string]",
-                };
-                print!("{}", s);
-
-                // Re-examine the Messible and determine if we still have data
-                let do_pause = match poll_bridge.peek(addr + 8) {
-                    Ok(b) => (b & 2) == 0,
-                    Err(_) => return false,
-                };
-
-                // If there's no more data, pause for a short time.
-                if do_pause {
-                    thread::park_timeout(Duration::from_millis(200));
-                }
-            });
-        }
-
-        loop {
-            if let Err(e) = wishbone.process(&bridge) {
+        let thread_bridge = bridge.clone();
+        std::thread::spawn(move || loop {
+            if let Err(e) = wishbone.process(&thread_bridge) {
                 println!("Error in Wishbone server: {:?}", e);
                 break;
             }
-        }
+        });
     }
 }
 
@@ -423,7 +424,7 @@ pub fn memory_access(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                             use std::io::Write;
                             io::stdout().write_all(&array)?;
                         }
-                    },
+                    }
                     _ => {
                         error!("Error occured reading page");
                     }
@@ -445,7 +446,10 @@ pub fn load_file(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
         if let Some(addr) = cfg.load_addr {
             let mut f = File::open(file_name)?;
             let f_len = f.metadata().unwrap().len() as u32;
-            info!("Loading {} bytes from {} to address 0x{:08x}", f_len, file_name, addr);
+            info!(
+                "Loading {} bytes from {} to address 0x{:08x}",
+                f_len, file_name, addr
+            );
             while word_counter < f_len {
                 let value = match f.read_u32::<LittleEndian>() {
                     Ok(x) => x,
@@ -484,23 +488,28 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
     spinor_base = cfg
         .register_mapping
         .get("spinor")
-        .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?.unwrap();
+        .ok_or(ServerError::UnmappableAddress("spinor".to_string()))?
+        .unwrap();
     flash_region = cfg
         .register_mapping
         .get("spiflash")
-        .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?.unwrap();
+        .ok_or(ServerError::UnmappableAddress("spiflash".to_string()))?
+        .unwrap();
     reset_addr = cfg
         .register_mapping
         .get("reboot_cpu_reset")
-        .ok_or(ServerError::UnmappableAddress("reboot_cpu_reset".to_string()))?.unwrap();
+        .ok_or(ServerError::UnmappableAddress(
+            "reboot_cpu_reset".to_string(),
+        ))?
+        .unwrap();
     vexriscv_debug_addr = cfg
         .register_mapping
         .get("vexriscv_debug")
-        .ok_or(ServerError::UnmappableAddress("vexriscv_debug".to_string()))?.unwrap();
+        .ok_or(ServerError::UnmappableAddress("vexriscv_debug".to_string()))?
+        .unwrap();
 
     if let Some(file_name) = &cfg.load_name {
         if let Some(addr) = cfg.load_addr {
-
             use std::io::Read;
             info!("Burning contents of {} to 0x{:08x}", file_name, addr);
             let mut f = File::open(file_name)?;
@@ -513,7 +522,9 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             if addr + data.len() as u32 >= 0x0800_0000 {
                 error!("Write data out of bounds! Aborting.");
-                return Err(ServerError::UnmappableAddress((addr + data.len() as u32).to_string()));
+                return Err(ServerError::UnmappableAddress(
+                    (addr + data.len() as u32).to_string(),
+                ));
             }
 
             // note to those referring to this as reference code for local hardware:
@@ -524,13 +535,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             let flash_rdsr = |lock_reads: u32| {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
                 bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
-                      spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                     | spinor_csr.ms(spinor::COMMAND_LOCK_READS, lock_reads)
                     | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x05) // RDSR
                     | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
                     | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 1)
-                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1),
                 )?;
                 bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
             };
@@ -538,13 +550,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             let flash_rdscur = || {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
                 bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
-                      spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                    spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                     | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
                     | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x2B) // RDSCUR
                     | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
                     | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, 1)
-                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                    | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1),
                 )?;
                 bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
             };
@@ -552,12 +565,13 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             let flash_rdid = |offset: u32| {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
                 bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
                     spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                   | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x9f)  // RDID
                   | spinor_csr.ms(spinor::COMMAND_DUMMY_CYCLES, 4)
                   | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, offset) // 2 -> 0x3b3b8080, // 1 -> 0x8080c2c2
-                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
+                  | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1),
                 )?;
                 bridge.peek(spinor_base + (spinor::CMD_RBK_DATA.offset as u32) * 4)
             };
@@ -565,54 +579,65 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             let flash_wren = || {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
                 bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
                     spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                   | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x06)  // WREN
-                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1),
                 )
             };
 
             let flash_wrdi = || {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
                 bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, 0)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
                     spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                   | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x04)  // WRDI
-                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1),
                 )
             };
 
             let flash_se4b = |sector_address: u32| {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
-                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, sector_address)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                bridge.poke(
+                    spinor_base + (spinor::CMD_ARG.offset as u32) * 4,
+                    sector_address,
+                )?;
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
                     spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                   | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x21)  // SE4B
                   | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
-                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1),
                 )
             };
 
             let flash_be4b = |block_address: u32| {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
-                bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, block_address)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                bridge.poke(
+                    spinor_base + (spinor::CMD_ARG.offset as u32) * 4,
+                    block_address,
+                )?;
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
                     spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                   | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0xdc)  // BE4B
                   | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
-                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1),
                 )
             };
 
             let flash_pp4b = |address: u32, data_bytes: u32| {
                 let mut spinor_csr = spinor::CSR::new(spinor_base as *mut u32);
                 bridge.poke(spinor_base + (spinor::CMD_ARG.offset as u32) * 4, address)?;
-                bridge.poke(spinor_base + (spinor::COMMAND.offset as u32) * 4,
+                bridge.poke(
+                    spinor_base + (spinor::COMMAND.offset as u32) * 4,
                     spinor_csr.ms(spinor::COMMAND_EXEC_CMD, 1)
                   | spinor_csr.ms(spinor::COMMAND_CMD_CODE, 0x12)  // PP4B
                   | spinor_csr.ms(spinor::COMMAND_HAS_ARG, 1)
                   | spinor_csr.ms(spinor::COMMAND_DATA_WORDS, data_bytes / 2)
-                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1)
+                  | spinor_csr.ms(spinor::COMMAND_LOCK_READS, 1),
                 )
             };
 
@@ -694,7 +719,8 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
 
             ////////// program
             // pre-load the page program buffer. note that data.len() must be even
-            if data.len() % 4 != 0 { // add "blank" bytes to the end to get us to a 32-bit aligned number of bytes
+            if data.len() % 4 != 0 {
+                // add "blank" bytes to the end to get us to a 32-bit aligned number of bytes
                 if data.len() % 4 == 1 {
                     data.push(0xff);
                     data.push(0xff);
@@ -761,7 +787,6 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
             }
             pb.finish_with_message("Write finished");
 
-
             if flash_rdsr(1)? & 0x02 != 0 {
                 flash_wrdi()?;
                 loop {
@@ -789,11 +814,14 @@ pub fn flash_program(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> {
                         }
                     }
                     if error_count != 0 {
-                        info!("{} errors found in verification, programming failed", error_count);
+                        info!(
+                            "{} errors found in verification, programming failed",
+                            error_count
+                        );
                     } else {
                         info!("No errors found, programming passed");
                     }
-                },
+                }
                 _ => {
                     error!("Low-level error occured during verification readback.");
                 }
