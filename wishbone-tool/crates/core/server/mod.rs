@@ -321,16 +321,16 @@ pub fn wishbone_server(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> 
         });
     }
 
+    let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
     loop {
-        let mut wishbone = wishbone::WishboneServer::new(&cfg).unwrap();
-        if let Err(e) = wishbone.connect() {
+        let mut connection = wishbone.connect().map_err(|e| {
             error!("Unable to connect to Wishbone bridge: {:?}", e);
-            return Err(ServerError::WishboneError(e));
-        }
+            ServerError::WishboneError(e)
+        })?;
 
         let thread_bridge = bridge.clone();
         std::thread::spawn(move || loop {
-            if let Err(e) = wishbone.process(&thread_bridge) {
+            if let Err(e) = connection.process(&thread_bridge) {
                 println!("Error in Wishbone server: {:?}", e);
                 break;
             }

@@ -41,7 +41,10 @@ use wishbone_bridge::{Bridge, BridgeError};
 
 pub struct WishboneServer {
     listener: TcpListener,
-    connection: Option<TcpStream>,
+}
+
+pub struct WishboneConnection {
+    connection: TcpStream,
 }
 
 #[derive(Debug)]
@@ -77,27 +80,23 @@ impl std::convert::From<BridgeError> for WishboneServerError {
 impl WishboneServer {
     pub fn new(cfg: &Config) -> Result<WishboneServer, WishboneServerError> {
         Ok(WishboneServer {
-            connection: None,
             listener: TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.bind_port))?,
         })
     }
 
-    pub fn connect(&mut self) -> Result<(), WishboneServerError> {
+    pub fn connect(&mut self) -> Result<WishboneConnection, WishboneServerError> {
         let (connection, _sockaddr) = self.listener.accept()?;
-        self.connection = Some(connection);
-        Ok(())
+        Ok(WishboneConnection { connection })
     }
+}
 
+impl WishboneConnection {
     pub fn process(&mut self, bridge: &Bridge) -> Result<(), WishboneServerError> {
         let mut header = [0; 16];
         let mut offset = 0;
         let mut byte = [0; 1];
 
-        if self.connection.is_none() {
-            return Err(WishboneServerError::ConnectionClosed);
-        }
-
-        let connection = &mut self.connection.as_mut().unwrap();
+        let connection = &mut self.connection;
 
         // XXX Replace this with a BufReader for performance
         while offset < header.len() {
