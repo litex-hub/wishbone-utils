@@ -114,7 +114,8 @@ pub mod spinor {
         /// Write a given field without reading it first
         pub fn wfo(&mut self, field: Field, value: T) {
             let usize_base: *mut usize = unsafe { core::mem::transmute(self.base) };
-            let value_as_usize: usize = (value.try_into().unwrap_or_default() & field.mask) << field.offset;
+            let value_as_usize: usize =
+                (value.try_into().unwrap_or_default() & field.mask) << field.offset;
             unsafe {
                 usize_base
                     .add(field.register.offset)
@@ -142,7 +143,6 @@ pub mod spinor {
                 .unwrap_or_default()
         }
     }
-
 
     pub const CONFIG: Register = Register::new(0);
     pub const CONFIG_DUMMY: Field = Field::new(5, 0, CONFIG);
@@ -190,5 +190,4 @@ pub mod spinor {
     pub const ECC_STATUS: Register = Register::new(12);
     pub const ECC_STATUS_ECC_ERROR: Field = Field::new(1, 0, ECC_STATUS);
     pub const ECC_STATUS_ECC_OVERFLOW: Field = Field::new(1, 1, ECC_STATUS);
-
 }

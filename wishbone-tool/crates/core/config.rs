@@ -97,6 +97,10 @@ pub struct Config {
     pub random_address: Option<u32>,
     pub random_range: Option<u32>,
     pub messible_address: Option<u32>,
+
+    /// A mapping of CSR names to translated register offsets. If an
+    /// address is a valid CSR but cannot be mapped due to the Wishbone
+    /// aperture being too small, this will contain `Some(None)`.
     pub register_mapping: HashMap<String, Option<u32>>,
     pub debug_offset: u32,
     pub load_name: Option<String>,
@@ -360,13 +364,12 @@ impl Config {
                 }
             }
             if server_kind.contains(&ServerKind::FlashProgram) {
-                if !(register_mapping.contains_key("spinor")
-                 ) {
+                if !(register_mapping.contains_key("spinor")) {
                     return Err(ConfigError::InvalidConfig(
                         "Flash programming requested, but no spinor block present in csv file"
                             .to_owned(),
                     ));
-                 }
+                }
             }
         }
 

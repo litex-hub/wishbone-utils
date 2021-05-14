@@ -89,7 +89,7 @@ enum ConnectThreadRequests {
     Poke(u32 /* addr */, u32 /* val */),
     Peek(u32 /* addr */),
     BurstRead(u32 /* addr */, u32 /* len */),
-    BurstWrite(u32 /* addr */, Vec<u8> /* write data */)
+    BurstWrite(u32 /* addr */, Vec<u8> /* write data */),
 }
 
 #[derive(Debug)]
@@ -174,11 +174,11 @@ impl UsbBridgeInner {
             let &(ref lock, ref cvar) = &*self.main_rx;
             let mut _mtx = lock.lock().unwrap();
             self.main_tx
-            .send(ConnectThreadRequests::StartPolling(
-                self.usb_pid,
-                self.usb_vid,
-            ))
-            .unwrap();
+                .send(ConnectThreadRequests::StartPolling(
+                    self.usb_pid,
+                    self.usb_vid,
+                ))
+                .unwrap();
             *_mtx = None;
             while _mtx.is_none() {
                 _mtx = cvar.wait(_mtx).unwrap();
@@ -316,15 +316,17 @@ impl UsbBridgeInner {
                             cfg.vid = v;
                         }
                         ConnectThreadRequests::BurstRead(_addr, _len) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::BurstReadResult(
-                                Err(BridgeError::NotConnected),
-                            ));
+                            *response.lock().unwrap() =
+                                Some(ConnectThreadResponses::BurstReadResult(Err(
+                                    BridgeError::NotConnected,
+                                )));
                             cvar.notify_one();
                         }
                         ConnectThreadRequests::BurstWrite(_addr, _data) => {
-                            *response.lock().unwrap() = Some(ConnectThreadResponses::BurstWriteResult(
-                                Err(BridgeError::NotConnected),
-                            ));
+                            *response.lock().unwrap() =
+                                Some(ConnectThreadResponses::BurstWriteResult(Err(
+                                    BridgeError::NotConnected,
+                                )));
                             cvar.notify_one();
                         }
                     },
@@ -386,7 +388,7 @@ impl UsbBridgeInner {
         let packet_count = data.len() / maxlen + if (data.len() % maxlen) != 0 { 1 } else { 0 };
         for pkt_num in 0..packet_count {
             let cur_addr = addr as usize + pkt_num * maxlen;
-            let bufsize = if pkt_num  == (packet_count - 1) {
+            let bufsize = if pkt_num == (packet_count - 1) {
                 if data.len() % maxlen != 0 {
                     data.len() % maxlen
                 } else {
@@ -475,7 +477,7 @@ impl UsbBridgeInner {
         let packet_count = len / maxlen + if (len % maxlen) != 0 { 1 } else { 0 };
         for pkt_num in 0..packet_count {
             let cur_addr = addr + pkt_num * maxlen;
-            let bufsize = if pkt_num  == (packet_count - 1) {
+            let bufsize = if pkt_num == (packet_count - 1) {
                 if len % maxlen != 0 {
                     len % maxlen
                 } else {
@@ -507,7 +509,7 @@ impl UsbBridgeInner {
                     } else {
                         for i in 0..data_val.len() {
                             if (i % 16) == 0 {
-                               debug!("\nBURST_READ @ {:08x}: ", addr as usize + i);
+                                debug!("\nBURST_READ @ {:08x}: ", addr as usize + i);
                             }
                             debug!("{:02x} ", data_val[i]);
                         }
