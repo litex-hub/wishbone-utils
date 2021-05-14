@@ -921,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "wishbone-tool"
-version = "0.7.7"
+version = "0.7.9"
 dependencies = [
  "bitflags",
  "byteorder",
