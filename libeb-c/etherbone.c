@@ -13,6 +13,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #include "etherbone.h"
 
@@ -97,11 +98,38 @@ uint32_t eb_read32(struct eb_connection *conn, uint32_t addr) {
 
     eb_send(conn, raw_pkt, sizeof(raw_pkt));
 
-    int count = eb_recv(conn, raw_pkt, sizeof(raw_pkt));
-    if (count != sizeof(raw_pkt)) {
-        fprintf(stderr, "unexpected read length: %d\n", count);
-        return -1;
+    if (conn->is_direct) {
+        int count = eb_recv(conn, raw_pkt, sizeof(raw_pkt));
+
+        if (count != sizeof(raw_pkt)) {
+            fprintf(stderr, "unexpected read length: %d\n", count);
+            return -1;
+        }
+    } else {
+        // If we are connected via TCP we need to take into account any size
+        // read because it is a stream oriented protocol.
+        int ret;
+        uint8_t *p   = raw_pkt;
+        uint8_t *end = raw_pkt + sizeof(raw_pkt);
+
+        while (p < end) {
+            ret = eb_recv(conn, p, end - p);
+
+            if (ret < 0) {
+                switch (errno) {
+                    case EINTR:
+                    case EAGAIN:
+                        continue;
+                    default:
+                        fprintf(stderr, "socket read error: %s\n", strerror(errno));
+                        return -1;
+                }
+            }
+
+            p += ret;
+        }
     }
+
     return eb_unfill_read32(raw_pkt);
 }
 
@@ -186,6 +214,18 @@ struct eb_connection *eb_connect(const char *addr, const char *port, int is_dire
             close(sock);
             freeaddrinfo(res);
             fprintf(stderr, "unable to create socket: %s\n", strerror(errno));
+            free(conn);
+            return NULL;
+        }
+
+        int ret;
+        int val = 1;
+
+        ret = setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
+        if (ret < 0) {
+             close(sock);
+            freeaddrinfo(res);
+            fprintf(stderr, "setsockopt error: %s\n", strerror(errno));
             free(conn);
             return NULL;
         }
