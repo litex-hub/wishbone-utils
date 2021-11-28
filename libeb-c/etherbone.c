@@ -13,6 +13,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #include "etherbone.h"
 
@@ -213,6 +214,18 @@ struct eb_connection *eb_connect(const char *addr, const char *port, int is_dire
             close(sock);
             freeaddrinfo(res);
             fprintf(stderr, "unable to create socket: %s\n", strerror(errno));
+            free(conn);
+            return NULL;
+        }
+
+        int ret;
+        int val = 1;
+
+        ret = setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
+        if (ret < 0) {
+             close(sock);
+            freeaddrinfo(res);
+            fprintf(stderr, "setsockopt error: %s\n", strerror(errno));
             free(conn);
             return NULL;
         }
