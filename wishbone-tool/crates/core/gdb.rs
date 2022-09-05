@@ -92,16 +92,17 @@ pub fn parse_i32(value: &str) -> Result<i32, GdbServerError> {
 }
 
 fn gdb_unescape(input: &[u8]) -> Vec<u8> {
-    let mut out = input.to_vec();
-    out.iter_mut().fold(&mut Vec::new(), |vec_acc, this_u8| {
-        if vec_acc.last() == Some(&(b'}')) {
-            let len = vec_acc.len();
-            vec_acc[len - 1] = *this_u8 ^ 0x20;
+    let mut it = input.iter();
+    let mut out = Vec::new();
+    while let Some(c) = it.next() {
+        if *c == b'}' {
+            if let Some(c) = it.next() {
+                out.push(*c ^ 0x20);
+            }
         } else {
-            vec_acc.push(*this_u8);
+            out.push(*c);
         }
-        vec_acc
-    });
+    }
     out
 }
 
