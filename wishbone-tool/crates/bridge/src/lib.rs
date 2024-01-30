@@ -197,6 +197,8 @@ impl ::std::fmt::Display for BridgeError {
     }
 }
 
+impl std::error::Error for BridgeError {}
+
 #[cfg(feature = "usb")]
 impl std::convert::From<libusb_wishbone_tool::Error> for BridgeError {
     fn from(e: libusb_wishbone_tool::Error) -> BridgeError {
