@@ -878,7 +878,7 @@ pub fn terminal_client(cfg: &Config, bridge: Bridge) -> Result<(), ServerError> 
                 read_count += 1;
                 char_buffer.push(bridge.peek(xover_rxtx)? as u8);
             }
-            print!("{}", String::from_utf8_lossy(&char_buffer));
+            stdout().write_all(&char_buffer)?;
             stdout().flush().ok();
         }
 
